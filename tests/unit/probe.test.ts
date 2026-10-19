@@ -16,7 +16,11 @@ function makeHomeWithUserPi(): string {
   return home;
 }
 
-describe('probePi (user install under ~/.local/bin)', () => {
+// probePi spawns `#!/usr/bin/env node` candidates — a POSIX shebang semantic;
+// Windows cannot exec shebang files. The behaviour is covered by the Linux CI
+// job and the local/real WSL smoke; the Windows job skips it honestly instead
+// of faking a pass.
+describe.skipIf(process.platform === 'win32')('probePi (user install under ~/.local/bin)', () => {
   it('runs a user pi whose shebang needs `env node` when node is not on the system PATH', async () => {
     const home = makeHomeWithUserPi();
     const probe = await probePi({

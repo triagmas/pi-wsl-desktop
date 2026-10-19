@@ -1,0 +1,160 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #111417;
+  color: #e7ecf1;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  margin: 0 0 20px;
+  color: #8b98a5;
+  font-size: 13px;
+}
+
+.panel {
+  background: #1a1f25;
+  border: 1px solid #2b333c;
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panel-header h2 {
+  font-size: 16px;
+  margin: 0;
+  flex: 1;
+}
+
+.badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #2b333c;
+  color: #8b98a5;
+}
+
+.badge-ready {
+  background: #123b24;
+  color: #57d38c;
+}
+
+.badge-error {
+  background: #3b1519;
+  color: #f27b84;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #3d4752;
+  border-top-color: #6cb2ff;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error-box {
+  background: #2a1417;
+  border: 1px solid #58222a;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+button {
+  background: #245a92;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #2d6cb0;
+}
+
+.distro-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.distro-row select {
+  background: #111417;
+  color: #e7ecf1;
+  border: 1px solid #2b333c;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.runtime {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.runtime > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.runtime dt {
+  color: #8b98a5;
+}
+
+.runtime dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.runtime .path {
+  color: #8b98a5;
+}
+
+.request-error {
+  background: #3b1519;
+  border: 1px solid #58222a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #f27b84;
+}

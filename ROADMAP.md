@@ -43,7 +43,7 @@
 - [ ] Один устойчивый WSL Bridge: запуск, остановка, health, тайм-ауты, восстановление. — *выполнено в PR*: integration 40/40 (timeout/cancel/crash/oversize/invalid-frames/reconnect/no-write), state machine unit 11/11, `close()` без сиротских процессов.
 - [ ] Обнаружение установленного Pi/Node в WSL с нестандартным `PATH`, без повторной установки. — *выполнено в PR*: probe unit 3/3 (включая `~/.local/bin` и `#!/usr/bin/env node`), UTF-16LE-парсер на реальной фикстуре `wsl.exe`; реальный smoke: node найден в `~/.local/bin`.
 - [ ] Согласование фактических команд Pi RPC/SDK с установленной версией. — *выполнено в PR*: реальный smoke — Pi `1.3.0`, `--mode rpc` → `rpcSupported: true`; негативные тесты `PI_NOT_FOUND` / `PI_INCOMPATIBLE`.
-- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 131 PASS / 5 SKIP (smoke-env), E2E 4/4 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS (ownership-гейты: decoy-survived + own-stopped).
+- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 139 PASS / 5 SKIP (smoke-env), E2E 4/4 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS (fail-closed ownership-планировщик: decoy-survived + own-stopped, 0 непроверенных kill).
 - [ ] Приёмка M0 независимым ревьюером и владельцем продукта. — **не выполнено**, ожидается `ACCEPT` и merge; единственный незакрытый пункт этапа.
 
 ## 💬 M1 — Sessions & Chat
@@ -88,6 +88,7 @@
 | 2026-10-19 | Bootstrap-контракты приняты | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged, `877a573` | ✅ Документы и Repository Contract CI приняты merge владельца |
 | 2026-10-19 | M0 реализация предъявлена на ревью | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4), [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | 🟡 Vitest 118 PASS / 5 SKIP · E2E 2/2 PASS · WSL smoke 4/4 PASS · Windows GUI smoke PASS · ожидается `ACCEPT` |
 | 2026-10-19 | Ревью PR #4: CHANGES REQUIRED → фиксы в той же ветке | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) (комментарии `6260960975`, `6262065719`) | 🟡 P1 ready-gate (`PI_NOT_FOUND`/`PI_INCOMPATIBLE` до READY) + P1 ownership-cleanup Windows smoke (decoy-survived) + P2 «RPC advertised by help» → Vitest 131 PASS / 5 SKIP · CI Linux+Windows PASS · E2E 4/4 · оба smoke PASS · запрошено повторное ревью |
+| 2026-10-19 | Повторное ревью PR #4: CHANGES REQUIRED (safety cleanup) → фиксы | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) (комментарии `6262312689`, ответ `6262772850`) | 🟡 fail-closed `planCleanup` (0 kill без доказанной идентичности, INCONCLUSIVE→FAIL) + точный cmdline-аргумент → Vitest 139 PASS / 5 SKIP · CI PASS · E2E 4/4 · оба smoke PASS · запрошено следующее ревью |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

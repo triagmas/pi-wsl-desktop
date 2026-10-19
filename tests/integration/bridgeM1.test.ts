@@ -14,7 +14,7 @@ import {
   type ResponseOkFrameT,
 } from '../../src/shared/protocol';
 import { FrameReader } from '../helpers/frameReader';
-import { removeBridgeBundle, spawnBridge, type SpawnedBridge } from '../helpers/bridgeFixture';
+import { removeBridgeBundle, spawnBridge } from '../helpers/bridgeFixture';
 
 const FAKE_PI_RPC = path.join(__dirname, '..', 'fixtures', 'fake-pi-rpc');
 const T0 = new Date('2026-01-01T00:00:00.000Z');
@@ -157,14 +157,12 @@ describe('bridge M1 chat lifecycle (real subprocess, fake pi RPC)', () => {
     const child = await spawnBridge(fx.env);
     const reader = new FrameReader(child.stdout);
     const chatEvent = (kind: string, name?: string) =>
-      reader.waitFor(
-        (f) =>
-          f.frame?.type === 'event' &&
-          f.frame.event === 'chat' &&
-          (f.frame.payload as { kind: string; name?: string }).kind === kind &&
-          (name === undefined || (f.frame.payload as { name?: string }).name === name),
-        8_000,
-      );
+      reader.waitFor((f) => {
+        const fr = f.frame;
+        if (!fr || fr.type !== 'event' || fr.event !== 'chat') return false;
+        const payload = fr.payload as { kind: string; name?: string };
+        return payload.kind === kind && (name === undefined || payload.name === name);
+      }, 8_000);
     try {
       await reader.waitForEvent('ready');
 
@@ -205,7 +203,8 @@ describe('bridge M1 chat lifecycle (real subprocess, fake pi RPC)', () => {
       child.stdin.write(req('cl1', 'closeSession') + '\n');
       expect(ok((await reader.waitForResponse('cl1')).frame as ResponseOkFrameT)).toEqual({ closed: true });
       const closedEv = await chatEvent('closed');
-      expect((closedEv.frame?.payload as { code: string }).code).toBe('CANCELLED');
+      const closedFrame = closedEv.frame;
+      expect(closedFrame?.type === 'event' ? (closedFrame.payload as { code: string }).code : 'no-event').toBe('CANCELLED');
 
       // active-write conflict: simulate a live CLI appending right now
       utimesSync(fx.sessionFile, new Date(), new Date());

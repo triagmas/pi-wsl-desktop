@@ -41,11 +41,18 @@ app.whenReady().then(() => {
   const settings = loadSettings(userData);
 
   const timeoutOverride = Number(process.env.PI_WS_DESKTOP_TIMEOUT_MS) || undefined;
-  connection = new WslConnection({
+  const maxAttemptsOverride = Number(process.env.PI_WS_DESKTOP_MAX_ATTEMPTS) || undefined;
+  const backoffOverride = (process.env.PI_WS_DESKTOP_BACKOFF_MS ?? '')
+    .split(',')
+    .map((n) => Number(n.trim()))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const conn = new WslConnection({
     // __dirname is dist/main → sibling dist/bridge bundle inside this install.
-    bridgeWinPath: path.join(__dirname, '..', 'bridge', 'bridge.cjs'),
+    bridgeWinPath: path.join(__dirname, '..', 'bridge', 'index.cjs'),
     wslPath: process.env.PI_WS_DESKTOP_WSL_PATH || DEFAULT_WSL_PATH,
     ...(settings.distro ? { distro: settings.distro } : {}),
+    ...(maxAttemptsOverride ? { maxAutoAttempts: maxAttemptsOverride } : {}),
+    ...(backoffOverride.length > 0 ? { backoffMs: backoffOverride } : {}),
     ...(timeoutOverride
       ? {
           timeouts: {
@@ -57,10 +64,11 @@ app.whenReady().then(() => {
         }
       : {}),
   });
+  connection = conn;
 
   registerIpc(
     ipcMain,
-    connection,
+    conn,
     (channel, payload) => {
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send(channel, payload);
@@ -78,7 +86,7 @@ app.whenReady().then(() => {
   );
 
   createWindow();
-  connection.start();
+  conn.start();
 });
 
 app.on('window-all-closed', () => {

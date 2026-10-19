@@ -1,0 +1,8 @@
+#!/bin/sh
+# Deterministic Pi fixture for tests: reports 9.9.9 with RPC support.
+# PI_WS_DESKTOP_PI points the bridge probe at this script in E2E runs.
+case "$1" in
+  --version) echo "9.9.9" ;;
+  --help) printf 'Usage: pi\n  --mode <mode>   Output mode: text (default), json, or rpc\n' ;;
+  *) exit 1 ;;
+esac

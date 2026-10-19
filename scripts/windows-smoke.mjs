@@ -22,7 +22,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cmdlineRoots, markerPids, ownedPids } from './lib/winProc.mjs';
+import { markerPids, planCleanup } from './lib/winProc.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const electronExe = path.join(root, 'artifacts', 'win-electron', 'electron.exe');
@@ -113,13 +113,16 @@ function processTable() {
   }
 }
 
-function pidAlive(pid) {
-  if (!pid) return false;
+function pidImage(pid) {
+  // Image name for a Windows PID (same PID space as tasklist), or null when
+  // no process holds the pid.
+  if (!pid) return null;
   const res = spawnSync(TASKLIST, ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
     encoding: 'utf8',
     timeout: 15_000,
   });
-  return new RegExp(`"[^"]+","${pid}"`).test(res.stdout ?? '');
+  const m = /^"([^"]+)","\d+"/.exec((res.stdout ?? '').trim());
+  return m ? m[1] : null;
 }
 
 function readReport() {
@@ -149,37 +152,32 @@ function reportPid() {
 }
 
 function cleanupOwned() {
-  // Ownership contract (review P1 #2): terminate ONLY provably-ours PIDs —
-  // root from the self-reported snapshot (path-verified against PID reuse) or
-  // an unambiguous exact-cmdline match, plus its descendant tree running our
-  // exact executable. Never name-based. Doubt → kill nothing.
+  // Ownership contract (review P1#2 + R2 P1): terminate ONLY the PIDs planned
+  // by planCleanup — which is fail-closed: identity table unavailable, PID
+  // reuse or ambiguity → `inconclusive` → 0 taskkill and a diagnostic FAIL
+  // (PASS is downgraded). There is NO path that kills an unverified pid.
   const table = processTable();
-  let rootPid = reportPid();
-  let source = 'self-reported pid';
-  if (!rootPid && table) {
-    const cands = cmdlineRoots(table, electronExeWin, winPath(root));
-    if (cands.length === 1) {
-      rootPid = cands[0];
-      source = 'exact cmdline match';
-    } else if (cands.length > 1) {
-      return { killed: 0, owned: [], note: 'ambiguous cmdline match → doubt → killed nothing' };
-    }
+  const plan = planCleanup({
+    table,
+    reportPid: reportPid(),
+    exePath: electronExeWin,
+    arg: winPath(root),
+  });
+  if (plan.action !== 'kill') {
+    return {
+      killed: 0,
+      owned: [],
+      note: plan.reason,
+      inconclusive: plan.action === 'inconclusive',
+    };
   }
-  if (!rootPid) {
-    return { killed: 0, owned: [], note: 'app Windows pid unknown → doubt → killed nothing' };
-  }
-  if (!table) {
-    spawnSync(TASKKILL, ['/PID', String(rootPid), '/T', '/F'], { encoding: 'utf8', timeout: 10_000 });
-    return { killed: 1, owned: [rootPid], note: `identity table unavailable; root tree via ${source}` };
-  }
-  const owned = ownedPids(table, rootPid, electronExeWin);
   let killed = 0;
-  for (const pid of [...owned].reverse()) {
-    // helpers first, root last; every PID was path-verified by ownedPids
+  for (const pid of [...plan.pids].reverse()) {
+    // helpers first, root last; every PID was path-verified by planCleanup
     const res = spawnSync(TASKKILL, ['/PID', String(pid), '/F'], { encoding: 'utf8', timeout: 10_000 });
     if (res.status === 0) killed += 1;
   }
-  return { killed, owned, note: `path+tree verified via ${source}` };
+  return { killed, owned: plan.pids, note: `${plan.reason} via ${plan.source}`, inconclusive: false };
 }
 
 let cleanedUp = false;
@@ -189,12 +187,18 @@ function runCleanup() {
   const out = { summary: '', decoy: 'n/a', ownStopped: true, ok: true };
 
   const c = cleanupOwned();
-  out.summary = `${c.killed}/${c.owned.length} owned pid(s) terminated (${c.note})`;
+  out.summary = c.inconclusive
+    ? `INCONCLUSIVE: ${c.note} → killed nothing`
+    : `${c.killed}/${c.owned.length} owned pid(s) terminated (${c.note})`;
+  if (c.inconclusive) out.ok = false; // diagnostic FAIL, verdict downgrade
   sleepSync(700); // let taskkill settle before the liveness probe
 
   // Own app must actually be gone (Windows pid, same space as tasklist).
+  // A pid recycled by a NON-electron process proves our app exited; a pid
+  // recycled by another electron.exe counts as NOT stopped (fail toward FAIL).
   const rootPid = reportPid();
-  out.ownStopped = rootPid ? !pidAlive(rootPid) : false;
+  const img = pidImage(rootPid);
+  out.ownStopped = rootPid ? img === null || img.toLowerCase() !== 'electron.exe' : false;
   if (!out.ownStopped) out.ok = false;
 
   // Foreign decoy gate: liveness by UNIQUE marker on a POST-cleanup table.

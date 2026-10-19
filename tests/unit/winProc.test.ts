@@ -91,4 +91,31 @@ describe('ownedPids (Windows smoke process ownership)', () => {
     const short = [{ pid: 30, ppid: 4, exe: EXE, cmd: `electron.exe F:\\_hermes\\CODE\\pi-wsl-desktop` }];
     expect(cmdlineRoots(short, EXE, 'F:\\_hermes\\CODE\\pi-wsl-desktop')).toEqual([30]);
   });
+
+  it('cmdlineRoots requires the FULL separate argument — prefix of an arg never matches', () => {
+    const rows = [
+      { pid: 40, ppid: 4, exe: EXE, cmd: `"${EXE}" F:\\repo-backup` },
+      { pid: 41, ppid: 4, exe: EXE, cmd: `"${EXE}" F:\\repo` },
+    ];
+    expect(cmdlineRoots(rows, EXE, 'F:\\repo')).toEqual([41]); // NOT [40,41]
+    expect(cmdlineRoots(rows, EXE, 'F:\\repo-extra')).toEqual([]);
+  });
+
+  it('cmdlineRoots unquotes the argument token (spaces) without partial matches', () => {
+    const rows = [
+      { pid: 50, ppid: 4, exe: EXE, cmd: `"${EXE}" "F:\\my app\\repo"` },
+      { pid: 51, ppid: 4, exe: EXE, cmd: `"${EXE}" F:\\plain` },
+    ];
+    expect(cmdlineRoots(rows, EXE, 'F:\\my app\\repo')).toEqual([50]);
+    expect(cmdlineRoots(rows, EXE, 'F:\\my app')).toEqual([]);
+    expect(cmdlineRoots(rows, EXE, 'F:\\plain')).toEqual([51]);
+  });
+
+  it('cmdlineRoots with an embedded double quote (nested quoting) still matches exactly', () => {
+    const rows = [
+      { pid: 60, ppid: 4, exe: EXE, cmd: `"${EXE}" "F:\\say ""hi""\\repo"` },
+    ];
+    expect(cmdlineRoots(rows, EXE, 'F:\\say "hi"\\repo')).toEqual([60]);
+    expect(cmdlineRoots(rows, EXE, 'F:\\say')).toEqual([]);
+  });
 });

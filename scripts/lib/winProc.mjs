@@ -105,13 +105,127 @@ function argTail(cmd) {
   return sp === -1 ? '' : c.slice(sp + 1);
 }
 
+/**
+ * Quote-aware tokenizer for the argument tail: tokens are separated by
+ * whitespace OUTSIDE double quotes; a doubled `""` inside a quoted token is
+ * a literal quote (MSVC-style embedded quote).
+ *
+ * @param {string} tail
+ * @returns {string[]}
+ */
+function tokenizeArgs(tail) {
+  const tokens = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < tail.length; i += 1) {
+    const ch = tail[i];
+    if (ch === '"') {
+      if (inQuotes && tail[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if ((ch === ' ' || ch === '\t') && !inQuotes) {
+      if (cur) {
+        tokens.push(cur);
+        cur = '';
+      }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) tokens.push(cur);
+  return tokens;
+}
+
 export function cmdlineRoots(rows, exePath, arg) {
   const norm = (p) => (p ?? '').toLowerCase().replace(/\//g, '\\');
   const want = norm(exePath);
   if (!want || !arg) return [];
   const needle = arg.toLowerCase();
+  // EXACT full-argument equality (review R2 P2): `F:\repo` must never match
+  // the argument `F:\repo-backup`, and quote-wrapped arguments must match
+  // only as a whole token.
   return rows
-    .filter((row) => norm(row.exe) === want && argTail(row.cmd).toLowerCase().includes(needle))
+    .filter(
+      (row) =>
+        norm(row.exe) === want &&
+        tokenizeArgs(argTail(row.cmd)).some((tok) => tok.toLowerCase() === needle),
+    )
     .map((row) => row.pid)
     .sort((a, b) => a - b);
+}
+
+/**
+ * Fail-closed cleanup planner (review round 2, P1): decides what MAY be
+ * killed — but kills nothing itself, so unit tests can pin the safety rules:
+ *
+ * - identity table unavailable → `inconclusive` (NEVER taskkill an
+ *   unverified pid — a reused PID could belong to a foreign process tree),
+ * - self-reported pid must exist in the table WITH our exact executable
+ *   (mismatch → PID reuse → `inconclusive`; absent → `noop`, app is gone),
+ * - without a self-reported pid exactly ONE unambiguous exact-cmdline root
+ *   is required; 0 or 2+ → `inconclusive`.
+ *
+ * @param {{table: WinProcess[] | null, reportPid: number | null, exePath: string, arg: string}} input
+ * @returns {{action: 'kill' | 'inconclusive' | 'noop', pids: number[], reason: string, source?: string}}
+ */
+export function planCleanup({ table, reportPid, exePath, arg }) {
+  if (!table) {
+    return {
+      action: 'inconclusive',
+      pids: [],
+      reason: 'identity table unavailable (processTable null) — fail-closed, 0 taskkill',
+    };
+  }
+  const norm = (p) => (p ?? '').toLowerCase().replace(/\//g, '\\');
+  if (reportPid) {
+    const root = table.find((r) => r.pid === reportPid);
+    if (!root) {
+      return { action: 'noop', pids: [], reason: 'self-reported pid absent from electron table (app already exited)' };
+    }
+    if (norm(root.exe) !== norm(exePath)) {
+      return {
+        action: 'inconclusive',
+        pids: [],
+        reason: `PID reuse: pid ${reportPid} exe mismatch (root identity unprovable) — fail-closed, 0 taskkill`,
+      };
+    }
+    const pids = ownedPids(table, reportPid, exePath);
+    if (pids.length === 0) {
+      return {
+        action: 'inconclusive',
+        pids: [],
+        reason: 'verified root produced no owned tree — fail-closed, 0 taskkill',
+      };
+    }
+    return { action: 'kill', pids, reason: 'path+tree verified', source: 'self-reported pid' };
+  }
+  const cands = cmdlineRoots(table, exePath, arg);
+  if (cands.length === 1) {
+    const pids = ownedPids(table, cands[0], exePath);
+    if (pids.length === 0) {
+      return {
+        action: 'inconclusive',
+        pids: [],
+        reason: 'exact cmdline root produced no owned tree — fail-closed, 0 taskkill',
+      };
+    }
+    return { action: 'kill', pids, reason: 'path+tree verified', source: 'exact cmdline match' };
+  }
+  if (cands.length > 1) {
+    return {
+      action: 'inconclusive',
+      pids: [],
+      reason: `ambiguous cmdline match (${cands.length} candidates) — fail-closed, 0 taskkill`,
+    };
+  }
+  return {
+    action: 'inconclusive',
+    pids: [],
+    reason: 'no identity source (no self-reported pid, no exact cmdline match) — fail-closed, 0 taskkill',
+  };
 }

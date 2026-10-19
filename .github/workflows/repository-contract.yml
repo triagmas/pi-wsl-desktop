@@ -1,0 +1,82 @@
+# Public repository bootstrap CI: validates repository contracts only.
+# Product unit/contract/E2E and Windows+WSL smoke are NOT exercised by this job.
+name: Repository Contract
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documentation-and-safety:
+    name: Documentation and public-repo safety
+    runs-on: ubuntu-latest  # Standard GitHub-hosted runner: free for public repos.
+    timeout-minutes: 5
+    steps:
+      - name: Checkout PR code (read-only token; no secrets)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check documentation, local links and tracked private files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+
+          required = [
+              "README.md", "PRODUCT.md", "SPECIFICATION.md",
+              "ROADMAP.md", "AGENTS.md", "LICENSE",
+              ".github/pull_request_template.md",
+          ]
+          errors = []
+          for name in required:
+              if not Path(name).is_file():
+                  errors.append(f"Missing required file: {name}")
+
+          for name in required:
+              if not name.endswith(".md") or not Path(name).exists():
+                  continue
+              source = Path(name)
+              text = source.read_text(encoding="utf-8")
+              for link in re.findall(r"\]\(([^)]+)\)", text):
+                  path = link.split("#", 1)[0].strip()
+                  if not path or "://" in path or path.startswith(("mailto:", "#")):
+                      continue
+                  if not (source.parent / path).is_file():
+                      errors.append(f"{name}: broken relative link {path}")
+
+          road = Path("ROADMAP.md")
+          if road.exists():
+              content = road.read_text(encoding="utf-8")
+              for marker in ("M0", "M1", "M2", "M3", "M4", "- [ ]", "- [x]"):
+                  if marker not in content:
+                      errors.append(f"ROADMAP.md missing required marker: {marker}")
+
+          filenames = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+          sensitive = re.compile(
+              r"(^|/)(auth\.json|\.env(?:\..*)?|\.pi/agent/sessions/|"
+              r"pi-session-dumps/|session-exports/)|\.(?:pem|p12|pfx|key)$",
+              re.IGNORECASE,
+          )
+          for name in filenames:
+              if name and sensitive.search(name) and not name.endswith(".env.example"):
+                  errors.append(f"Potential private file tracked in public repository: {name}")
+
+          if errors:
+              for issue in errors:
+                  print(f"::error::{issue}")
+              raise SystemExit(f"Repository contract failed ({len(errors)} issue(s))")
+          print("PASS: required docs, Markdown relative links, ROADMAP markers, tracked-file guard")
+          print("NOTE: app tests and real Windows+WSL smoke are not part of bootstrap CI")
+          PY

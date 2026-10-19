@@ -13,6 +13,7 @@
  * `subscribeEvents {topic:'chat'}`.
  */
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { ALL_METHODS, PROTOCOL_VERSION } from '../shared/protocol';
 import { BridgeError } from '../shared/errors';
 import {
@@ -32,7 +33,7 @@ import {
   SubscribeParamsSchema,
 } from '../shared/m1Protocol';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
-import { buildSessionIndex, nodeFs } from './sessions';
+import { buildSessionIndex, nodeFs, resolveSessionRoots } from './sessions';
 import { readSessionFile } from './sessionReader';
 import { searchSessions } from './search';
 import { ChatSessionManager } from './chatSession';
@@ -131,6 +132,17 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
   const index = (): ReturnType<typeof buildSessionIndex> =>
     buildSessionIndex({ fs: nodeFs, env: ctx.env, home: ctx.home, now: now() });
 
+  /** Review round 3 (#4, defense-in-depth): session paths must stay inside the resolved session roots. */
+  const assertInsideRoots = async (file: string): Promise<void> => {
+    const { roots } = await resolveSessionRoots({ fs: nodeFs, env: ctx.env, home: ctx.home });
+    const resolved = path.posix.resolve(file);
+    const inside = roots.some((root) => {
+      const r = root.endsWith('/') ? root.slice(0, -1) : root;
+      return resolved === r || resolved.startsWith(`${r}/`);
+    });
+    if (!inside) throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+  };
+
   const handlers: Record<string, Handler> = {
     health: async () => ({
       status: 'ok',
@@ -184,6 +196,7 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     readSession: async (params) => {
       const p = parseParams(ReadSessionParamsSchema, params, 'readSession');
+      await assertInsideRoots(p.file);
       const result = await readSessionFile({ fs: nodeFs, ...p });
       return assertOut(ReadSessionResultSchema, result, 'readSession');
     },
@@ -209,6 +222,7 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     openSession: async (params) => {
       const { file } = parseParams(OpenSessionParamsSchema, params, 'openSession');
+      await assertInsideRoots(file);
       const state = await getChat().open(file);
       return assertOut(OpenSessionResultSchema, { state }, 'openSession');
     },

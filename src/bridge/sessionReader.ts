@@ -46,6 +46,8 @@ interface LightRow {
   id: string | null;
   parentId: string | null;
   seq: number;
+  /** 1-based source line — positional fallback cursor for id-less rows. */
+  lineNo: number;
 }
 
 export function computeActiveLeaf(rows: ReadonlyArray<{ id: string | null; parentId: string | null }>): string | null {
@@ -214,16 +216,18 @@ export async function readSessionFile(opts: ReadSessionFileOptions): Promise<Rea
       raw: rec,
     };
     const seq = rows.length;
-    rows.push({ id, parentId, seq });
+    rows.push({ id, parentId, seq, lineNo });
     rawBySeq.push(entry);
     if (id) prevId = id;
   };
 
   try {
     while (offset < bytesToRead) {
-      const chunk = await fs.readRange(file, offset, Math.min(chunkBytes, bytesToRead - offset));
-      if (chunk === '') break;
-      const chunkBuf = Buffer.from(chunk, 'utf8');
+      // Byte-faithful chunking: readRange returns raw bytes, so a multibyte
+      // character straddling the boundary never corrupts the line or drifts
+      // the offset (review round 3, #1).
+      const chunkBuf = await fs.readRange(file, offset, Math.min(chunkBytes, bytesToRead - offset));
+      if (chunkBuf.length === 0) break;
       offset += chunkBuf.length;
 
       let cursor = 0;
@@ -268,25 +272,34 @@ export async function readSessionFile(opts: ReadSessionFileOptions): Promise<Rea
   }
 
   let startSeq = -1;
+  let sinceLine = -1;
   if (opts.sinceEntryId !== undefined) {
-    const idx = rows.findIndex((r) => r.id === opts.sinceEntryId);
-    if (idx === -1) {
-      pushDiag(Math.max(lineNo, 1), `cursor not found: ${opts.sinceEntryId}`);
-      return {
-        header,
-        entries: [],
-        leafId,
-        nextCursor: null,
-        truncated,
-        partialTrailing,
-        diagnostics,
-        availability,
-      };
+    const lineCursor = /^L(\d+)$/.exec(opts.sinceEntryId);
+    if (lineCursor) {
+      // Positional fallback cursor (`L<lineNo>`) for pages whose rows carry no
+      // ids — older history stays reachable instead of silently stalling
+      // (review round 3, #3).
+      sinceLine = Number(lineCursor[1]);
+    } else {
+      const idx = rows.findIndex((r) => r.id === opts.sinceEntryId);
+      if (idx === -1) {
+        pushDiag(Math.max(lineNo, 1), `cursor not found: ${opts.sinceEntryId}`);
+        return {
+          header,
+          entries: [],
+          leafId,
+          nextCursor: null,
+          truncated,
+          partialTrailing,
+          diagnostics,
+          availability,
+        };
+      }
+      startSeq = rows[idx].seq;
     }
-    startSeq = rows[idx].seq;
   }
 
-  const eligible = pool.filter((r) => r.seq > startSeq);
+  const eligible = pool.filter((r) => (sinceLine >= 0 ? r.lineNo > sinceLine : r.seq > startSeq));
   const page = eligible.slice(0, limit);
   const pageTruncated = eligible.length > limit;
   const entries: SessionEntryT[] = [];
@@ -294,7 +307,11 @@ export async function readSessionFile(opts: ReadSessionFileOptions): Promise<Rea
     const raw = rawBySeq[r.seq];
     if (raw) entries.push(raw);
   }
-  const lastId = page.length > 0 ? page[page.length - 1].id : null;
+  const lastRow = page.length > 0 ? page[page.length - 1] : null;
+  // Id cursor for normal rows; positional `L<lineNo>` fallback for id-less
+  // rows so "load earlier" never dead-ends (review round 3, #3). Cursor is
+  // offered whenever a page was returned — same parity as entry-id cursors.
+  const lastId = lastRow ? (lastRow.id ?? (lastRow.lineNo > 0 ? `L${lastRow.lineNo}` : null)) : null;
 
   return {
     header,

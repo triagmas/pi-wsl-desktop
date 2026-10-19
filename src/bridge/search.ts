@@ -59,15 +59,20 @@ export async function searchSessions(input: SearchInput): Promise<SearchResultT>
 
     if (!input.includeContent || s.availability !== 'ok') continue;
 
-    let body = '';
+    let body: string;
     try {
+      // Byte-faithful accumulation (review round 3, #1): decoding per chunk
+      // would corrupt multibyte characters straddling the 64-KiB boundary and
+      // drift the offset past real bytes.
+      const parts: Buffer[] = [];
       let offset = 0;
       while (offset < contentCap) {
-        const chunk = await fs.readRange(s.file, offset, Math.min(64 * 1024, contentCap - offset));
-        if (chunk === '') break;
-        body += chunk;
-        offset += Buffer.byteLength(chunk, 'utf8');
+        const part = await fs.readRange(s.file, offset, Math.min(64 * 1024, contentCap - offset));
+        if (part.length === 0) break;
+        parts.push(part);
+        offset += part.length;
       }
+      body = Buffer.concat(parts).toString('utf8');
     } catch {
       continue; // unreadable bodies are a per-file miss, not a crash
     }

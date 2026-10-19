@@ -243,3 +243,36 @@ describe('bridge M1 chat lifecycle (real subprocess, fake pi RPC)', () => {
     expect(statSync(fx.sessionFile).mtimeMs).toBe(fx.mtime);
   });
 });
+
+describe('bridge M1 path scope (review round 3, #4 — defense-in-depth)', () => {
+  it('readSession/openSession reject files outside the session roots', async () => {
+    const fx = makeFixture();
+    const outsideDir = mkdtempSync(path.join(os.tmpdir(), 'piwsd-outside-'));
+    const outsideFile = path.join(outsideDir, 'foreign.jsonl');
+    writeFileSync(outsideFile, `${JSON.stringify({ type: 'session', version: 3, id: 'x', timestamp: 'T', cwd: '/p' })}\n`);
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+
+      child.stdin.write(req('x1', 'readSession', { file: outsideFile }) + '\n');
+      const e1 = (await reader.waitForResponse('x1')).frame as ResponseErrorFrameT;
+      expect(errCode(e1)).toBe('INVALID_REQUEST');
+      expect(e1.error.message).toContain('outside the session roots');
+
+      // traversal must not escape the root either
+      child.stdin.write(req('x2', 'readSession', { file: path.join(fx.root, '..', 'escaped.jsonl') }) + '\n');
+      expect(errCode((await reader.waitForResponse('x2')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+
+      child.stdin.write(req('x3', 'openSession', { file: outsideFile, projectCwd: fx.projectDir }) + '\n');
+      expect(errCode((await reader.waitForResponse('x3')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+
+      // the legit fixture file inside the root still reads fine
+      child.stdin.write(req('x4', 'readSession', { file: fx.sessionFile }) + '\n');
+      const okFrame = (await reader.waitForResponse('x4')).frame as ResponseOkFrameT;
+      expect(okFrame.type).toBe('response');
+    } finally {
+      child.kill();
+    }
+  });
+});

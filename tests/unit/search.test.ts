@@ -30,7 +30,7 @@ function filesFs(files: Record<string, string>): FsLike {
     },
     async readRange(p, offset, length) {
       const c = files[p] ?? '';
-      return Buffer.from(c).subarray(offset, offset + length).toString('utf8');
+      return Buffer.from(c).subarray(offset, offset + length);
     },
   };
 }

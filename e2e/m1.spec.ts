@@ -95,6 +95,23 @@ test.describe('M1 sessions & chat E2E', () => {
       const input = page.getByPlaceholder(/сообщение/i);
       await expect(input).toBeVisible({ timeout: 20_000 });
 
+      // review round 3 (#5): a second explicit open while a chat is open is
+      // rejected with RESOURCE_BUSY (single chat slot, no zombie process)
+      const busy = await page
+        .evaluate((file) => {
+          const desk = (window as unknown as {
+            piDesktop: { request: (m: string, p: unknown) => Promise<unknown> };
+          }).piDesktop;
+          return desk.request('openSession', { file }).then(
+            () => 'resolved',
+            (e: Error) => e.message,
+          );
+        }, fixtureSession)
+        .catch(() => 'rejected');
+      expect(busy).toContain('RESOURCE_BUSY');
+      // the already-open chat keeps working after the rejected attempt
+      await expect(page.getByPlaceholder(/сообщение/i)).toBeVisible();
+
       // streaming: deltas render as they arrive, then message_end finalizes
       await input.fill('привет e2e');
       await page.getByRole('button', { name: /отправить/i }).click();

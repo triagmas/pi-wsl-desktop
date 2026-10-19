@@ -37,8 +37,8 @@ export interface FsLike {
   stat(p: string): Promise<FileMeta>;
   readHead(p: string, maxBytes: number): Promise<string>;
   readTail(p: string, maxBytes: number): Promise<string>;
-  /** Sequential bounded read used by the reader (POSIX semantics). */
-  readRange(p: string, offset: number, length: number): Promise<string>;
+  /** Sequential bounded read used by the reader (POSIX semantics). Byte-faithful: returns raw bytes without decoding, because multibyte UTF-8 characters may straddle chunk boundaries (review round 3, #1). */
+  readRange(p: string, offset: number, length: number): Promise<Buffer>;
 }
 
 const HEADER_MAX = 64 * 1024;
@@ -80,7 +80,7 @@ export const nodeFs: FsLike = {
     try {
       const buf = Buffer.alloc(length);
       const { bytesRead } = await fh.read(buf, 0, length, offset);
-      return buf.subarray(0, bytesRead).toString('utf8');
+      return Buffer.from(buf.subarray(0, bytesRead));
     } finally {
       await fh.close();
     }

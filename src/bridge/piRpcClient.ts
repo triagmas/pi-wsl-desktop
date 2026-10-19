@@ -270,14 +270,25 @@ export class PiRpcClient {
     } catch {
       /* already gone */
     }
+    let eofTimer: NodeJS.Timeout | undefined;
     const forced = await Promise.race([
       exited.then(() => 'exited' as const),
-      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), waitMs)),
+      new Promise<'timeout'>((r) => {
+        eofTimer = setTimeout(() => r('timeout'), waitMs);
+      }),
     ]);
+    if (eofTimer !== undefined) clearTimeout(eofTimer); // review round 3, #6: no orphan timers
     if (forced === 'timeout') {
       this.diagnostic(`Pi RPC ignored stdin EOF for ${waitMs}ms — SIGKILL`);
       this.killHard();
-      await Promise.race([exited, new Promise<void>((r) => setTimeout(r, 1_000))]);
+      let killTimer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        exited,
+        new Promise<void>((r) => {
+          killTimer = setTimeout(r, 1_000);
+        }),
+      ]);
+      if (killTimer !== undefined) clearTimeout(killTimer); // review round 3, #6
     }
     this.exited = true;
   }

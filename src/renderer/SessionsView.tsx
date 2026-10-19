@@ -84,7 +84,7 @@ export function SessionsView({
       window.clearTimeout(deadline);
       off();
     };
-  }, [api]);
+  }, [api, readyDeadlineMs]);
 
   useEffect(() => {
     if (!api || !ready || loadedOnce.current) return;

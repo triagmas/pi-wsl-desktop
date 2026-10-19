@@ -77,7 +77,7 @@ function filesFs(files: Record<string, FileShape>) {
     async readRange(p: string, offset: number, length: number) {
       const f = files[p];
       if (!f) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
-      return f.head.slice(offset, offset + length);
+      return Buffer.from(f.head ?? '').subarray(offset, offset + length);
     },
   };
 }

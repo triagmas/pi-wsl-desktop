@@ -5,7 +5,7 @@
 
 [📘 Продукт](PRODUCT.md) · [🛠️ Спецификация](SPECIFICATION.md) · [🤖 Правила для Pi](AGENTS.md) · [🎯 Roadmap Issue #1](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
-**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap и M0 приняты и слиты · M1 готовится к разработке · **Разработка:** крупными тематическими пакетами и PR.
+**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap и M0 приняты и слиты · M1 предъявлен на ревью (PR #6) · **Разработка:** крупными тематическими пакетами и PR.
 
 ---
 

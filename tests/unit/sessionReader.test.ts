@@ -40,7 +40,7 @@ function filesFs(files: Record<string, string>): FsLike {
     async readRange(p, offset, length) {
       const c = files[p];
       if (c === undefined) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
-      return Buffer.from(c).subarray(offset, offset + length).toString('utf8');
+      return Buffer.from(c).subarray(offset, offset + length);
     },
   };
   return fs;
@@ -200,5 +200,42 @@ describe('tree helpers (pure)', () => {
     expect(activeBranchPath(rows, 'd')).toEqual(['a', 'b', 'd']);
     // broken parent chain terminates safely at the known root of the walk
     expect(activeBranchPath(rows, 'ghost')).toEqual(['ghost']);
+  });
+});
+
+describe('readSessionFile — positional cursor for id-less pages (review round 3, #3)', () => {
+  const IDLESS =
+    hdr(3) +
+    `${JSON.stringify({ type: 'custom', timestamp: 'T', content: { text: 'alpha' } })}\n` +
+    `${JSON.stringify({ type: 'custom', timestamp: 'T', content: { text: 'beta' } })}\n` +
+    `${JSON.stringify({ type: 'custom', timestamp: 'T', content: { text: 'gamma' } })}\n`;
+
+  it('falls back to a positional L<line> cursor so older pages stay reachable', async () => {
+    const fs = filesFs({ [FILE]: IDLESS });
+    const p1 = await readSessionFile({ fs, file: FILE, limit: 1 });
+    expect(p1.truncated).toBe(true);
+    expect(p1.nextCursor).toBe('L2'); // line 2 = first entry after the header
+
+    const p2 = await readSessionFile({ fs, file: FILE, sinceEntryId: p1.nextCursor as string, limit: 1 });
+    expect(p2.entries).toHaveLength(1);
+    expect((p2.entries[0].raw as { content: { text: string } }).content.text).toBe('beta');
+    expect(p2.nextCursor).toBe('L3');
+
+    const p3 = await readSessionFile({ fs, file: FILE, sinceEntryId: 'L3', limit: 1 });
+    expect(p3.entries).toHaveLength(1);
+    expect((p3.entries[0].raw as { content: { text: string } }).content.text).toBe('gamma');
+    expect(p3.truncated).toBe(false);
+    // a cursor past the end simply yields an empty page (parity with id cursors)
+    const p4 = await readSessionFile({ fs, file: FILE, sinceEntryId: 'L4', limit: 1 });
+    expect(p4.entries).toEqual([]);
+    expect(p4.availability).toBe('ok');
+  });
+
+  it('still uses entry-id cursors for normal files (no behaviour change)', async () => {
+    const fs = filesFs({ [FILE]: CHAIN });
+    const p1 = await readSessionFile({ fs, file: FILE, limit: 2 });
+    expect(p1.nextCursor).toBe('b');
+    const p2 = await readSessionFile({ fs, file: FILE, sinceEntryId: 'b', limit: 10 });
+    expect(p2.entries.map((e) => e.id)).toEqual(['c', 'd']);
   });
 });

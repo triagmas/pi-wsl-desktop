@@ -51,7 +51,7 @@ function fakeFs(shape: FakeFsShape): FsLike {
       if (!f) throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
       if (f.error) throw Object.assign(new Error(f.error), { code: 'EACCES' });
       const s = f.head ?? '';
-      return s.slice(offset, offset + length);
+      return Buffer.from(s).subarray(offset, offset + length);
     },
   };
 }

@@ -112,4 +112,46 @@ describe('connection state machine', () => {
     ]);
     expect(s.lastError?.code).toBe('DISCONNECTED');
   });
+
+  it('PI_GATE_FAIL from connecting lands in error with the diagnostic code (no false READY)', () => {
+    const s = walk([
+      { type: 'DISCOVER_START' },
+      { type: 'DISCOVER_OK' },
+      { type: 'SPAWNED' },
+      { type: 'PI_GATE_FAIL', error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found' } },
+    ]);
+    expect(s.phase).toBe('error');
+    expect(s.lastError).toEqual({ code: 'PI_NOT_FOUND', message: 'Pi executable not found' });
+  });
+
+  it('PI_GATE_FAIL keeps manual retry available afterwards', () => {
+    let s = walk([
+      { type: 'DISCOVER_START' },
+      { type: 'DISCOVER_OK' },
+      { type: 'SPAWNED' },
+      { type: 'PI_GATE_FAIL', error: { code: 'PI_INCOMPATIBLE', message: 'no rpc' } },
+    ]);
+    expect(s.phase).toBe('error');
+    s = reduce(s, { type: 'RETRY_MANUAL' }, { maxAutoAttempts: 5 });
+    expect(s.phase).toBe('discovering');
+    expect(s.attempt).toBe(0);
+  });
+
+  it('PI_GATE_FAIL outside connecting is ignored (no zombie transitions)', () => {
+    const cfg = { maxAutoAttempts: 5 };
+    const idle = reduce(
+      initialState(),
+      { type: 'PI_GATE_FAIL', error: { code: 'PI_NOT_FOUND', message: 'x' } },
+      cfg,
+    );
+    expect(idle.phase).toBe('idle');
+    const ready = walk([
+      { type: 'DISCOVER_START' },
+      { type: 'DISCOVER_OK' },
+      { type: 'SPAWNED' },
+      { type: 'READY' },
+    ]);
+    const after = reduce(ready, { type: 'PI_GATE_FAIL', error: { code: 'PI_NOT_FOUND', message: 'x' } }, cfg);
+    expect(after).toEqual(ready);
+  });
 });

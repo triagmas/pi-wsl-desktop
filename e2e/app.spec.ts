@@ -101,4 +101,56 @@ test.describe('M0 desktop shell E2E (real Electron window)', () => {
       await app.close();
     }
   });
+
+  test('ready-gate E2E: PI_NOT_FOUND is shown instead of a false ready when Pi is missing', async () => {
+    const { app, page } = await launch({
+      env: {
+        PI_WS_DESKTOP_WSL_PATH: fakeWsl,
+        PI_WS_DESKTOP_PI: path.join(repoRoot, 'nonexistent-pi', 'pi'),
+        PI_WS_DESKTOP_TIMEOUT_MS: '8000',
+        FAKE_WSL_PROBE_JSON: JSON.stringify({
+          ok: true,
+          nodePath: process.execPath,
+          nodeVersion: process.version,
+          home: '/home/fake',
+          bridgeOk: true,
+        }),
+      },
+    });
+    try {
+      // Bridge reaches ready (fake wsl is healthy), but the Pi gate must fail.
+      await expect(page.getByTestId('status-phase')).toHaveText(/Ошибка/, { timeout: 30_000 });
+      await expect(page.getByTestId('error-code')).toHaveText('PI_NOT_FOUND');
+      await expect(page.getByTestId('status-phase')).not.toHaveText(/Готово/);
+      const retry = page.getByRole('button', { name: /повторить/i });
+      await expect(retry).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('ready-gate E2E: PI_INCOMPATIBLE is shown when the pi build does not advertise RPC', async () => {
+    const { app, page } = await launch({
+      env: {
+        PI_WS_DESKTOP_WSL_PATH: fakeWsl,
+        PI_WS_DESKTOP_PI: path.join(repoRoot, 'tests', 'fixtures', 'fakepi-norpc'),
+        PI_WS_DESKTOP_TIMEOUT_MS: '8000',
+        FAKE_WSL_PROBE_JSON: JSON.stringify({
+          ok: true,
+          nodePath: process.execPath,
+          nodeVersion: process.version,
+          home: '/home/fake',
+          bridgeOk: true,
+        }),
+      },
+    });
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Ошибка/, { timeout: 30_000 });
+      await expect(page.getByTestId('error-code')).toHaveText('PI_INCOMPATIBLE');
+      await expect(page.getByTestId('status-phase')).not.toHaveText(/Готово/);
+      await expect(page.getByRole('button', { name: /повторить/i })).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
 });

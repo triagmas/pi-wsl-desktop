@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fixture: a pi build that does NOT advertise RPC in --help.
+# Used by the ready-gate regression (PI_INCOMPATIBLE before READY).
+# stdout must never contain the words matched by the probe (--mode / rpc).
+case "$1" in
+  --version) echo "9.9.9" ;;
+  --help) printf 'Usage: pi\n  --text output only\n' ;;
+  *) exit 1 ;;
+esac

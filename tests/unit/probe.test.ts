@@ -52,4 +52,21 @@ describe.skipIf(process.platform === 'win32')('probePi (user install under ~/.lo
     });
     expect(probe?.version).toBe('7.7.7');
   });
+
+  it('treats an explicit PI_WS_DESKTOP_PI override as authoritative: broken override → null, no fallback', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'piwsd-probe-'));
+    const bin = path.join(home, '.local', 'bin');
+    mkdirSync(bin, { recursive: true });
+    const homePi = path.join(bin, 'pi');
+    writeFileSync(homePi, '#!/usr/bin/env node\nconsole.log("5.5.5");\n');
+    chmodSync(homePi, 0o755);
+    // A valid pi exists under ~/.local/bin, but the explicit override is broken:
+    // the override must win in BOTH directions — never silently fall back.
+    const probe = await probePi({
+      env: { HOME: home, PATH: '/nonexistent-bin', PI_WS_DESKTOP_PI: path.join(home, 'broken-pi') },
+      home,
+      timeoutMs: 10_000,
+    });
+    expect(probe).toBeNull();
+  });
 });

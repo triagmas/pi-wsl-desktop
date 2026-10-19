@@ -116,4 +116,31 @@ describe('WslConnection (full fake stack)', () => {
     expect(conn.snapshot().phase).not.toBe('ready');
     await expect(conn.request('health')).rejects.toMatchObject({ code: 'DISCONNECTED' });
   });
+
+  it('ready-gate: bridge live but Pi missing → error PI_NOT_FOUND, never a false READY', async () => {
+    const { conn } = makeConn({ PI_WS_DESKTOP_PI: path.join(os.tmpdir(), 'definitely-missing-pi-9f3a') });
+    conn.start();
+    await waitFor(() => ['ready', 'error'].includes(conn.snapshot().phase), 8000, 'settled');
+    const snap = conn.snapshot();
+    expect(snap.phase).toBe('error');
+    expect(snap.lastError?.code).toBe('PI_NOT_FOUND');
+    expect(snap.runtime).toBeFalsy();
+    // the stack must be torn down — no stale bridge process serves requests
+    await expect(conn.request('health')).rejects.toMatchObject({ code: 'DISCONNECTED' });
+    conn.close();
+  });
+
+  it('ready-gate: pi without advertised RPC → error PI_INCOMPATIBLE, never READY', async () => {
+    const { conn } = makeConn({
+      PI_WS_DESKTOP_PI: path.join(__dirname, '..', 'fixtures', 'fakepi-norpc'),
+    });
+    conn.start();
+    await waitFor(() => ['ready', 'error'].includes(conn.snapshot().phase), 8000, 'settled');
+    const snap = conn.snapshot();
+    expect(snap.phase).toBe('error');
+    expect(snap.lastError?.code).toBe('PI_INCOMPATIBLE');
+    expect(snap.runtime).toBeFalsy();
+    await expect(conn.request('health')).rejects.toMatchObject({ code: 'DISCONNECTED' });
+    conn.close();
+  });
 });

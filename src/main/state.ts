@@ -19,6 +19,7 @@ export type ConnEvent =
   | { type: 'DISCOVER_FAIL'; retryable?: boolean; error?: ConnError }
   | { type: 'SPAWNED' }
   | { type: 'READY' }
+  | { type: 'PI_GATE_FAIL'; error: ConnError }
   | { type: 'LOST'; retryable?: boolean }
   | { type: 'CONNECT_TIMEOUT' }
   | { type: 'BACKOFF_DONE' }
@@ -76,6 +77,12 @@ export function reduce(s: ConnSnapshot, e: ConnEvent, cfg: StateConfig): ConnSna
       return failed(s, e, { code: 'BRIDGE_TIMEOUT', message: 'Bridge did not become ready in time' }, cfg);
     case 'BACKOFF_DONE':
       return s.phase === 'backoff' ? { phase: 'discovering', attempt: s.attempt } : s;
+    case 'PI_GATE_FAIL':
+      // Ready-gate failures (PI_NOT_FOUND / PI_INCOMPATIBLE …) are not
+      // transient: no auto-retry loop — land in error with the diagnostic
+      // code; RETRY_MANUAL below re-runs the whole cycle on user demand.
+      if (s.phase !== 'connecting') return s;
+      return { phase: 'error', attempt: s.attempt, lastError: e.error };
     case 'RETRY_MANUAL':
       return { phase: 'discovering', attempt: 0 };
     case 'FATAL':

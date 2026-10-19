@@ -189,13 +189,42 @@ export class WslConnection {
         return;
       }
 
+      // Ready-gate (Issue #2 / review P1#1): a live bridge is NOT a usable
+      // Pi. Before READY the stack must prove a discoverable, RPC-capable Pi:
+      // getRuntimeInfo (the bridge answers PI_NOT_FOUND when the probe fails)
+      // and getCapabilities (answers PI_INCOMPATIBLE when RPC is not
+      // advertised). A failed gate lands in an explicit error state with the
+      // diagnostic code, tears the stack down (no stale bridge process) and
+      // leaves only manual retry — never a false READY.
       try {
-        this.runtime = await client.request('getRuntimeInfo', {}, { timeoutMs: t.requestMs ?? 10_000 });
-      } catch {
-        this.runtime = null; // ready without runtime info is still a live connection
+        const runtime = (await client.request('getRuntimeInfo', {}, { timeoutMs: t.requestMs ?? 10_000 })) as {
+          pi: { version: string; rpcSupported: boolean } | null;
+        };
+        if (!runtime?.pi?.version) {
+          throw new BridgeError('PI_NOT_FOUND', 'Pi executable not found (bridge probe returned no pi)');
+        }
+        const caps = (await client.request('getCapabilities', {}, { timeoutMs: t.requestMs ?? 10_000 })) as {
+          methods?: unknown;
+        };
+        if (!Array.isArray(caps.methods) || !caps.methods.includes('health')) {
+          throw new BridgeError('PI_INCOMPATIBLE', 'bridge capabilities are missing required M0 methods');
+        }
+        if (token !== this.runToken) return;
+        this.runtime = runtime;
+        this.dispatch({ type: 'READY' });
+      } catch (err) {
+        if (token !== this.runToken) return;
+        const code = err instanceof BridgeError ? err.code : 'DISCONNECTED';
+        const message = err instanceof Error ? err.message : String(err);
+        this.runtime = null;
+        this.client = null;
+        // State first: the 'lost' event fired by close() below is then
+        // ignored (reduce ignores LOST from phase error), so a broken Pi can
+        // never auto-retry into backoff.
+        this.dispatch({ type: 'PI_GATE_FAIL', error: { code, message } });
+        client.close(); // kills the bridge child — nothing stale survives
+        return;
       }
-      if (token !== this.runToken) return;
-      this.dispatch({ type: 'READY' });
     } catch (err) {
       if (token !== this.runToken) return;
       this.dispatch({

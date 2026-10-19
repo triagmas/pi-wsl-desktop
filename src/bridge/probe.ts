@@ -58,8 +58,12 @@ export const defaultSpawn: SpawnFn = (command, args, opts) =>
 const VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/;
 
 function candidatePaths(env: NodeJS.ProcessEnv, home: string): string[] {
+  // An explicit PI_WS_DESKTOP_PI override is authoritative in BOTH
+  // directions: when set it is the ONLY candidate probed — a broken override
+  // yields PI_NOT_FOUND instead of silently falling back to a different pi
+  // (deterministic tests, honest user directive).
+  if (env.PI_WS_DESKTOP_PI) return [env.PI_WS_DESKTOP_PI];
   const list: string[] = [];
-  if (env.PI_WS_DESKTOP_PI) list.push(env.PI_WS_DESKTOP_PI);
   if (home) list.push(path.posix.join(home, '.local', 'bin', 'pi'));
   for (const dir of (env.PATH ?? '').split(':')) {
     if (dir) list.push(path.posix.join(dir, 'pi'));
@@ -100,6 +104,9 @@ export async function probePi(
     if (!match) continue;
 
     let rpcSupported: boolean;
+    // NOTE (review P2): help-text inference — "RPC advertised by help", NOT a
+    // live RPC handshake. M0 scope per Issue #2 is --version/--help detection;
+    // a real handshake against an isolated agent dir is scheduled for M1+.
     try {
       const help = await spawnFn(candidate, ['--help'], { env: childEnv, timeoutMs });
       rpcSupported = help.code === 0 && /--mode/.test(help.stdout) && /\brpc\b/.test(help.stdout);

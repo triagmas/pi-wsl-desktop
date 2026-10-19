@@ -8,11 +8,28 @@
  *   garbage             ready + three non-JSON stdout lines
  *   oversize            ready + one >2MiB stdout line
  * Received frames are appended to $FAKE_BRIDGE_LOG as `frame:…`/`cancel:…`.
+ *
+ * Pi discovery mirrors src/bridge/probe.ts semantics (review P1#1 ready-gate):
+ *   PI_WS_DESKTOP_PI set   → authoritative; nonexistent → PI_NOT_FOUND,
+ *                            fakepi-norpc → rpcSupported false
+ *   PI_WS_DESKTOP_PI unset → healthy fixture pi 9.9.9 with RPC advertised
  */
 const fs = require('node:fs');
 
 const mode = process.env.FAKE_BRIDGE_MODE || 'ok';
 const log = process.env.FAKE_BRIDGE_LOG;
+const piOverride = process.env.PI_WS_DESKTOP_PI;
+
+function probeFixture() {
+  if (piOverride) {
+    if (piOverride.includes('fakepi-norpc')) {
+      return { path: piOverride, version: '9.9.9', rpcSupported: false };
+    }
+    if (!fs.existsSync(piOverride)) return null; // strict override: no fallback
+    return { path: piOverride, version: '9.9.9', rpcSupported: true };
+  }
+  return { path: '/home/fake/.local/bin/pi', version: '9.9.9', rpcSupported: true };
+}
 const logLine = (s) => {
   if (log) fs.appendFileSync(log, s + '\n');
 };
@@ -61,6 +78,18 @@ process.stdin.on('data', (chunk) => {
         result: { status: 'ok', fixture: true, tag: (f.params || {}).tag || null },
       });
     } else if (f.method === 'getRuntimeInfo') {
+      const p = probeFixture();
+      if (!p) {
+        // mirrors pi() throwing PI_NOT_FOUND in src/bridge/handlers.ts
+        send({
+          v: 1,
+          type: 'response',
+          requestId: f.requestId,
+          status: 'error',
+          error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found (fixture)' },
+        });
+        continue;
+      }
       send({
         v: 1,
         type: 'response',
@@ -69,10 +98,41 @@ process.stdin.on('data', (chunk) => {
         result: {
           distro: 'FakeDistro',
           node: { path: '/fake/node', version: 'v22.1.0' },
-          pi: { path: '/home/fake/.local/bin/pi', version: '9.9.9', rpcSupported: true },
+          pi: p,
           agentDir: '/home/fake/.pi/agent',
         },
       });
+    } else if (f.method === 'getCapabilities') {
+      const p = probeFixture();
+      if (!p) {
+        send({
+          v: 1,
+          type: 'response',
+          requestId: f.requestId,
+          status: 'error',
+          error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found (fixture)' },
+        });
+      } else if (!p.rpcSupported) {
+        send({
+          v: 1,
+          type: 'response',
+          requestId: f.requestId,
+          status: 'error',
+          error: { code: 'PI_INCOMPATIBLE', message: 'Pi 9.9.9 does not advertise RPC mode (fixture)' },
+        });
+      } else {
+        send({
+          v: 1,
+          type: 'response',
+          requestId: f.requestId,
+          status: 'ok',
+          result: {
+            protocolVersion: 1,
+            methods: ['health', 'getRuntimeInfo', 'getCapabilities', 'ping'],
+            pi: { version: p.version, rpcSupported: p.rpcSupported },
+          },
+        });
+      }
     } else {
       send({
         v: 1,

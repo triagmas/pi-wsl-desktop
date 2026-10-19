@@ -9,8 +9,12 @@
  * writes connection snapshots to a JSONL file; this script polls it for a
  * terminal state and prints PASS / FAIL / NOT RUN with the exact reason.
  *
- * Cleanup is pid-diffed: only electron.exe PIDs that appeared after launch
- * are terminated, so unrelated processes are never touched.
+ * Cleanup is OWNERSHIP-based (review P1 #2): only the PID we spawned
+ * (path-verified against PID reuse) and its descendant tree running our
+ * exact electron.exe are ever terminated — never every new electron.exe
+ * by name. A foreign electron.exe decoy is launched mid-run and must
+ * SURVIVE cleanup; our own app must be fully stopped. When in doubt: do not
+ * kill. Cleanup also runs on interrupt/error paths via finish().
  *
  * Run from WSL: `node scripts/windows-smoke.mjs`
  */
@@ -18,6 +22,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cmdlineRoots, markerPids, ownedPids } from './lib/winProc.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const electronExe = path.join(root, 'artifacts', 'win-electron', 'electron.exe');
@@ -28,6 +33,10 @@ const TIMEOUT_MS = 120_000;
 const TASKKILL = '/mnt/c/Windows/System32/taskkill.exe';
 const TASKLIST = '/mnt/c/Windows/System32/tasklist.exe';
 const CMD = '/mnt/c/Windows/System32/cmd.exe';
+const POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe';
+
+/** State of this run (Windows-side identity — WSL spawn pids are NOT Windows pids). */
+const smoke = { decoyMarker: null };
 
 function winPath(p) {
   const m = /^\/mnt\/([a-zA-Z])\/(.*)$/.exec(p);
@@ -35,8 +44,26 @@ function winPath(p) {
   return `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`;
 }
 
+/** Windows-form executable path — what Win32_Process reports. */
+const electronExeWin = winPath(electronExe);
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function finish(result, detail) {
-  console.log(`WINDOWS GUI SMOKE: ${result}${detail ? ` — ${detail}` : ''}`);
+  // All exit paths funnel through the ownership-gated cleanup so no
+  // interrupt/error can leave our processes behind — and a violated gate
+  // (foreign decoy killed / own app still alive) downgrades PASS to FAIL.
+  let gates;
+  try {
+    gates = runCleanup();
+  } catch (err) {
+    gates = { summary: `cleanup error: ${err.message}`, decoy: '?', ownStopped: false, ok: false };
+  }
+  if (result === 'PASS' && !gates.ok) result = 'FAIL';
+  const gateDetail = `ownership: ${gates.summary}; foreign electron.exe decoy: ${gates.decoy}; own app stopped: ${gates.ownStopped}`;
+  console.log(`WINDOWS GUI SMOKE: ${result} — ${detail ? `${detail}; ` : ''}${gateDetail}`);
   process.exit(result === 'PASS' ? 0 : result === 'FAIL' ? 1 : 2);
 }
 
@@ -56,17 +83,43 @@ function windowsEnv() {
   return env;
 }
 
-function electronPids() {
-  const res = spawnSync(TASKLIST, ['/FI', 'IMAGENAME eq electron.exe', '/FO', 'CSV', '/NH'], {
+function processTable() {
+  // Full identity table for electron.exe: PID, parent PID, executable path.
+  // Returns null when PowerShell is unavailable (→ conservative fallback).
+  const res = spawnSync(
+    POWERSHELL,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='electron.exe'\" | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine | ConvertTo-Json",
+    ],
+    { encoding: 'utf8', timeout: 20_000 },
+  );
+  if (res.status !== 0 || !(res.stdout ?? '').trim()) return null;
+  try {
+    const parsed = JSON.parse(res.stdout);
+    const rows = (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean);
+    return rows
+      .filter((r) => r.ProcessId != null)
+      .map((r) => ({
+        pid: Number(r.ProcessId),
+        ppid: Number(r.ParentProcessId ?? 0),
+        exe: r.ExecutablePath ?? null,
+        cmd: r.CommandLine ?? null,
+      }));
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid) {
+  if (!pid) return false;
+  const res = spawnSync(TASKLIST, ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
     encoding: 'utf8',
     timeout: 15_000,
   });
-  const pids = new Set();
-  for (const line of (res.stdout ?? '').split(/\r?\n/)) {
-    const m = /^"electron\.exe","(\d+)"/.exec(line.trim());
-    if (m) pids.add(Number(m[1]));
-  }
-  return pids;
+  return new RegExp(`"[^"]+","${pid}"`).test(res.stdout ?? '');
 }
 
 function readReport() {
@@ -87,15 +140,83 @@ function readReport() {
   }
 }
 
-function cleanup(before) {
-  const now = electronPids();
-  const fresh = [...now].filter((pid) => !before.has(pid));
+function reportPid() {
+  // The app self-reports its native Windows PID in every smoke snapshot.
+  const entries = readReport();
+  const last = entries[entries.length - 1];
+  const pid = Number(last?.pid);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+function cleanupOwned() {
+  // Ownership contract (review P1 #2): terminate ONLY provably-ours PIDs —
+  // root from the self-reported snapshot (path-verified against PID reuse) or
+  // an unambiguous exact-cmdline match, plus its descendant tree running our
+  // exact executable. Never name-based. Doubt → kill nothing.
+  const table = processTable();
+  let rootPid = reportPid();
+  let source = 'self-reported pid';
+  if (!rootPid && table) {
+    const cands = cmdlineRoots(table, electronExeWin, winPath(root));
+    if (cands.length === 1) {
+      rootPid = cands[0];
+      source = 'exact cmdline match';
+    } else if (cands.length > 1) {
+      return { killed: 0, owned: [], note: 'ambiguous cmdline match → doubt → killed nothing' };
+    }
+  }
+  if (!rootPid) {
+    return { killed: 0, owned: [], note: 'app Windows pid unknown → doubt → killed nothing' };
+  }
+  if (!table) {
+    spawnSync(TASKKILL, ['/PID', String(rootPid), '/T', '/F'], { encoding: 'utf8', timeout: 10_000 });
+    return { killed: 1, owned: [rootPid], note: `identity table unavailable; root tree via ${source}` };
+  }
+  const owned = ownedPids(table, rootPid, electronExeWin);
   let killed = 0;
-  for (const pid of fresh) {
+  for (const pid of [...owned].reverse()) {
+    // helpers first, root last; every PID was path-verified by ownedPids
     const res = spawnSync(TASKKILL, ['/PID', String(pid), '/F'], { encoding: 'utf8', timeout: 10_000 });
     if (res.status === 0) killed += 1;
   }
-  return `${killed}/${fresh.length} new electron.exe pid(s) terminated`;
+  return { killed, owned, note: `path+tree verified via ${source}` };
+}
+
+let cleanedUp = false;
+function runCleanup() {
+  if (cleanedUp) return { summary: 'already cleaned', decoy: 'n/a', ownStopped: true, ok: true };
+  cleanedUp = true;
+  const out = { summary: '', decoy: 'n/a', ownStopped: true, ok: true };
+
+  const c = cleanupOwned();
+  out.summary = `${c.killed}/${c.owned.length} owned pid(s) terminated (${c.note})`;
+  sleepSync(700); // let taskkill settle before the liveness probe
+
+  // Own app must actually be gone (Windows pid, same space as tasklist).
+  const rootPid = reportPid();
+  out.ownStopped = rootPid ? !pidAlive(rootPid) : false;
+  if (!out.ownStopped) out.ok = false;
+
+  // Foreign decoy gate: liveness by UNIQUE marker on a POST-cleanup table.
+  if (smoke.decoyMarker) {
+    const post = processTable();
+    const hits = post ? markerPids(post, smoke.decoyMarker) : [];
+    if (hits.length === 1) {
+      out.decoy = 'survived';
+      // it is our own child (unique marker) → safe to stop afterwards
+      spawnSync(TASKKILL, ['/PID', String(hits[0]), '/F'], { encoding: 'utf8', timeout: 10_000 });
+    } else if (hits.length === 0) {
+      out.decoy = 'missing (spawn failed or died early)';
+      out.ok = false;
+    } else {
+      out.decoy = `ambiguous (${hits.length} matches)`;
+      out.ok = false;
+    }
+  } else {
+    out.decoy = 'spawn failed';
+    out.ok = false;
+  }
+  return out;
 }
 
 async function main() {
@@ -111,7 +232,6 @@ async function main() {
   rmSync(stderrLog, { force: true });
 
   const winEnv = windowsEnv();
-  const before = electronPids();
 
   const env = {
     // Full authentic Windows environment from `cmd /c set` (APPDATA, USERPROFILE,
@@ -126,6 +246,25 @@ async function main() {
     child = spawn(electronExe, [winPath(root)], { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (err) {
     finish('NOT RUN', `cannot spawn electron.exe: ${err.message}`);
+  }
+
+  // Foreign decoy (review P1 #2 TDD gate): an independent electron.exe with a
+  // UNIQUE command-line marker, started AFTER the smoke begins — it must
+  // survive our cleanup untouched. Identity for liveness/stop comes from the
+  // marker in the Windows process table (WSL spawn pids are NOT Windows pids).
+  const decoyMarker = `piwsd-smoke-decoy-${Date.now().toString(36)}`;
+  try {
+    const decoy = spawn(electronExe, ['-e', `var m='${decoyMarker}'; setInterval(function(){}, 1000)`], {
+      env: { ...winEnv, ELECTRON_RUN_AS_NODE: '1' },
+      detached: true,
+      stdio: 'ignore',
+    });
+    if (decoy.pid) smoke.decoyMarker = decoyMarker;
+    decoy.on('error', () => {
+      smoke.decoyMarker = null;
+    });
+  } catch {
+    smoke.decoyMarker = null;
   }
 
   let stderrText = '';
@@ -145,21 +284,26 @@ async function main() {
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  const killed = cleanup(before);
   writeFileSync(stderrLog, stderrText, 'utf8');
 
   if (!last) {
     const tail = stderrText.split('\n').filter(Boolean).slice(-6).join(' | ').slice(0, 500);
-    finish('FAIL', `no connection snapshot in ${TIMEOUT_MS / 1000}s; stderr tail: [${tail}] (${killed})`);
+    finish('FAIL', `no connection snapshot in ${TIMEOUT_MS / 1000}s; stderr tail: [${tail}]`);
   }
   if (last.phase === 'error') {
-    finish('FAIL', `connection ended in error ${last.code}: ${JSON.stringify(last)} (${killed})`);
+    finish('FAIL', `connection ended in error ${last.code}: ${JSON.stringify(last)}`);
   }
   finish(
     'PASS',
-    `native Windows Electron reached ready; real Pi ${last.runtime?.pi?.version ?? 'unknown'}, ` +
-      `node ${last.runtime?.node?.version ?? 'unknown'}, distro ${JSON.stringify(last.runtime?.distro ?? null)} (${killed})`,
+    `native Windows Electron reached ready; real Pi ${last.runtime?.pi?.version ?? 'unknown'} ` +
+      `(RPC advertised by help), node ${last.runtime?.node?.version ?? 'unknown'}, ` +
+      `distro ${JSON.stringify(last.runtime?.distro ?? null)}`,
   );
 }
+
+process.on('SIGINT', () => finish('FAIL', 'interrupted (SIGINT)'));
+process.on('SIGTERM', () => finish('FAIL', 'terminated (SIGTERM)'));
+process.on('uncaughtException', (err) => finish('FAIL', `uncaught exception: ${err.message}`));
+process.on('unhandledRejection', (reason) => finish('FAIL', `unhandled rejection: ${String(reason)}`));
 
 await main();

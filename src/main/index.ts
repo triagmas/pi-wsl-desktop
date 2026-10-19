@@ -100,6 +100,9 @@ app.whenReady().then(() => {
             smokeReport,
             JSON.stringify({
               t: new Date().toISOString(),
+              // Native Windows PID of this process — the smoke script uses it
+              // for provable ownership (WSL-side spawn pids differ).
+              pid: process.pid,
               phase: snap.phase,
               attempt: snap.attempt,
               code: snap.lastError?.code ?? null,

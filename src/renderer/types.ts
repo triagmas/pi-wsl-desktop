@@ -17,3 +17,14 @@ export interface RendererSnapshot {
   distros: string[] | null;
   runtime: RuntimeInfo | null;
 }
+
+/* M1 Sessions & Chat — shared contract types (type-only, no zod runtime). */
+export type {
+  ProjectInfoT,
+  SessionInfoT,
+  SessionEntryT,
+  ReadSessionResultT,
+  SearchResultT,
+  RpcStateT,
+  ChatEventT,
+} from '../shared/m1Protocol';

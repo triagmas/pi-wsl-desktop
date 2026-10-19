@@ -114,3 +114,17 @@ describe('IPC chat event relay (M1)', () => {
     expect(conn.request).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('IPC error-code preservation (M1 write boundary)', () => {
+  it('prefixes the stable bridge code onto rethrown errors so the renderer can show it', async () => {
+    const { handlers, conn } = makeHarness();
+    conn.request.mockRejectedValueOnce(
+      Object.assign(new Error('Session was modified within the active window'), { code: 'SESSION_CONFLICT' }),
+    );
+    const bridgeRequest = handlers.get('bridge:request')!;
+    await expect(bridgeRequest({}, 'openSession', { file: '/x' })).rejects.toThrow(/^SESSION_CONFLICT: /);
+    // non-coded errors pass through untouched
+    conn.request.mockRejectedValueOnce(new Error('plain failure'));
+    await expect(bridgeRequest({}, 'openSession', { file: '/x' })).rejects.toThrow(/^plain failure$/);
+  });
+});

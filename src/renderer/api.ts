@@ -8,6 +8,7 @@ export interface DesktopApi {
   listDistros(): Promise<string[]>;
   selectDistro(distro: string): Promise<RendererSnapshot>;
   onStateChange(callback: (snapshot: RendererSnapshot) => void): () => void;
+  onChatEvent(callback: (payload: unknown) => void): () => void;
 }
 
 declare global {

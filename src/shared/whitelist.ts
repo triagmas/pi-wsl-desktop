@@ -1,4 +1,4 @@
-import { ALL_METHODS } from './protocol';
+import { ALL_METHODS } from './codes';
 
 /**
  * Renderer-facing method whitelist. Enforced twice: in the preload (before

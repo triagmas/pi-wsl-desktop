@@ -16,10 +16,10 @@
  *   user intent; the bridge re-checks CLI/GUI concurrency before acting.
  */
 import { z } from 'zod';
-import { ALL_ERROR_CODES, ALL_METHODS, M1_METHODS, PROTOCOL_VERSION } from './protocol';
+import { ALL_ERROR_CODES, ALL_METHODS, M1_METHODS, PROTOCOL_VERSION } from './codes';
 
 export { M1_METHODS, ALL_METHODS };
-export type { M1Method } from './protocol';
+export type { M1Method } from './codes';
 
 /* ------------------------------------------------------------------ */
 /* Projects & sessions                                                 */

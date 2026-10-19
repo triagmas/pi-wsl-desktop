@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - name: Check documentation, local links and tracked private files
         shell: bash
@@ -63,6 +64,24 @@ jobs:
                   if marker not in content:
                       errors.append(f"ROADMAP.md missing required marker: {marker}")
 
+          # In every PR changing application code or tests, require a ROADMAP update.
+          # GH pull_request default checkout checks out a temporary merge commit.
+          import os
+          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+              changed = subprocess.check_output(
+                  ["git", "diff", "--name-only", "HEAD^1", "HEAD"],
+                  text=True,
+              ).splitlines()
+              functional = any(
+                  path.startswith(("src/", "tests/", "packages/", "apps/"))
+                  or path in ("package.json", "package-lock.json", "pnpm-lock.yaml")
+                  for path in changed
+              )
+              if functional and "ROADMAP.md" not in changed:
+                  errors.append(
+                      "Implementation PR must update ROADMAP.md with task status/evidence"
+                  )
+
           filenames = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
           sensitive = re.compile(
               r"(^|/)(auth\.json|\.env(?:\..*)?|\.pi/agent/sessions/|"
@@ -77,6 +96,6 @@ jobs:
               for issue in errors:
                   print(f"::error::{issue}")
               raise SystemExit(f"Repository contract failed ({len(errors)} issue(s))")
-          print("PASS: required docs, Markdown relative links, ROADMAP markers, tracked-file guard")
+          print("PASS: required docs, Markdown links, ROADMAP policy, tracked-file guard")
           print("NOTE: app tests and real Windows+WSL smoke are not part of bootstrap CI")
           PY

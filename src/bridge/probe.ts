@@ -57,6 +57,24 @@ export const defaultSpawn: SpawnFn = (command, args, opts) =>
 
 const VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/;
 
+/**
+ * PATH for spawning Pi itself: candidates may be `#!/usr/bin/env node`
+ * scripts (the real ~/.local/bin/pi is), so node must resolve — the bridge's
+ * own node directory, the user's ~/.local/bin, then system dirs. Shared by
+ * probing AND the RPC chat spawn so both see identical resolution.
+ */
+export function buildProbePath(home: string): string {
+  return [
+    path.dirname(process.execPath),
+    home ? path.posix.join(home, '.local', 'bin') : '',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ]
+    .filter(Boolean)
+    .join(':');
+}
+
 function candidatePaths(env: NodeJS.ProcessEnv, home: string): string[] {
   // An explicit PI_WS_DESKTOP_PI override is authoritative in BOTH
   // directions: when set it is the ONLY candidate probed — a broken override
@@ -78,19 +96,7 @@ export async function probePi(
   const home = opts.home ?? env.HOME ?? '';
   const spawnFn = opts.spawnFn ?? defaultSpawn;
   const timeoutMs = opts.timeoutMs ?? 8000;
-  // Candidates may be `#!/usr/bin/env node` scripts (the real ~/.local/bin/pi
-  // is), so probes must run with a PATH that can actually resolve node:
-  // the bridge's own node directory, the user's ~/.local/bin, then system dirs.
-  const probePath = [
-    path.dirname(process.execPath),
-    home ? path.posix.join(home, '.local', 'bin') : '',
-    '/usr/local/bin',
-    '/usr/bin',
-    '/bin',
-  ]
-    .filter(Boolean)
-    .join(':');
-  const childEnv = { PATH: probePath };
+  const childEnv = { PATH: buildProbePath(home) };
 
   for (const candidate of candidatePaths(env, home)) {
     let versionOut: SpawnResult;

@@ -189,27 +189,27 @@ export class PiRpcClient {
   }
 
   /**
-   * Send a prompt and run until the session is terminal for this submission.
-   * Resolves on `agent_settled` for started/queued dispositions (epoch-guarded
-   * so a completion that lands before the response still counts), resolves
-   * immediately for `handled`, rejects on prompt rejection or settle timeout.
+   * Stage 1: submit the prompt and return as soon as Pi ACCEPTED it
+   * (`disposition`) — plus a `run` promise that settles at `agent_settled`.
+   * This split is what lets the bridge answer `sendPrompt` with the
+   * disposition while the stream keeps flowing to subscribers.
    */
-  async promptAndWait(
+  async startPrompt(
     message: string,
     opts: { streamingBehavior?: 'steer' | 'followUp'; settleTimeoutMs?: number } = {},
-  ): Promise<{ disposition: string; aborted: boolean }> {
+  ): Promise<{ disposition: string; run: Promise<{ aborted: boolean }> }> {
     const epochBefore = this.settledEpoch;
     const fields: Record<string, unknown> = { message };
     if (opts.streamingBehavior) fields.streamingBehavior = opts.streamingBehavior;
     const data = (await this.request<{ disposition?: string }>('prompt', fields)) ?? {};
     const disposition = typeof data.disposition === 'string' ? data.disposition : 'started';
-    if (disposition === 'handled') return { disposition, aborted: false };
+    if (disposition === 'handled') return { disposition, run: Promise.resolve({ aborted: false }) };
     if (this.settledEpoch > epochBefore) {
       // Fast completion: settled already arrived between send and response.
-      return { disposition, aborted: this.lastAbortState };
+      return { disposition, run: Promise.resolve({ aborted: this.lastAbortState }) };
     }
     const settleMs = opts.settleTimeoutMs ?? this.opts.settleTimeoutMs ?? DEFAULTS.settleTimeoutMs;
-    return new Promise((resolve, reject) => {
+    const run = new Promise<{ aborted: boolean }>((resolve, reject) => {
       const timer = setTimeout(() => {
         const i = this.settleWaiters.findIndex((w) => w.resolve === wrappedResolve);
         if (i >= 0) this.settleWaiters.splice(i, 1);
@@ -217,7 +217,7 @@ export class PiRpcClient {
       }, settleMs);
       const wrappedResolve = (v: { aborted: boolean }): void => {
         clearTimeout(timer);
-        resolve({ disposition, aborted: v.aborted });
+        resolve(v);
       };
       this.settleWaiters.push({
         resolve: wrappedResolve,
@@ -228,6 +228,20 @@ export class PiRpcClient {
         timer,
       });
     });
+    return { disposition, run };
+  }
+
+  /**
+   * Submit a prompt and run until the session is terminal for this submission
+   * (epoch-guarded against completions that land before the response).
+   */
+  async promptAndWait(
+    message: string,
+    opts: { streamingBehavior?: 'steer' | 'followUp'; settleTimeoutMs?: number } = {},
+  ): Promise<{ disposition: string; aborted: boolean }> {
+    const { disposition, run } = await this.startPrompt(message, opts);
+    const { aborted } = await run;
+    return { disposition, aborted };
   }
 
   private lastAbortState = false;

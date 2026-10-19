@@ -37,6 +37,8 @@ export interface FsLike {
   stat(p: string): Promise<FileMeta>;
   readHead(p: string, maxBytes: number): Promise<string>;
   readTail(p: string, maxBytes: number): Promise<string>;
+  /** Sequential bounded read used by the reader (POSIX semantics). */
+  readRange(p: string, offset: number, length: number): Promise<string>;
 }
 
 const HEADER_MAX = 64 * 1024;
@@ -68,6 +70,16 @@ export const nodeFs: FsLike = {
     try {
       const buf = Buffer.alloc(Math.min(maxBytes, s.size));
       const { bytesRead } = await fh.read(buf, 0, buf.length, offset);
+      return buf.subarray(0, bytesRead).toString('utf8');
+    } finally {
+      await fh.close();
+    }
+  },
+  async readRange(p, offset, length) {
+    const fh = await fsp.open(p, 'r');
+    try {
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, offset);
       return buf.subarray(0, bytesRead).toString('utf8');
     } finally {
       await fh.close();

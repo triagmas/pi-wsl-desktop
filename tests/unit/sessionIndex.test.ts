@@ -46,6 +46,13 @@ function fakeFs(shape: FakeFsShape): FsLike {
       const s = f.tail ?? f.head ?? '';
       return s.slice(Math.max(0, s.length - max));
     },
+    async readRange(path, offset, length) {
+      const f = shape.files[path];
+      if (!f) throw Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' });
+      if (f.error) throw Object.assign(new Error(f.error), { code: 'EACCES' });
+      const s = f.head ?? '';
+      return s.slice(offset, offset + length);
+    },
   };
 }
 

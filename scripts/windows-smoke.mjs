@@ -114,6 +114,8 @@ async function main() {
   const before = electronPids();
 
   const env = {
+    // Full authentic Windows environment from `cmd /c set` (APPDATA, USERPROFILE,
+    // SystemRoot, TEMP… are all provided there — no hard-coded local paths).
     ...winEnv,
     PI_WS_DESKTOP_SMOKE_REPORT: winPath(reportWsl),
     WSLENV: `${winEnv.WSLENV ? `${winEnv.WSLENV}:` : ''}PI_WS_DESKTOP_SMOKE_REPORT`,

@@ -57,7 +57,11 @@ export function startBridge(env: NodeJS.ProcessEnv = process.env): void {
 
   const handleRequest = (frame: RequestFrameT): void => {
     const { requestId, method, params, timeoutMs } = frame;
-    if (!handlers[method]) {
+    // Own-property gate: a plain `handlers[method]` lookup would serve
+    // inherited Object.prototype keys (constructor/toString/…) and crash on
+    // __proto__. The allowlist must hold at the protocol boundary itself.
+    const handler = Object.prototype.hasOwnProperty.call(handlers, method) ? handlers[method] : undefined;
+    if (typeof handler !== 'function') {
       const denied = mapUnknownMethod(method);
       respondError(requestId, 'METHOD_NOT_ALLOWED', denied?.message ?? `Method not allowed: ${method}`);
       return;
@@ -75,8 +79,13 @@ export function startBridge(env: NodeJS.ProcessEnv = process.env): void {
       controller.abort();
     }, limit);
 
-    Promise.resolve(handlers[method](params ?? {}, controller.signal))
+    Promise.resolve(handler(params ?? {}, controller.signal))
       .then((result) => {
+        if (timedOut) {
+          // a signal-ignoring handler must not turn a timeout into an ok
+          respondError(requestId, 'BRIDGE_TIMEOUT', `method ${method} exceeded ${limit}ms`);
+          return;
+        }
         emit({ v: PROTOCOL_VERSION, type: 'response', requestId, status: 'ok', result });
       })
       .catch((err: unknown) => {

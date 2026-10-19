@@ -64,9 +64,9 @@ describe('windowsPathToWslPath', () => {
     ['f:\\a', '/mnt/f/a'],
     ['F:', '/mnt/f'],
     ['F:\\', '/mnt/f'],
-    ['C:\\Users\\triag\\x', '/mnt/c/Users/triag/x'],
-    ['\\\\wsl$\\Ubuntu\\home\\triag', '/home/triag'],
-    ['\\\\wsl.localhost\\Ubuntu\\home\\triag\\sub dir', '/home/triag/sub dir'],
+    ['C:\\Users\\user\\x', '/mnt/c/Users/user/x'],
+    ['\\\\wsl$\\Ubuntu\\home\\user', '/home/user'],
+    ['\\\\wsl.localhost\\Ubuntu\\home\\user\\sub dir', '/home/user/sub dir'],
   ])('converts %s -> %s', (input, expected) => {
     expect(windowsPathToWslPath(input)).toBe(expected);
   });

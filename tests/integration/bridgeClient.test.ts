@@ -94,16 +94,27 @@ describe('BridgeClient (real subprocess, fake bridge)', () => {
   });
 
   it('close() kills the child and rejects pending requests', async () => {
-    const client = makeClient('silent');
+    let child: ReturnType<typeof spawn> | null = null;
+    const client = new BridgeClient({
+      spawn: () => {
+        child = spawn(process.execPath, [FAKE_BRIDGE], {
+          env: { PATH: '/usr/bin:/bin', FAKE_BRIDGE_MODE: 'silent' },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        return child as never;
+      },
+      requestTimeoutMs: 2000,
+    });
     const ready = new Promise<void>((resolve) => client.on('ready', () => resolve()));
     client.connect();
     await ready;
     const pending = client.request('health', {}, { timeoutMs: 10_000 });
     await new Promise((r) => setTimeout(r, 50));
+    const exited = new Promise<number | null>((resolve) => child!.once('exit', (code) => resolve(code)));
     client.close();
     await expect(pending).rejects.toMatchObject({ code: 'DISCONNECTED' });
-    await new Promise((r) => setTimeout(r, 100));
-    // after close, a new request must not resolve
+    // orphan prevention: the child must actually terminate (Review Focus 4)
+    await expect(exited).resolves.not.toBeNull();
     await expect(client.request('health')).rejects.toMatchObject({ code: 'DISCONNECTED' });
   });
 });

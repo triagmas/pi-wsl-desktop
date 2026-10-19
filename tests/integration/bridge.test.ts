@@ -58,6 +58,67 @@ describe('bridge server (real subprocess, fake env)', () => {
     }
   });
 
+  it('rejects a duplicate in-flight requestId with INVALID_REQUEST while the first completes', async () => {
+    const child = await spawnBridge({
+      HOME: mkdtempSync(path.join(os.tmpdir(), 'piwsd-home-')),
+      PI_WS_DESKTOP_BRIDGE_TEST_MODE: '1',
+    });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('dup1', '__test_slow', { ms: 300 }) + '\n');
+      child.stdin.write(req('dup1', 'health') + '\n');
+      const first = await reader.waitForResponse('dup1');
+      expect(first.frame).toMatchObject({ status: 'error' });
+      expect((first.frame as ResponseErrorFrameT).error.code).toBe('INVALID_REQUEST');
+      // the original request still completes normally
+      const done = await reader.waitFor(
+        (f) =>
+          f.frame?.type === 'response' &&
+          f.frame.requestId === 'dup1' &&
+          f.frame.status === 'ok',
+        3000,
+      );
+      expect((done.frame as ResponseOkFrameT).result).toMatchObject({ sleptMs: 300 });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('never turns a timed-out request into a late ok response', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'piwsd-home-'));
+    const slowPi = path.join(home, 'slowpi');
+    writeFileSync(
+      slowPi,
+      '#!/bin/sh\ncase "$1" in\n  --version) sleep 1; echo "5.0.0";;\n  --help) sleep 1; printf "--mode rpc\\n";;\n  *) exit 1;;\nesac\n',
+    );
+    chmodSync(slowPi, 0o755);
+    const child = await spawnBridge({ HOME: home, PI_WS_DESKTOP_PI: slowPi });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(
+        JSON.stringify({
+          v: PROTOCOL_VERSION,
+          type: 'request',
+          requestId: 't9',
+          method: 'getRuntimeInfo',
+          timeoutMs: 200,
+        }) + '\n',
+      );
+      const resp = await reader.waitForResponse('t9');
+      expect((resp.frame as ResponseErrorFrameT).error.code).toBe('BRIDGE_TIMEOUT');
+      // wait past the slow pi probe (~2s): the late resolution must not emit ok
+      await new Promise((r) => setTimeout(r, 3500));
+      const lateOks = reader.frames.filter(
+        (f) => f.frame?.type === 'response' && f.frame.requestId === 't9' && f.frame.status === 'ok',
+      );
+      expect(lateOks).toEqual([]);
+    } finally {
+      child.kill();
+    }
+  });
+
   it('rejects methods outside the read-only allowlist', async () => {
     const child = await spawnBridge({ HOME: mkdtempSync(path.join(os.tmpdir(), 'piwsd-home-')) });
     const reader = new FrameReader(child.stdout);
@@ -66,6 +127,38 @@ describe('bridge server (real subprocess, fake env)', () => {
       child.stdin.write(req('u1', 'exec') + '\n');
       const resp = await reader.waitForResponse('u1');
       expect((resp.frame as ResponseErrorFrameT).error.code).toBe('METHOD_NOT_ALLOWED');
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('rejects inherited Object.prototype keys (constructor) instead of serving them', async () => {
+    const child = await spawnBridge({ HOME: mkdtempSync(path.join(os.tmpdir(), 'piwsd-home-')) });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('u2', 'constructor') + '\n');
+      const resp = await reader.waitForResponse('u2');
+      expect(resp.frame).toMatchObject({ type: 'response', status: 'error' });
+      expect((resp.frame as ResponseErrorFrameT).error.code).toBe('METHOD_NOT_ALLOWED');
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('rejects __proto__ with METHOD_NOT_ALLOWED and stays alive afterwards', async () => {
+    const child = await spawnBridge({ HOME: mkdtempSync(path.join(os.tmpdir(), 'piwsd-home-')) });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('u3', '__proto__') + '\n');
+      const resp = await reader.waitForResponse('u3');
+      expect((resp.frame as ResponseErrorFrameT).error.code).toBe('METHOD_NOT_ALLOWED');
+      // bridge must survive the frame: next request still answers
+      child.stdin.write(req('u4', 'health') + '\n');
+      const alive = await reader.waitForResponse('u4');
+      expect((alive.frame as ResponseOkFrameT).status).toBe('ok');
+      expect(child.exitCode).toBeNull();
     } finally {
       child.kill();
     }

@@ -8,6 +8,7 @@ interface FakeConn {
   listDistros: ReturnType<typeof vi.fn>;
   selectDistro: ReturnType<typeof vi.fn>;
   subscribe: ReturnType<typeof vi.fn>;
+  subscribeChat: ReturnType<typeof vi.fn>;
 }
 
 function makeHarness() {
@@ -27,13 +28,20 @@ function makeHarness() {
       connCallbacks.push(cb);
       return () => undefined;
     }),
+    subscribeChat: vi.fn((cb: (ev: unknown) => void) => {
+      chatCallbacks.push(cb);
+      return () => {
+        chatCallbacks.length = 0;
+      };
+    }),
   };
   const connCallbacks: ((s: unknown) => void)[] = [];
+  const chatCallbacks: ((ev: unknown) => void)[] = [];
   const sent: Array<{ channel: string; payload: unknown }> = [];
   const unsubscribe = registerIpc(ipc, conn as unknown as Parameters<typeof registerIpc>[1], (channel, payload) =>
     sent.push({ channel, payload }),
   );
-  return { handlers, conn, sent, unsubscribe, connCallbacks };
+  return { handlers, conn, sent, unsubscribe, connCallbacks, chatCallbacks };
 }
 
 describe('IPC surface (main-side whitelist)', () => {
@@ -77,5 +85,32 @@ describe('IPC surface (main-side whitelist)', () => {
     expect(sent).toEqual([{ channel: 'bridge:state', payload: { phase: 'ready' } }]);
     unsubscribe();
     expect(conn.subscribe).toHaveBeenCalled();
+  });
+});
+
+describe('IPC chat event relay (M1)', () => {
+  it('forwards chat payloads from the connection to the bridge:chat channel', () => {
+    const { chatCallbacks, sent } = makeHarness();
+    expect(chatCallbacks).toHaveLength(1); // registerIpc subscribed on construction
+    const payload = { kind: 'opened', state: null };
+    chatCallbacks[0](payload);
+    expect(sent).toEqual([{ channel: 'bridge:chat', payload }]);
+  });
+
+  it('the composite unsubscribe stops chat forwarding too', () => {
+    const { chatCallbacks, sent, unsubscribe } = makeHarness();
+    unsubscribe();
+    expect(chatCallbacks).toHaveLength(0);
+    // no callback remains registered → nothing can be forwarded
+    expect(sent).toEqual([]);
+  });
+
+  it('M1 write-boundary methods pass the whitelist while junk still dies', async () => {
+    const { handlers, conn } = makeHarness();
+    const bridgeRequest = handlers.get('bridge:request')!;
+    await expect(bridgeRequest({}, 'sendPrompt')).resolves.toBeTruthy();
+    await expect(bridgeRequest({}, 'closeSession')).resolves.toBeTruthy();
+    await expect(bridgeRequest({}, 'rm')).rejects.toThrow(/not allowed/);
+    expect(conn.request).toHaveBeenCalledTimes(2);
   });
 });

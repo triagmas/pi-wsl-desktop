@@ -39,6 +39,10 @@ const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
 if (mode !== 'never-ready') {
   send({ v: 1, type: 'event', event: 'ready', payload: { fixture: true } });
 }
+if (process.env.FAKE_BRIDGE_EMIT_CHAT === '1') {
+  // M1: a chat event frame that the connection must relay to chat subscribers.
+  send({ v: 1, type: 'event', event: 'chat', payload: { kind: 'pi', name: 'agent_start', data: {} } });
+}
 if (mode === 'die-after-ready') setTimeout(() => process.exit(3), 150);
 if (mode === 'garbage') {
   process.stdout.write('not-json\n{broken\nalso-not-json\n');

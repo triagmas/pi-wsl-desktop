@@ -16,6 +16,7 @@ export interface ConnectionLike {
   listDistros(): Promise<string[]>;
   selectDistro(distro: string): void;
   subscribe(cb: (snapshot: unknown) => void): () => void;
+  subscribeChat(cb: (payload: unknown) => void): () => void;
 }
 
 export interface IpcOptions {
@@ -49,5 +50,10 @@ export function registerIpc(
     return conn.snapshot();
   });
 
-  return conn.subscribe((snapshot) => send('bridge:state', snapshot));
+  const offState = conn.subscribe((snapshot) => send('bridge:state', snapshot));
+  const offChat = conn.subscribeChat((payload) => send('bridge:chat', payload));
+  return () => {
+    offState();
+    offChat();
+  };
 }

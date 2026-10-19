@@ -37,6 +37,7 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 export class WslConnection {
   private state: ConnSnapshot = initialState();
   private readonly subscribers = new Set<(s: ConnectionSnapshot) => void>();
+  private readonly chatSubscribers = new Set<(payload: unknown) => void>();
   private client: BridgeClient | null = null;
   private backoffTimer: NodeJS.Timeout | null = null;
   private runToken = 0;
@@ -56,6 +57,12 @@ export class WslConnection {
       runtime: this.runtime,
       distros: this.distrosCache,
     };
+  }
+
+  /** M1: subscribe to chat event payloads (bridge event frames named 'chat'). */
+  subscribeChat(cb: (payload: unknown) => void): () => void {
+    this.chatSubscribers.add(cb);
+    return () => this.chatSubscribers.delete(cb);
   }
 
   subscribe(cb: (s: ConnectionSnapshot) => void): () => void {
@@ -177,6 +184,13 @@ export class WslConnection {
         client.on('ready', () => {
           readyResolved = true;
           resolve();
+        });
+        client.on('event', (frame) => {
+          if (token !== this.runToken || this.closed) return;
+          const f = frame as { type?: string; event?: string; payload?: unknown };
+          if (f.type === 'event' && f.event === 'chat') {
+            for (const cb of this.chatSubscribers) cb(f.payload);
+          }
         });
       });
       client.connect();

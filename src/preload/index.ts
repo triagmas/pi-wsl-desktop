@@ -14,6 +14,7 @@ export interface DesktopApi {
   listDistros(): Promise<string[]>;
   selectDistro(distro: string): Promise<ConnectionSnapshot>;
   onStateChange(callback: (snapshot: ConnectionSnapshot) => void): () => void;
+  onChatEvent(callback: (payload: unknown) => void): () => void;
 }
 
 const api: DesktopApi = {
@@ -31,6 +32,11 @@ const api: DesktopApi = {
     const listener = (_event: unknown, snapshot: ConnectionSnapshot) => callback(snapshot);
     ipcRenderer.on('bridge:state', listener as never);
     return () => ipcRenderer.removeListener('bridge:state', listener as never);
+  },
+  onChatEvent(callback) {
+    const listener = (_event: unknown, payload: unknown) => callback(payload);
+    ipcRenderer.on('bridge:chat', listener as never);
+    return () => ipcRenderer.removeListener('bridge:chat', listener as never);
   },
 };
 

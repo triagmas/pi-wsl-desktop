@@ -107,6 +107,17 @@ describe('WslConnection (full fake stack)', () => {
     conn.close();
   });
 
+  it('relays chat event frames to subscribeChat subscribers (M1)', async () => {
+    const { conn } = makeConn({ FAKE_BRIDGE_EMIT_CHAT: '1' });
+    const seen: unknown[] = [];
+    const off = conn.subscribeChat((ev) => seen.push(ev));
+    conn.start();
+    await waitFor(() => seen.length > 0, 8000, 'chat event');
+    expect(seen[0]).toMatchObject({ kind: 'pi', name: 'agent_start' });
+    off();
+    conn.close();
+  });
+
   it('close() stops all activity without throwing', async () => {
     const { conn } = makeConn();
     conn.start();

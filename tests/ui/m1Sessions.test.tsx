@@ -122,6 +122,34 @@ describe('SessionsView — discovery UI', () => {
   });
 });
 
+describe('SessionsView — readiness deadline (no eternal spinner, SPEC §7)', () => {
+  it('surfaces BRIDGE_TIMEOUT with retry when the bridge never becomes ready', async () => {
+    const chatSubs: Array<(p: unknown) => void> = [];
+    const stateSubs: Array<(s: RendererSnapshot) => void> = [];
+    const DISCOVERING: RendererSnapshot = { phase: 'discovering', attempt: 0, distro: null, distros: null, runtime: null };
+    const api: DesktopApi = {
+      request: vi.fn(async () => ({})) as DesktopApi['request'],
+      getStatus: async () => DISCOVERING,
+      retry: vi.fn(async () => DISCOVERING),
+      listDistros: async () => [],
+      selectDistro: vi.fn(async () => DISCOVERING),
+      onStateChange: (cb) => {
+        stateSubs.push(cb);
+        return () => undefined;
+      },
+      onChatEvent: (cb) => {
+        chatSubs.push(cb);
+        return () => undefined;
+      },
+    };
+    render(<SessionsView api={api} readyDeadlineMs={30} />);
+    const alert = await screen.findByRole('alert', undefined, { timeout: 3000 });
+    expect(alert).toHaveTextContent('BRIDGE_TIMEOUT');
+    expect(screen.queryByTestId('spinner')).toBeNull();
+    expect(screen.getByRole('button', { name: /повторить/i })).toBeTruthy();
+  });
+});
+
 describe('SessionsView — history preview (read-only)', () => {
   const readResult = (entries: unknown[], nextCursor: string | null, truncated: boolean, diagnostics: unknown[] = []) => ({
     header: { type: 'session', version: 3, id: 'x', timestamp: 'T', cwd: '/work/repo' },

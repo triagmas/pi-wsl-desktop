@@ -9,7 +9,16 @@ import { m1, parseBridgeError } from './m1api';
 import { SessionDetail } from './SessionDetail';
 import type { ProjectInfoT, SessionInfoT } from './types';
 
-export function SessionsView({ api }: { api: DesktopApi | null }) {
+const READY_DEADLINE_MS = 20_000;
+
+export function SessionsView({
+  api,
+  readyDeadlineMs = READY_DEADLINE_MS,
+}: {
+  api: DesktopApi | null;
+  /** Injectable for tests; production default 20s (SPEC §7 bounded loading). */
+  readyDeadlineMs?: number;
+}) {
   const [projects, setProjects] = useState<ProjectInfoT[]>([]);
   const [sessions, setSessions] = useState<SessionInfoT[]>([]);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
@@ -38,21 +47,41 @@ export function SessionsView({ api }: { api: DesktopApi | null }) {
 
   // Discovery needs a CONNECTED bridge: wait for phase 'ready' (the WSL
   // probe takes a moment after app start) instead of racing it into
-  // DISCONNECTED, then load exactly once (manual retry stays available).
+  // DISCONNECTED — but with a bounded deadline (SPEC §7: no eternal
+  // spinner without an escape). On deadline the view shows BRIDGE_TIMEOUT
+  // + retry; a late 'ready' still loads normally.
   useEffect(() => {
     if (!api) return;
     let alive = true;
+    const markReady = (): void => {
+      if (!alive) return;
+      window.clearTimeout(deadline);
+      setReady(true);
+    };
+    const deadline = window.setTimeout(() => {
+      if (!alive || readySeen) return;
+      setLoading(false);
+      setError((prev) => prev ?? { code: 'BRIDGE_TIMEOUT', message: 'Мост не готов — подключение занимает дольше обычного' });
+    }, readyDeadlineMs);
+    let readySeen = false;
     void api
       .getStatus()
       .then((s) => {
-        if (alive && s.phase === 'ready') setReady(true);
+        if (s.phase === 'ready') {
+          readySeen = true;
+          markReady();
+        }
       })
       .catch(() => undefined);
     const off = api.onStateChange((s) => {
-      if (alive && s.phase === 'ready') setReady(true);
+      if (s.phase === 'ready' && !readySeen) {
+        readySeen = true;
+        markReady();
+      }
     });
     return () => {
       alive = false;
+      window.clearTimeout(deadline);
       off();
     };
   }, [api]);
@@ -69,6 +98,24 @@ export function SessionsView({ api }: { api: DesktopApi | null }) {
     const t = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(t);
   }, [api, ready, load]);
+
+  const retry = useCallback(async () => {
+    if (!api) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const s = await api.getStatus();
+      if (s.phase === 'ready') {
+        await load();
+        return;
+      }
+      setLoading(false);
+      setError({ code: 'BRIDGE_TIMEOUT', message: 'Мост ещё не готов — повторите через несколько секунд' });
+    } catch (err) {
+      setLoading(false);
+      setError(parseBridgeError(err));
+    }
+  }, [api, load]);
 
   if (!api) {
     return (
@@ -97,7 +144,7 @@ export function SessionsView({ api }: { api: DesktopApi | null }) {
         <div className="error-box" role="alert" data-testid="sessions-error">
           <strong>{error.code}</strong> — {error.message}
           <div>
-            <button type="button" onClick={() => void load()}>
+            <button type="button" onClick={() => void retry()}>
               Повторить
             </button>
           </div>

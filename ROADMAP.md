@@ -5,7 +5,7 @@
 
 [📘 Продукт](PRODUCT.md) · [🛠️ Спецификация](SPECIFICATION.md) · [🤖 Правила для Pi](AGENTS.md) · [🎯 Roadmap Issue #1](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
-**Цель:** Pi WSL Desktop 1.0 · **Статус:** подготовка / M0 ещё не принят · **Разработка:** крупными тематическими пакетами и PR.
+**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap принят · M0 предъявлен на независимое ревью · **Разработка:** крупными тематическими пакетами и PR.
 
 ---
 
@@ -13,8 +13,8 @@
 
 | Этап | Состояние | Основание | Приёмка |
 |:--|:--|:--|:--|
-| **Bootstrap — контракты** | 🟡 На ревью | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) | Ожидается merge |
-| **M0 — Foundation & WSL Bridge** | ⬜ Запланирован | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | — |
+| **Bootstrap — контракты** | ✅ Принято | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged 2026-10-19 (`877a573`) | Merge выполнен владельцем |
+| **M0 — Foundation & WSL Bridge** | 🟡 На ревью | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) · PR M0 (см. журнал ниже) | Ожидается `ACCEPT` ревьюера и merge |
 | **M1 — Sessions & Chat** | ⬜ Запланирован | Будущий Issue | — |
 | **M2 — Pi Manager** | ⬜ Запланирован | Будущий Issue | — |
 | **M3 — Module System** | ⬜ Запланирован | Будущий Issue | — |
@@ -27,22 +27,24 @@
 - [x] Создан [публичный репозиторий](https://github.com/triagmas/pi-wsl-desktop).
 - [x] Настроена [защита main](https://github.com/triagmas/pi-wsl-desktop/rules/25366026): запрет удаления, force push и обязательный PR.
 - [x] Создан [управляющий Issue #1](https://github.com/triagmas/pi-wsl-desktop/issues/1) и первый [макропакет Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2).
-- [ ] **Приняты** документы `PRODUCT.md`, `SPECIFICATION.md`, `AGENTS.md` и данный `ROADMAP.md` через [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3).
-- [ ] **Принят** безопасный [Repository Contract CI](.github/workflows/repository-contract.yml) в PR #3 (только документация и правила учёта, **не** тесты продукта).
+- [x] **Приняты** документы `PRODUCT.md`, `SPECIFICATION.md`, `AGENTS.md` и данный `ROADMAP.md` через [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) (merged 2026-10-19, `877a573`).
+- [x] **Принят** безопасный [Repository Contract CI](.github/workflows/repository-contract.yml) в PR #3 (только документация и правила учёта, **не** тесты продукта).
 
-> **Важно:** наличие файлов в Draft PR — не выполненный этап. После принятия и слияния PR #3 следующая PR-поставка обязана обновить эту отметку и журнал ниже. Нельзя засчитывать несмерженный код.
+> **Важно:** наличие файлов в Draft PR — не выполненный этап. Отметки выше поставлены только после фактического merge PR #3. Нельзя засчитывать несмерженный код.
 
 ## 🧱 M0 — Foundation & WSL Bridge
 
 **Цель:** безопасно подключиться из Windows к существующему Pi в Ubuntu WSL2. [Техническое задание #2](https://github.com/triagmas/pi-wsl-desktop/issues/2).
 
-- [ ] Электронная оболочка с минимальным React UI и диагностикой окружения.
-- [ ] Типизированный и версионированный контракт Desktop ↔ Bridge с идентификаторами запросов.
-- [ ] Один устойчивый WSL Bridge: запуск, остановка, health, тайм-ауты, восстановление.
-- [ ] Обнаружение установленного Pi/Node в WSL с нестандартным `PATH`, без повторной установки.
-- [ ] Согласование фактических команд Pi RPC/SDK с установленной версией.
-- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR.
-- [ ] Приёмка M0 независимым ревьюером и владельцем продукта.
+> **Статус пунктов:** каждый подпункт ниже **реализован и предъявлен** в PR M0 (доказательства — в скобках). Чекбоксы остаются `[ ]`: по правилам этого файла `[x]` ставится только после `ACCEPT` независимого ревьюера и merge владельцем — статус не преувеличивается.
+
+- [ ] Электронная оболочка с минимальным React UI и диагностикой окружения. — *выполнено в PR*: Playwright E2E 2/2 (настоящее окно, contextIsolation/sandbox-доказательство, ready и error+retry), UI RTL 6/6, отсутствие вечного спиннера подтверждено тестом.
+- [ ] Типизированный и версионированный контракт Desktop ↔ Bridge с идентификаторами запросов. — *выполнено в PR*: `src/shared/protocol.ts` (Zod, `protocolVersion=1`, `requestId`, строгие кадры, лимит 1 МиБ), contract 13/13.
+- [ ] Один устойчивый WSL Bridge: запуск, остановка, health, тайм-ауты, восстановление. — *выполнено в PR*: integration 40/40 (timeout/cancel/crash/oversize/invalid-frames/reconnect/no-write), state machine unit 11/11, `close()` без сиротских процессов.
+- [ ] Обнаружение установленного Pi/Node в WSL с нестандартным `PATH`, без повторной установки. — *выполнено в PR*: probe unit 3/3 (включая `~/.local/bin` и `#!/usr/bin/env node`), UTF-16LE-парсер на реальной фикстуре `wsl.exe`; реальный smoke: node найден в `~/.local/bin`.
+- [ ] Согласование фактических команд Pi RPC/SDK с установленной версией. — *выполнено в PR*: реальный smoke — Pi `1.3.0`, `--mode rpc` → `rpcSupported: true`; негативные тесты `PI_NOT_FOUND` / `PI_INCOMPATIBLE`.
+- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 114 PASS / 5 SKIP (smoke-env), E2E 2/2 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS.
+- [ ] Приёмка M0 независимым ревьюером и владельцем продукта. — **не выполнено**, ожидается `ACCEPT` и merge; единственный незакрытый пункт этапа.
 
 ## 💬 M1 — Sessions & Chat
 
@@ -83,6 +85,8 @@
 | Дата | Задача / этап | Подтверждение | Итог |
 |:--|:--|:--|:--|
 | 2026-10-19 | Инициализация GitHub и настройка защиты `main` | [Репозиторий](https://github.com/triagmas/pi-wsl-desktop), [Ruleset](https://github.com/triagmas/pi-wsl-desktop/rules/25366026) | ✅ Организационные задачи выполнены |
+| 2026-10-19 | Bootstrap-контракты приняты | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged, `877a573` | ✅ Документы и Repository Contract CI приняты merge владельца |
+| 2026-10-19 | M0 реализация предъявлена на ревью | PR M0 (ссылка — в таблице состояния), [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | 🟡 Vitest 114 PASS / 5 SKIP · E2E 2/2 PASS · WSL smoke 4/4 PASS · Windows GUI smoke PASS · ожидается `ACCEPT` |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

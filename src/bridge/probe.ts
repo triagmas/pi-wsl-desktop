@@ -74,7 +74,19 @@ export async function probePi(
   const home = opts.home ?? env.HOME ?? '';
   const spawnFn = opts.spawnFn ?? defaultSpawn;
   const timeoutMs = opts.timeoutMs ?? 8000;
-  const childEnv = { PATH: '/usr/bin:/bin' };
+  // Candidates may be `#!/usr/bin/env node` scripts (the real ~/.local/bin/pi
+  // is), so probes must run with a PATH that can actually resolve node:
+  // the bridge's own node directory, the user's ~/.local/bin, then system dirs.
+  const probePath = [
+    path.dirname(process.execPath),
+    home ? path.posix.join(home, '.local', 'bin') : '',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ]
+    .filter(Boolean)
+    .join(':');
+  const childEnv = { PATH: probePath };
 
   for (const candidate of candidatePaths(env, home)) {
     let versionOut: SpawnResult;

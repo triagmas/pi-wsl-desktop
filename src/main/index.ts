@@ -87,6 +87,32 @@ app.whenReady().then(() => {
 
   createWindow();
   conn.start();
+
+  // Optional smoke-report sink (env-gated like the other test hooks):
+  // appends every connection snapshot for external verification of a real
+  // Windows+WSL run. Never active in normal use.
+  const smokeReport = process.env.PI_WS_DESKTOP_SMOKE_REPORT;
+  if (smokeReport) {
+    void import('node:fs').then(({ appendFileSync }) => {
+      conn.subscribe((snap) => {
+        try {
+          appendFileSync(
+            smokeReport,
+            JSON.stringify({
+              t: new Date().toISOString(),
+              phase: snap.phase,
+              attempt: snap.attempt,
+              code: snap.lastError?.code ?? null,
+              runtime: snap.runtime,
+            }) + '\n',
+            'utf8',
+          );
+        } catch {
+          // reporting must never break the app
+        }
+      });
+    });
+  }
 });
 
 app.on('window-all-closed', () => {

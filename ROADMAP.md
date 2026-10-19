@@ -38,12 +38,12 @@
 
 > **Статус пунктов:** каждый подпункт ниже **реализован и предъявлен** в PR M0 (доказательства — в скобках). Чекбоксы остаются `[ ]`: по правилам этого файла `[x]` ставится только после `ACCEPT` независимого ревьюера и merge владельцем — статус не преувеличивается.
 
-- [ ] Электронная оболочка с минимальным React UI и диагностикой окружения. — *выполнено в PR*: Playwright E2E 2/2 (настоящее окно, contextIsolation/sandbox-доказательство, ready и error+retry), UI RTL 6/6, отсутствие вечного спиннера подтверждено тестом.
+- [ ] Электронная оболочка с минимальным React UI и диагностикой окружения. — *выполнено в PR*: Playwright E2E 4/4 (настоящее окно, contextIsolation/sandbox-доказательство, ready, error+retry и ready-gate `PI_NOT_FOUND`/`PI_INCOMPATIBLE`), UI RTL 6/6, отсутствие вечного спиннера подтверждено тестом.
 - [ ] Типизированный и версионированный контракт Desktop ↔ Bridge с идентификаторами запросов. — *выполнено в PR*: `src/shared/protocol.ts` (Zod, `protocolVersion=1`, `requestId`, строгие кадры, лимит 1 МиБ), contract 13/13.
 - [ ] Один устойчивый WSL Bridge: запуск, остановка, health, тайм-ауты, восстановление. — *выполнено в PR*: integration 40/40 (timeout/cancel/crash/oversize/invalid-frames/reconnect/no-write), state machine unit 11/11, `close()` без сиротских процессов.
 - [ ] Обнаружение установленного Pi/Node в WSL с нестандартным `PATH`, без повторной установки. — *выполнено в PR*: probe unit 3/3 (включая `~/.local/bin` и `#!/usr/bin/env node`), UTF-16LE-парсер на реальной фикстуре `wsl.exe`; реальный smoke: node найден в `~/.local/bin`.
 - [ ] Согласование фактических команд Pi RPC/SDK с установленной версией. — *выполнено в PR*: реальный smoke — Pi `1.3.0`, `--mode rpc` → `rpcSupported: true`; негативные тесты `PI_NOT_FOUND` / `PI_INCOMPATIBLE`.
-- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 118 PASS / 5 SKIP (smoke-env), E2E 2/2 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS.
+- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 131 PASS / 5 SKIP (smoke-env), E2E 4/4 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS (ownership-гейты: decoy-survived + own-stopped).
 - [ ] Приёмка M0 независимым ревьюером и владельцем продукта. — **не выполнено**, ожидается `ACCEPT` и merge; единственный незакрытый пункт этапа.
 
 ## 💬 M1 — Sessions & Chat
@@ -87,6 +87,7 @@
 | 2026-10-19 | Инициализация GitHub и настройка защиты `main` | [Репозиторий](https://github.com/triagmas/pi-wsl-desktop), [Ruleset](https://github.com/triagmas/pi-wsl-desktop/rules/25366026) | ✅ Организационные задачи выполнены |
 | 2026-10-19 | Bootstrap-контракты приняты | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged, `877a573` | ✅ Документы и Repository Contract CI приняты merge владельца |
 | 2026-10-19 | M0 реализация предъявлена на ревью | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4), [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | 🟡 Vitest 118 PASS / 5 SKIP · E2E 2/2 PASS · WSL smoke 4/4 PASS · Windows GUI smoke PASS · ожидается `ACCEPT` |
+| 2026-10-19 | Ревью PR #4: CHANGES REQUIRED → фиксы в той же ветке | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) (комментарии `6260960975`, `6262065719`) | 🟡 P1 ready-gate (`PI_NOT_FOUND`/`PI_INCOMPATIBLE` до READY) + P1 ownership-cleanup Windows smoke (decoy-survived) + P2 «RPC advertised by help» → Vitest 131 PASS / 5 SKIP · CI Linux+Windows PASS · E2E 4/4 · оба smoke PASS · запрошено повторное ревью |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

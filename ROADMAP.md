@@ -15,7 +15,7 @@
 |:--|:--|:--|:--|
 | **Bootstrap — контракты** | ✅ Принято | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged 2026-10-19 (`877a573`) | Merge выполнен владельцем |
 | **M0 — Foundation & WSL Bridge** | ✅ Принято | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) closed · [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged 2026-10-19 (`1c24cf23`) | [ACCEPT](https://github.com/triagmas/pi-wsl-desktop/pull/4#pullrequestreview-5568765644) · merge владельца |
-| **M1 — Sessions & Chat** | 🟡 Подготовка (код ещё не предъявлен) | [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) · стартовая ветка `feat/m1-sessions-chat-r01` | Реализация и приёмка впереди |
+| **M1 — Sessions & Chat** | 🟡 На ревью | [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) · [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) (ветка `feat/m1-sessions-chat-r01`) | Ожидается `ACCEPT` независимого ревью и merge владельца |
 | **M2 — Pi Manager** | ⬜ Запланирован | Будущий Issue | — |
 | **M3 — Module System** | ⬜ Запланирован | Будущий Issue | — |
 | **M4 — Desktop 1.0** | ⬜ Запланирован | Будущий Issue | — |
@@ -48,12 +48,14 @@
 
 ## 💬 M1 — Sessions & Chat
 
-- [ ] Список проектов и реальных сессий Pi по доступным каталогам.
-- [ ] Чтение истории без изменения оригинальных JSONL.
-- [ ] Продолжение старой сессии через официальный Pi RPC/SDK.
-- [ ] Потоковые ответы, события инструментов, модель/контекст, отмена.
-- [ ] Корректная конкурентность CLI/GUI, ошибки чтения и восстановление.
-- [ ] Unit/Contract/Integration/E2E и реальные Windows+WSL тесты приняты.
+> **Реализация предъявлена в [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6):** Vitest **262 PASS / 8 SKIP**, E2E **7/7 PASS**, Product CI (Linux+Windows) и Repository Contract **PASS**, реальные прогоны отдельно от CI: `REAL_PI=1` smoke **3/3 PASS**, `REAL_WSL=1` **4/4 PASS**, нативный Windows GUI smoke **PASS**. Чекбоксы остаются `[ ]` до `ACCEPT` независимого ревью и merge владельца.
+
+- [ ] Список проектов и реальных сессий Pi по доступным каталогам. — *выполнено в PR #6*: индекс по реальным каталогам (`src/bridge/sessions.ts`: проекты из header-`cwd`, коллизии кодировок, пустые/битые/недоступные файлы, activeWrite-эвристика) — unit 12/12 + integration 5/5; E2E-discovery ✓.
+- [ ] Чтение истории без изменения оригинальных JSONL. — *выполнено в PR #6*: ограниченный read-only парсер (`sessionReader`: дерево parentId, легаси v1/v2, partial-trailing, corrupt-строки с номерами, пагинация) — unit 14/14 + integration 5/5 c sha256+mtime; реальный smoke: no-mutation против настоящего store.
+- [ ] Продолжение старой сессии через официальный Pi RPC/SDK. — *выполнено в PR #6*: `ChatSessionManager` спавнит `pi --mode rpc --session <path>` с cwd сессии (запись только официальным API) — unit 16/16, сквозная интеграция через настоящий bridge, E2E-resume ✓; изолированный живой handshake реальной Pi 1.3.0 (без model-call) в смоукe.
+- [ ] Потоковые ответы, события инструментов, модель/контекст, отмена. — *выполнено в PR #6*: `PiRpcClient` (id-корреляция, `agent_settled`, epoch-гонки, oversize/краш) unit 16/16 + реальный subprocess-интеграл 10/10; UI: delta-стрим до `message_end`, чипы инструментов, кнопка Прервать — RTL 24/24, E2E стрим+interrupt ✓.
+- [ ] Корректная конкурентность CLI/GUI, ошибки чтения и восстановление. — *выполнено в PR #6*: `SESSION_CONFLICT` (окно активной записи + внешняя запись в idle → prompt НЕ отправляется), `RESOURCE_BUSY` (один слот), `SESSION_NOT_FOUND`, fail-closed таймауты, readiness-deadline `BRIDGE_TIMEOUT` (без вечного спиннера), recovery-состояния — unit/integration/E2E включая реальный E2E-конфликт ✓.
+- [ ] Unit/Contract/Integration/E2E и реальные Windows+WSL тесты приняты. — *предъявлено в PR #6, ожидает ACCEPT*: Vitest 262 PASS / 8 SKIP (8 = env-gated реальные смоуки), E2E 7/7, Product CI + Repository Contract PASS; реальные прогоны: `REAL_PI` 3/3, `REAL_WSL` 4/4, Windows GUI smoke PASS; write-упражнение и model-call — **NOT RUN** (нет авторизации владельца).
 
 ## 🧰 M2 — Pi Manager
 
@@ -91,6 +93,7 @@
 | 2026-10-19 | Повторное ревью PR #4: CHANGES REQUIRED (safety cleanup) → фиксы | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) (комментарии `6262312689`, ответ `6262772850`) | 🟡 fail-closed `planCleanup` (0 kill без доказанной идентичности, INCONCLUSIVE→FAIL) + точный cmdline-аргумент → Vitest 139 PASS / 5 SKIP · CI PASS · E2E 4/4 · оба smoke PASS · запрошено следующее ревью |
 | 2026-10-19 | ✅ M0 Foundation & WSL Bridge принят и слит | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) · [ACCEPT review](https://github.com/triagmas/pi-wsl-desktop/pull/4#pullrequestreview-5568765644) · `main` `1c24cf23` · [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) closed | ✅ 67 файлов, +10 106 / −15; Linux Vitest 139 PASS / 5 SKIP, Electron E2E 4 PASS, Windows 83 PASS / 4 SKIP; Product CI и Repository Contract PASS; реальные WSL 4/4 + Windows GUI smoke PASS — подтверждены отчётом разработчика |
 | 2026-10-19 | M1 Sessions & Chat подготовка | [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) · ветка `feat/m1-sessions-chat-r01` | 🟡 Требования и исходная ветка заведены; код M1 и тесты ещё не реализованы |
+| 2026-10-19 | M1 Sessions & Chat реализация предъявлена на ревью | [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) · [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) | 🟡 Vitest 262 PASS / 8 SKIP · E2E 7/7 · Product CI (Linux+Windows) PASS · REAL_PI smoke 3/3 PASS · REAL_WSL 4/4 PASS · Windows GUI smoke PASS · write/model-call NOT RUN (без авторизации) · ожидается `ACCEPT` |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

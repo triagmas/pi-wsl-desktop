@@ -4,7 +4,7 @@
 >
 > Одно окно для проектов, чатов, сессий, Skills, Extensions и MCP. Без собственной реализации Pi, копирования сессий или второй конфигурации.
 
-**Текущий статус:** M0 принят — [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged (`main` `1c24cf23`) · M1 Sessions & Chat готовится ([Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5)) · `v0.1` · актуальные статусы и выполненные задачи — в [ROADMAP.md](ROADMAP.md).
+**Текущий статус:** M0 принят — [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged (`main` `1c24cf23`) · M1 Sessions & Chat реализован и предъявлен на ревью ([Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) · [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6)) · `v0.1` · актуальные статусы и выполненные задачи — в [ROADMAP.md](ROADMAP.md).
 
 ## Документация
 

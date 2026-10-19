@@ -16,7 +16,7 @@ export interface ConnError {
 export type ConnEvent =
   | { type: 'DISCOVER_START' }
   | { type: 'DISCOVER_OK' }
-  | { type: 'DISCOVER_FAIL'; retryable?: boolean }
+  | { type: 'DISCOVER_FAIL'; retryable?: boolean; error?: ConnError }
   | { type: 'SPAWNED' }
   | { type: 'READY' }
   | { type: 'LOST'; retryable?: boolean }
@@ -62,7 +62,12 @@ export function reduce(s: ConnSnapshot, e: ConnEvent, cfg: StateConfig): ConnSna
       return s.phase === 'connecting' ? { phase: 'ready', attempt: 0 } : s;
     case 'DISCOVER_FAIL':
       if (s.phase !== 'discovering') return s;
-      return failed(s, e, { code: 'WSL_UNAVAILABLE', message: 'WSL discovery failed' }, cfg);
+      return failed(
+        s,
+        e,
+        e.error ?? { code: 'WSL_UNAVAILABLE', message: 'WSL discovery failed' },
+        cfg,
+      );
     case 'LOST':
       if (s.phase !== 'ready' && s.phase !== 'connecting') return s;
       return failed(s, e, { code: 'DISCONNECTED', message: 'Bridge connection lost' }, cfg);

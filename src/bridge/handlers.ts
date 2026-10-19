@@ -4,18 +4,11 @@
  * Every handler is a pure read/diagnostic operation: no file writes, no
  * session creation, no model calls. Writes are out of scope for M0 by design.
  */
-import { M0_METHODS, PROTOCOL_VERSION, type ErrorCode } from '../shared/protocol';
+import { M0_METHODS, PROTOCOL_VERSION } from '../shared/protocol';
+import { BridgeError } from '../shared/errors';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
 
-export class BridgeError extends Error {
-  constructor(
-    public readonly code: ErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'BridgeError';
-  }
-}
+export { BridgeError };
 
 export type Handler = (params: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>;
 

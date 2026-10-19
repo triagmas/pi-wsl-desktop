@@ -95,6 +95,14 @@ describe('connection state machine', () => {
     expect(reduce(ready, { type: 'BACKOFF_DONE' }, cfg)).toEqual(ready);
   });
 
+  it('records the real error message from DISCOVER_FAIL payloads', () => {
+    const s = walk([
+      { type: 'DISCOVER_START' },
+      { type: 'DISCOVER_FAIL', error: { code: 'NODE_NOT_FOUND', message: 'no node' } },
+    ]);
+    expect(s.lastError).toEqual({ code: 'NODE_NOT_FOUND', message: 'no node' });
+  });
+
   it('records lastError on LOST', () => {
     const s = walk([
       { type: 'DISCOVER_START' },

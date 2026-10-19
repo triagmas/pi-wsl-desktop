@@ -1,0 +1,54 @@
+#!/bin/bash
+# Fake wsl.exe for integration tests. Stages are distinguished by argv shape:
+#   list:   -l -q                → FAKE_WSL_LIST_MODE   (default: list)
+#   probe:  -d X --exec /bin/sh… → FAKE_WSL_PROBE_MODE  (default: probe)
+#   bridge: -d X --exec NODE B   → FAKE_WSL_BRIDGE_MODE (default: exec-bridge)
+# Every invocation appends its full argv to $FAKE_WSL_LOG (one line, [arg] parts).
+
+if [ -n "$FAKE_WSL_LOG" ]; then
+  {
+    printf 'ARGV:'
+    for a in "$@"; do printf ' [%s]' "$a"; done
+    printf '\n'
+  } >> "$FAKE_WSL_LOG"
+fi
+
+is_probe=0
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--exec" ] && [ "$a" = "/bin/sh" ]; then is_probe=1; fi
+  prev="$a"
+done
+
+if [ "$1" = "-l" ] || [ "$1" = "--list" ]; then
+  case "${FAKE_WSL_LIST_MODE:-list}" in
+    list)
+      printf 'Ubuntu\r\nUbuntu\xe4\xb8\xad\xe6\x96\x87\r\n' | iconv -f UTF-8 -t UTF-16LE
+      exit 0 ;;
+    hang) exec sleep 30 ;;
+    crash) exit 1 ;;
+    *) exit 1 ;;
+  esac
+elif [ "$is_probe" = "1" ]; then
+  case "${FAKE_WSL_PROBE_MODE:-probe}" in
+    probe)
+      probe_json="$FAKE_WSL_PROBE_JSON"
+      if [ -z "$probe_json" ]; then probe_json='{"ok":true,"nodePath":"/fake/node","nodeVersion":"v22.1.0","home":"/home/fake","bridgeOk":true}'; fi
+      printf '%s\n' "$probe_json"
+      exit 0 ;;
+    hang) exec sleep 30 ;;
+    crash) exit 1 ;;
+    *) exit 1 ;;
+  esac
+else
+  case "${FAKE_WSL_BRIDGE_MODE:-exec-bridge}" in
+    exec-bridge)
+      # last two args: <nodePath> <bridgePath>
+      n="${@: -2:1}"
+      b="${@: -1}"
+      exec "$n" "$b" ;;
+    hang) exec sleep 30 ;;
+    crash) exit 1 ;;
+    *) exit 1 ;;
+  esac
+fi

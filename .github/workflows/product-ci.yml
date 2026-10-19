@@ -1,0 +1,91 @@
+# Product CI: REAL gates for the M0+ codebase — typecheck, lint, unit,
+# contract, integration, UI tests, Electron build and Playwright Electron
+# E2E on standard free GitHub-hosted runners. Complements (does not replace)
+# the Repository Contract documentation workflow and the manual real
+# Windows+WSL smoke, which is never substituted by this file.
+name: Product CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Zero trust for external PRs: read-only token, no secrets, no id-token,
+# standard runners only, no pull_request_target / workflow_run.
+permissions:
+  contents: read
+
+concurrency:
+  group: product-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux — typecheck, lint, tests, build, Electron E2E
+    runs-on: ubuntu-latest # Standard GitHub-hosted runner: free for public repos.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout PR code (read-only token; no secrets)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22 (npm cache)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install pinned dependencies (lockfile)
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit, node + web configs)
+        run: npm run typecheck
+
+      - name: Lint (ESLint flat config)
+        run: npm run lint
+
+      - name: Unit, contract, integration and UI tests (Vitest + RTL + Zod)
+        run: npx vitest run
+
+      - name: Build (esbuild main/preload/bridge + Vite renderer)
+        run: npm run build
+
+      # Real Electron window under Xvfb. The spec's error path runs anywhere;
+      # its assertions never depend on a locally installed WSL or Pi.
+      - name: Playwright Electron E2E
+        run: xvfb-run -a npx playwright test
+
+  windows:
+    name: Windows — typecheck, lint, unit+contract, build
+    runs-on: windows-latest # Standard GitHub-hosted runner: free for public repos.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout PR code (read-only token; no secrets)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22 (npm cache)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install pinned dependencies (lockfile)
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit, node + web configs)
+        run: npm run typecheck
+
+      - name: Lint (ESLint flat config)
+        run: npm run lint
+
+      # Pure cross-platform suites only: integration fakes are POSIX scripts
+      # and the real WSL smoke is a manual gate, not a CI claim.
+      - name: Unit and contract tests (Vitest)
+        run: npx vitest run --project unit --project contract
+
+      - name: Build (esbuild main/preload/bridge + Vite renderer)
+        run: npm run build

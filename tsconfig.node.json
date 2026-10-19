@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/shared/**/*.ts",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/bridge/**/*.ts",
+    "tests/unit/**/*.ts",
+    "tests/contract/**/*.ts",
+    "tests/integration/**/*.ts",
+    "tests/smoke/**/*.ts",
+    "tests/helpers/**/*.ts",
+    "e2e/**/*.ts",
+    "scripts/**/*.mjs",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "eslint.config.mjs"
+  ]
+}

@@ -163,3 +163,7 @@ playwright-report/
 test-results/
 .DS_Store
 Thumbs.db
+
+# Pi WSL Desktop: execution workspace and local smoke artifacts
+.superpowers/
+artifacts/

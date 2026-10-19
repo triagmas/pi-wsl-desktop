@@ -14,7 +14,7 @@
 | Этап | Состояние | Основание | Приёмка |
 |:--|:--|:--|:--|
 | **Bootstrap — контракты** | ✅ Принято | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged 2026-10-19 (`877a573`) | Merge выполнен владельцем |
-| **M0 — Foundation & WSL Bridge** | 🟡 На ревью | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) · PR M0 (см. журнал ниже) | Ожидается `ACCEPT` ревьюера и merge |
+| **M0 — Foundation & WSL Bridge** | 🟡 На ревью | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) · [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) | Ожидается `ACCEPT` ревьюера и merge |
 | **M1 — Sessions & Chat** | ⬜ Запланирован | Будущий Issue | — |
 | **M2 — Pi Manager** | ⬜ Запланирован | Будущий Issue | — |
 | **M3 — Module System** | ⬜ Запланирован | Будущий Issue | — |
@@ -43,7 +43,7 @@
 - [ ] Один устойчивый WSL Bridge: запуск, остановка, health, тайм-ауты, восстановление. — *выполнено в PR*: integration 40/40 (timeout/cancel/crash/oversize/invalid-frames/reconnect/no-write), state machine unit 11/11, `close()` без сиротских процессов.
 - [ ] Обнаружение установленного Pi/Node в WSL с нестандартным `PATH`, без повторной установки. — *выполнено в PR*: probe unit 3/3 (включая `~/.local/bin` и `#!/usr/bin/env node`), UTF-16LE-парсер на реальной фикстуре `wsl.exe`; реальный smoke: node найден в `~/.local/bin`.
 - [ ] Согласование фактических команд Pi RPC/SDK с установленной версией. — *выполнено в PR*: реальный smoke — Pi `1.3.0`, `--mode rpc` → `rpcSupported: true`; негативные тесты `PI_NOT_FOUND` / `PI_INCOMPATIBLE`.
-- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 114 PASS / 5 SKIP (smoke-env), E2E 2/2 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS.
+- [ ] Unit, Contract, Integration, UI и реальный Windows+WSL smoke — доказательства в PR. — *выполнено в PR*: Vitest 118 PASS / 5 SKIP (smoke-env), E2E 2/2 PASS, WSL-side smoke 4/4 PASS, Windows GUI smoke PASS.
 - [ ] Приёмка M0 независимым ревьюером и владельцем продукта. — **не выполнено**, ожидается `ACCEPT` и merge; единственный незакрытый пункт этапа.
 
 ## 💬 M1 — Sessions & Chat
@@ -86,7 +86,7 @@
 |:--|:--|:--|:--|
 | 2026-10-19 | Инициализация GitHub и настройка защиты `main` | [Репозиторий](https://github.com/triagmas/pi-wsl-desktop), [Ruleset](https://github.com/triagmas/pi-wsl-desktop/rules/25366026) | ✅ Организационные задачи выполнены |
 | 2026-10-19 | Bootstrap-контракты приняты | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged, `877a573` | ✅ Документы и Repository Contract CI приняты merge владельца |
-| 2026-10-19 | M0 реализация предъявлена на ревью | PR M0 (ссылка — в таблице состояния), [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | 🟡 Vitest 114 PASS / 5 SKIP · E2E 2/2 PASS · WSL smoke 4/4 PASS · Windows GUI smoke PASS · ожидается `ACCEPT` |
+| 2026-10-19 | M0 реализация предъявлена на ревью | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4), [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | 🟡 Vitest 118 PASS / 5 SKIP · E2E 2/2 PASS · WSL smoke 4/4 PASS · Windows GUI smoke PASS · ожидается `ACCEPT` |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

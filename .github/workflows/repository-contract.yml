@@ -72,9 +72,10 @@ jobs:
                   ["git", "diff", "--name-only", "HEAD^1", "HEAD"],
                   text=True,
               ).splitlines()
+              # Keep any executable/config/resource change traceable, even if
+              # Pi chooses a new source directory that does not exist today.
               functional = any(
-                  path.startswith(("src/", "tests/", "packages/", "apps/"))
-                  or path in ("package.json", "package-lock.json", "pnpm-lock.yaml")
+                  not path.endswith(".md") and path not in (".gitignore", "LICENSE")
                   for path in changed
               )
               if functional and "ROADMAP.md" not in changed:

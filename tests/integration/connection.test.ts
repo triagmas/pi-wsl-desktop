@@ -75,7 +75,7 @@ describe('WslConnection (full fake stack)', () => {
     const { conn, log } = makeConn({ FAKE_BRIDGE_MODE: 'die-after-ready' }, 3);
     conn.start();
     await waitFor(() => conn.snapshot().phase === 'ready', 8000, 'first ready');
-    const countExec = () => readFileSync(log, 'utf8').split('\n').filter((l) => l.includes('[--exec]')).length;
+    const countExec = () => readFileSync(log, 'utf8').split('\n').filter((l) => l.includes('[/usr/bin/env]')).length;
     await waitFor(() => countExec() >= 2, 8000, 'respawned');
     await waitFor(() => conn.snapshot().phase === 'ready', 8000, 'ready again');
     expect(countExec()).toBeGreaterThanOrEqual(2);

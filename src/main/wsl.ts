@@ -127,9 +127,20 @@ export interface StartBridgeOptions extends WslCallOptions {
 /** Launch the long-lived bridge. No timeout by design — the client owns the lifecycle. */
 export function startBridgeProcess(opts: StartBridgeOptions): ChildProcessWithoutNullStreams {
   const wslPath = opts.wslPath ?? DEFAULT_WSL_PATH;
-  return spawn(wslPath, ['-d', opts.distro, '--exec', opts.nodePath, opts.bridgeWslPath], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-    env: opts.env ? { ...process.env, ...opts.env } : process.env,
-  });
+  return spawn(
+    wslPath,
+    // env(1) inside WSL sets the distro for the bridge: wsl.exe does not carry
+    // arbitrary spawning-process env into the distro (WSLENV only covers a
+    // fixed set), while argv is passed through verbatim.
+    ['-d', opts.distro, '--exec', '/usr/bin/env', `PI_WS_DESKTOP_DISTRO=${opts.distro}`, opts.nodePath, opts.bridgeWslPath],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        ...(opts.env ? { ...process.env, ...opts.env } : process.env),
+        // also set on the spawning side for direct (non-wsl) test harnesses
+        PI_WS_DESKTOP_DISTRO: opts.distro,
+      },
+    },
+  );
 }

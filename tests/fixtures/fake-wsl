@@ -43,7 +43,14 @@ elif [ "$is_probe" = "1" ]; then
 else
   case "${FAKE_WSL_BRIDGE_MODE:-exec-bridge}" in
     exec-bridge)
-      # last two args: <nodePath> <bridgePath>
+      # honour `env VAR=VALUE …` assignments inside the --exec argv, then run
+      # the last two args as <nodePath> <bridgePath> (mirrors env(1) semantics)
+      for a in "$@"; do
+        case "$a" in
+          [A-Za-z_]*=*) export "${a?}" ;;
+        esac
+      done
+      if [ -n "$FAKE_WSL_LOG" ]; then printf 'ENV DISTRO=[%s]\n' "${PI_WS_DESKTOP_DISTRO:-}" >> "$FAKE_WSL_LOG"; fi
       n="${@: -2:1}"
       b="${@: -1}"
       exec "$n" "$b" ;;

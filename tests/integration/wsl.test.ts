@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { listDistros, probeNode } from '../../src/main/wsl';
+import { listDistros, probeNode, startBridgeProcess } from '../../src/main/wsl';
 
 const FAKE = path.join(__dirname, '..', 'fixtures', 'fake-wsl');
 
@@ -34,6 +34,24 @@ describe('listDistros (fake wsl.exe)', () => {
     await expect(
       listDistros({ wslPath: FAKE, timeoutMs: 3000, env: { FAKE_WSL_LIST_MODE: 'empty' } }),
     ).rejects.toMatchObject({ code: 'WSL_UNAVAILABLE' });
+  });
+});
+
+describe('startBridgeProcess (fake wsl.exe)', () => {
+  it('passes the selected distro to the bridge process environment', async () => {
+    const log = tmpLog();
+    const child = startBridgeProcess({
+      wslPath: FAKE,
+      distro: 'Ubuntu中文',
+      nodePath: '/fake/node',
+      bridgeWslPath: '/mnt/f/bridge.cjs',
+      env: { FAKE_WSL_LOG: log },
+    });
+    const exited = new Promise((r) => child.once('exit', () => r(null)));
+    await exited;
+    const argv = readFileSync(log, 'utf8');
+    expect(argv).toContain('[-d] [Ubuntu中文]');
+    expect(argv).toContain('DISTRO=[Ubuntu中文]');
   });
 });
 

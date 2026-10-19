@@ -116,6 +116,19 @@ describe('bridge protocol contract (Zod)', () => {
     expect(parseFrameLine(event).ok).toBe(true);
   });
 
+  it('rejects request frames with unknown top-level keys (no silent stripping)', () => {
+    const line = JSON.stringify({
+      v: PROTOCOL_VERSION,
+      type: 'request',
+      requestId: 'r1',
+      method: 'health',
+      timeout: 1000,
+    });
+    const parsed = parseFrameLine(line);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.reason).toBe('schema');
+  });
+
   it('maps unknown methods to METHOD_NOT_ALLOWED and known methods to null', () => {
     expect(mapUnknownMethod('exec')).toEqual({
       code: 'METHOD_NOT_ALLOWED',

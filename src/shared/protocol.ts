@@ -37,7 +37,8 @@ export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
 
 const RequestIdSchema = z.string().min(1).max(64);
 
-const RequestFrameSchema = z.object({
+// Strict: unknown top-level keys are a protocol error, not silently dropped.
+const RequestFrameSchema = z.strictObject({
   v: z.literal(PROTOCOL_VERSION),
   type: z.literal('request'),
   requestId: RequestIdSchema,
@@ -66,7 +67,7 @@ const ResponseErrorFrameSchema = z.object({
   }),
 });
 
-const CancelFrameSchema = z.object({
+const CancelFrameSchema = z.strictObject({
   v: z.literal(PROTOCOL_VERSION),
   type: z.literal('cancel'),
   requestId: RequestIdSchema,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LineAssembler } from '../../src/main/framing';
+import { LineAssembler } from '../../src/shared/framing';
 
 describe('LineAssembler', () => {
   it('joins a line split across three chunks', () => {

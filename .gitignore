@@ -147,3 +147,19 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Pi WSL Desktop: private state, runtime output and Windows packaging
+**/auth.json
+**/*secret*.json
+*.pem
+*.key
+*.p12
+*.pfx
+/.pi/
+pi-session-dumps/
+session-exports/
+*.session.jsonl
+playwright-report/
+test-results/
+.DS_Store
+Thumbs.db

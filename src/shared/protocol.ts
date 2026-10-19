@@ -11,6 +11,31 @@ export const M0_METHODS = ['health', 'getRuntimeInfo', 'getCapabilities', 'ping'
 export type M0Method = (typeof M0_METHODS)[number];
 
 /**
+ * Bridge contract methods added in M1 (Sessions & Chat), SPECIFICATION §4.1.
+ * These are OUR bridge names — the bridge maps them onto the installed Pi
+ * RPC/SDK; they are not claims about literal Pi command names.
+ * `openSession`/`sendPrompt`/`interrupt` form the explicit write boundary:
+ * they are reachable only from the renderer UI on user action and are still
+ * gated by bridge concurrency policy (SESSION_CONFLICT / RESOURCE_BUSY).
+ */
+export const M1_METHODS = [
+  'listProjects',
+  'listSessions',
+  'readSession',
+  'searchSessions',
+  'openSession',
+  'sendPrompt',
+  'interrupt',
+  'getState',
+  'subscribeEvents',
+] as const;
+export type M1Method = (typeof M1_METHODS)[number];
+
+/** Every method the bridge serves (M0 read-only + M1 sessions/chat). */
+export const ALL_METHODS = [...M0_METHODS, ...M1_METHODS] as const;
+export type AllMethod = (typeof ALL_METHODS)[number];
+
+/**
  * Stable error codes. The first block is mandated by SPECIFICATION.md §7;
  * the second block is generic transport/validation machinery for M0.
  */
@@ -142,9 +167,9 @@ export function encodeFrame(frame: FrameT): string {
   return json;
 }
 
-/** Return a METHOD_NOT_ALLOWED error body for methods outside the read-only allowlist. */
+/** Return a METHOD_NOT_ALLOWED error body for methods outside the M0∪M1 allowlist. */
 export function mapUnknownMethod(method: string): { code: 'METHOD_NOT_ALLOWED'; message: string } | null {
-  if ((M0_METHODS as readonly string[]).includes(method)) {
+  if ((ALL_METHODS as readonly string[]).includes(method)) {
     return null;
   }
   return { code: 'METHOD_NOT_ALLOWED', message: `Method not allowed: ${method}` };

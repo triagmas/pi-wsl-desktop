@@ -107,10 +107,16 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
   let chat: ChatSessionManager | null = null;
   const getChat = (): ChatSessionManager => {
     if (!chat) {
+      // Test/CI control of the active-write gate: PI_WS_DESKTOP_ACTIVE_WINDOW_MS
+      // (0 disables — used by deterministic E2E; production default stays 10s).
+      const activeWindow = Number(ctx.env.PI_WS_DESKTOP_ACTIVE_WINDOW_MS);
       chat = new ChatSessionManager({
         fs: nodeFs,
         home: ctx.home,
         env: ctx.env,
+        ...(Number.isFinite(activeWindow) && ctx.env.PI_WS_DESKTOP_ACTIVE_WINDOW_MS !== undefined
+          ? { activeWindowMs: Math.max(0, activeWindow) }
+          : {}),
         resolvePi: async () => (await pi()).path,
         spawnRpc: ({ piPath, args, cwd, env }): RpcProcess =>
           spawn(piPath, args, { cwd, env, stdio: 'pipe' }),

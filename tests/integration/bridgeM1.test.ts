@@ -151,6 +151,24 @@ describe('bridge M1 read paths (real subprocess)', () => {
   });
 });
 
+describe('bridge M1 active-window env hook', () => {
+  it('PI_WS_DESKTOP_ACTIVE_WINDOW_MS=0 disables the active-write gate (fresh files open)', async () => {
+    const fx = makeFixture();
+    utimesSync(fx.sessionFile, new Date(), new Date()); // brand new mtime — would normally conflict
+    const child = await spawnBridge({ ...fx.env, PI_WS_DESKTOP_ACTIVE_WINDOW_MS: '0' });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('w1', 'openSession', { file: fx.sessionFile }) + '\n');
+      const resp = (await reader.waitForResponse('w1')).frame;
+      expect(resp).toMatchObject({ type: 'response', status: 'ok' });
+    } finally {
+      child.kill();
+      utimesSync(fx.sessionFile, T0, T0);
+    }
+  });
+});
+
 describe('bridge M1 chat lifecycle (real subprocess, fake pi RPC)', () => {
   it('subscribe → open → prompt stream → interrupt → close; conflict/busy codes; file untouched', async () => {
     const fx = makeFixture();

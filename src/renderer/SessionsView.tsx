@@ -18,6 +18,9 @@ export function SessionsView({ api }: { api: DesktopApi | null }) {
   const [open, setOpen] = useState<SessionInfoT | null>(null);
   const subscribed = useRef(false);
 
+  const [ready, setReady] = useState(false);
+  const loadedOnce = useRef(false);
+
   const load = useCallback(async () => {
     if (!api) return;
     setLoading(true);
@@ -33,8 +36,30 @@ export function SessionsView({ api }: { api: DesktopApi | null }) {
     }
   }, [api]);
 
+  // Discovery needs a CONNECTED bridge: wait for phase 'ready' (the WSL
+  // probe takes a moment after app start) instead of racing it into
+  // DISCONNECTED, then load exactly once (manual retry stays available).
   useEffect(() => {
     if (!api) return;
+    let alive = true;
+    void api
+      .getStatus()
+      .then((s) => {
+        if (alive && s.phase === 'ready') setReady(true);
+      })
+      .catch(() => undefined);
+    const off = api.onStateChange((s) => {
+      if (alive && s.phase === 'ready') setReady(true);
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (!api || !ready || loadedOnce.current) return;
+    loadedOnce.current = true;
     if (!subscribed.current) {
       subscribed.current = true;
       // subscribe BEFORE any prompt can exist (rpc.md fast-completion rule)
@@ -43,7 +68,7 @@ export function SessionsView({ api }: { api: DesktopApi | null }) {
     // Deferred: strict set-state-in-effect forbids synchronous setState chains.
     const t = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(t);
-  }, [api, load]);
+  }, [api, ready, load]);
 
   if (!api) {
     return (

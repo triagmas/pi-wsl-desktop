@@ -95,7 +95,9 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
       };
     }
     case 'agent_settled':
-      return state.status === 'sending' ? { ...state, status: 'open', streamText: '' } : state;
+      // Keep streamText: an aborted run never gets message_end, and losing the
+      // partial output would be dishonest UX (message_end clears it normally).
+      return state.status === 'sending' ? { ...state, status: 'open' } : state;
     default:
       return state;
   }

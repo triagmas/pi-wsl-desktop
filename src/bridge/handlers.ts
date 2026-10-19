@@ -137,7 +137,9 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     const { roots } = await resolveSessionRoots({ fs: nodeFs, env: ctx.env, home: ctx.home });
     const resolved = path.posix.resolve(file);
     const inside = roots.some((root) => {
-      const r = root.endsWith('/') ? root.slice(0, -1) : root;
+      // Normalize BOTH sides (review round 4): env/settings roots may carry
+      // redundant separators or dot-segments and must not reject legit files.
+      const r = path.posix.resolve(root.endsWith('/') ? root.slice(0, -1) : root);
       return resolved === r || resolved.startsWith(`${r}/`);
     });
     if (!inside) throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');

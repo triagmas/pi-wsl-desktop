@@ -73,6 +73,10 @@ export type SessionInfoT = z.infer<typeof SessionInfoSchema>;
 export const ReadSessionParamsSchema = z.object({
   file: z.string().min(1),
   /** Cursor: return entries strictly AFTER this entry id (append order). */
+  /** Cursor: return entries strictly AFTER this entry id (append order).
+   * Also accepts the positional form `L<lineNo>` for id-less (legacy/corrupt)
+   * pages; real Pi entry ids are UUIDs, so the forms cannot collide in
+   * practice (review round 4: documented shadowing rule). */
   sinceEntryId: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(500).optional(),
   branch: z.enum(['active', 'all']).optional(),

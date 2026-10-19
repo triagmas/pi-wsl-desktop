@@ -276,3 +276,20 @@ describe('bridge M1 path scope (review round 3, #4 — defense-in-depth)', () =>
     }
   });
 });
+
+describe('bridge M1 root normalization (review round 4)', () => {
+  it('accepts legit files under a non-normalized (double-slash) session root', async () => {
+    const fx = makeFixture();
+    const messyRoot = fx.root.replace('/sessions', '//sessions'); // redundant separator in env
+    const child = await spawnBridge({ ...fx.env, PI_CODING_AGENT_SESSION_DIR: messyRoot });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('n1', 'readSession', { file: fx.sessionFile }) + '\n');
+      const frame = (await reader.waitForResponse('n1')).frame as ResponseOkFrameT;
+      expect(frame.status).toBe('ok');
+    } finally {
+      child.kill();
+    }
+  });
+});

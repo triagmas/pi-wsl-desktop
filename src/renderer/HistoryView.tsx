@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { DesktopApi } from './api';
 import { m1, parseBridgeError } from './m1api';
 import { entryView } from './entryText';
+import { mergeHistoryPage } from './historyMerge';
 import { SafeMarkdown } from './SafeMarkdown';
 import type { ReadSessionResultT } from './types';
 
@@ -20,9 +21,9 @@ export function HistoryView({ api, file }: { api: DesktopApi; file: string }) {
     async (since?: string) => {
       try {
         const next = await m1.readSession(api, { file, limit: PAGE, ...(since ? { sinceEntryId: since } : {}) });
-        setResult((prev) =>
-          prev && since ? { ...next, entries: [...next.entries, ...prev.entries] } : next,
-        );
+        // The reader cursor is strictly forward — mergeHistoryPage appends
+        // continuation pages (review round 4; pure + seam-tested).
+        setResult((prev) => mergeHistoryPage(prev, next, since));
         setError(null);
       } catch (err) {
         setError(parseBridgeError(err));
@@ -66,7 +67,7 @@ export function HistoryView({ api, file }: { api: DesktopApi; file: string }) {
     <div className="history" data-testid="history">
       {result.partialTrailing && (
         <p className="notice" data-testid="partial-note">
-          Файл дописывается (идёт запись) — последняя запись может быть неполной.
+          Показана неполная хвостовая часть: файл дописывается (идёт запись) или превышен лимит чтения.
         </p>
       )}
       {result.diagnostics.length > 0 && (
@@ -102,14 +103,14 @@ export function HistoryView({ api, file }: { api: DesktopApi; file: string }) {
         <div className="history-more">
           <button
             type="button"
-            data-testid="load-earlier"
+            data-testid="load-more"
             onClick={() => {
               setLoading(true); // event handler — not in an effect
               void load(result.nextCursor ?? undefined);
             }}
             disabled={loading}
           >
-            {loading ? 'Загрузка…' : 'Показать ранее'}
+            {loading ? 'Загрузка…' : 'Загрузить продолжение'}
           </button>
         </div>
       )}

@@ -186,24 +186,29 @@ describe('SessionsView — history preview (read-only)', () => {
     expect(screen.getByText('hi there!')).toBeTruthy();
   });
 
-  it('paginates: “load earlier” appears only while truncated and prepends older entries', async () => {
+  it('paginates: “load continuation” appends NEWER entries after the first page (chronological order)', async () => {
     let call = 0;
     const { api } = makeApi({
       listProjects: { projects: [PROJECT], diagnostics: [] },
       listSessions: { sessions: [SESSION], diagnostics: [] },
       readSession: (params) => {
         call += 1;
-        if (params.sinceEntryId) return readResult([entry('m0', 'user', 'older message')], null, false);
-        return readResult([entry('m1', 'user', 'newer message')], 'm1', true);
+        // the real reader cursor is strictly forward: the NEXT page contains
+        // LATER entries (sessionReader p1=['a','b'], p2=['c','d'])
+        if (params.sinceEntryId) return readResult([entry('m2', 'assistant', 'later message')], null, false);
+        return readResult([entry('m1', 'user', 'first message')], 'm1', true);
       },
     });
     render(<SessionsView api={api} />);
     await userEvent.click(await screen.findByText('Refactor auth'));
-    await screen.findByText('newer message');
-    const earlier = await screen.findByRole('button', { name: /показать ранее/i });
-    await userEvent.click(earlier);
-    await screen.findByText('older message');
-    expect(screen.queryByRole('button', { name: /показать ранее/i })).toBeNull();
+    await screen.findByText('first message');
+    const more = await screen.findByRole('button', { name: /загрузить продолжение/i });
+    await userEvent.click(more);
+    await screen.findByText('later message');
+    const bubbles = Array.from(document.querySelectorAll('.history-entries .bubble')).map((n) => n.textContent ?? '');
+    expect(bubbles[0]).toContain('first message');
+    expect(bubbles[1]).toContain('later message');
+    expect(screen.queryByRole('button', { name: /загрузить продолжение/i })).toBeNull();
     expect(call).toBe(2);
   });
 

@@ -50,7 +50,7 @@ async function launch(extra: ExtraEnv = {}): Promise<{ app: ElectronApplication;
 test.describe('M1 sessions & chat E2E', () => {
   test('discovery lists the fixture project/session; history renders read-only', async () => {
     expect(existsSync(fixtureSession)).toBe(true);
-    const { app, page } = await launch({ activeWindow: '0' });
+    const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc });
     try {
       await expect(page).toHaveTitle('Pi WSL Desktop');
       // M0 status tab is still the default (regression) — and wait for the
@@ -116,7 +116,7 @@ test.describe('M1 sessions & chat E2E', () => {
   test('a freshly-modified session file surfaces SESSION_CONFLICT instead of opening', async () => {
     // deterministic "live CLI" state: mtime = right now (window default 10s)
     utimesSync(fixtureSession, new Date(), new Date());
-    const { app, page } = await launch({});
+    const { app, page } = await launch({ pi: fakePiRpc });
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
       await page.getByTestId('tab-sessions').click();

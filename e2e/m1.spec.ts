@@ -57,8 +57,17 @@ test.describe('M1 sessions & chat E2E', () => {
       await expect(page.getByTestId('status-phase')).toBeVisible();
 
       await page.getByTestId('tab-sessions').click();
-      await expect(page.getByTestId('sessions-view')).toBeVisible();
-      await expect(page.getByText('E2E fixture session')).toBeVisible();
+      try {
+        await expect(page.getByTestId('sessions-view')).toBeVisible({ timeout: 8000 });
+        await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 8000 });
+      } catch (e) {
+        const body = await page.locator('body').innerText().catch(() => 'NO-BODY');
+        const reqs = await page
+          .evaluate(() => 'ok')
+          .catch(() => 'evaluate-failed');
+        console.log('DEBUG-CI body:', JSON.stringify(body), 'eval:', reqs, 'envdir:', sessionsRoot, 'fixture:', fixtureSession, 'exists:', existsSync(fixtureSession));
+        throw e;
+      }
 
       await page.getByText('E2E fixture session').click();
       await expect(page.getByTestId('session-detail')).toBeVisible();

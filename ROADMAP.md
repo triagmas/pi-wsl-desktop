@@ -28,6 +28,7 @@
 - [x] Настроена [защита main](https://github.com/triagmas/pi-wsl-desktop/rules/25366026): запрет удаления, force push и обязательный PR.
 - [x] Создан [управляющий Issue #1](https://github.com/triagmas/pi-wsl-desktop/issues/1) и первый [макропакет Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2).
 - [ ] **Приняты** документы `PRODUCT.md`, `SPECIFICATION.md`, `AGENTS.md` и данный `ROADMAP.md` через [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3).
+- [ ] **Принят** безопасный [Repository Contract CI](.github/workflows/repository-contract.yml) в PR #3 (только документация и правила учёта, **не** тесты продукта).
 
 > **Важно:** наличие файлов в Draft PR — не выполненный этап. После принятия и слияния PR #3 следующая PR-поставка обязана обновить эту отметку и журнал ниже. Нельзя засчитывать несмерженный код.
 

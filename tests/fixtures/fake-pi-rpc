@@ -16,6 +16,18 @@
  */
 'use strict';
 
+// Probe compatibility (mirror of the REAL pi CLI surface used by probePi):
+// `pi --version` and `pi --help` answer and exit; any other argv (notably
+// `--mode rpc --session …`) enters the RPC loop below.
+if (process.argv.includes('--version')) {
+  process.stdout.write('1.3.0-fake\n');
+  process.exit(0);
+}
+if (process.argv.includes('--help')) {
+  process.stdout.write('Usage: pi\n  --mode <mode>   Output mode: text (default), json, or rpc\n');
+  process.exit(0);
+}
+
 const MODE = process.env.FAKE_PI_MODE || 'ok';
 const STREAM_MS = Number(process.env.FAKE_PI_STREAM_MS || 0);
 

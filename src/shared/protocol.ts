@@ -28,6 +28,9 @@ export const M1_METHODS = [
   'interrupt',
   'getState',
   'subscribeEvents',
+  // Extension beyond the SPEC §4.1 minimum: explicit escape hatch from
+  // RESOURCE_BUSY (no auto-close — the write boundary stays user-driven).
+  'closeSession',
 ] as const;
 export type M1Method = (typeof M1_METHODS)[number];
 

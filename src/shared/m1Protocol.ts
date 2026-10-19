@@ -112,6 +112,21 @@ export type ReadSessionResultT = z.infer<typeof ReadSessionResultSchema>;
 /* searchSessions                                                      */
 /* ------------------------------------------------------------------ */
 
+export const ListSessionsParamsSchema = z.object({
+  projectId: z.string().optional(),
+});
+export const ListProjectsResultSchema = z.object({
+  projects: z.array(ProjectInfoSchema),
+  diagnostics: z.array(z.string()),
+});
+export const ListSessionsResultSchema = z.object({
+  sessions: z.array(SessionInfoSchema),
+  diagnostics: z.array(z.string()),
+});
+export const CloseSessionResultSchema = z.object({
+  closed: z.boolean(),
+});
+
 export const SearchParamsSchema = z.object({
   query: z.string().min(1),
   projectId: z.string().optional(),

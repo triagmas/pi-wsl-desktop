@@ -25,8 +25,12 @@ import { isAllowedRendererMethod } from '../../src/shared/whitelist';
 
 describe('M1 method allowlist', () => {
   it('declares exactly the SPEC §4.1 bridge methods', () => {
+    // closeSession is a documented extension beyond the SPEC §4.1 minimum:
+    // RESOURCE_BUSY needs an explicit user-driven escape hatch (lifecycle
+    // necessity; no auto-close — write boundary stays explicit).
     expect([...M1_METHODS].sort()).toEqual(
       [
+        'closeSession',
         'getState',
         'interrupt',
         'listProjects',

@@ -25,7 +25,6 @@ const MAX_TIMEOUT_MS = 60_000;
 export function startBridge(env: NodeJS.ProcessEnv = process.env): void {
   const stdout = process.stdout;
   const testMode = env.PI_WS_DESKTOP_BRIDGE_TEST_MODE === '1';
-  const handlers = makeHandlers({ env, home: env.HOME ?? '', testMode, pid: process.pid });
   const pending = new Map<string, AbortController>();
   const assembler = new LineAssembler(MAX_FRAME_BYTES);
 
@@ -35,6 +34,13 @@ export function startBridge(env: NodeJS.ProcessEnv = process.env): void {
       stdout.write(encodeFrame(frame) + '\n');
     });
   };
+  const handlers = makeHandlers({
+    env,
+    home: env.HOME ?? '',
+    testMode,
+    pid: process.pid,
+    emitEvent: (event, payload) => emit({ v: PROTOCOL_VERSION, type: 'event', event, payload }),
+  });
   const respondError = (requestId: string, code: ErrorCode, message: string): void => {
     emit({ v: PROTOCOL_VERSION, type: 'response', requestId, status: 'error', error: { code, message } });
   };

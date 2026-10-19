@@ -1,12 +1,43 @@
 /**
- * Bridge method handlers — the M0 read-only allowlist.
+ * Bridge method handlers — M0 read-only diagnostics + M1 Sessions & Chat.
  *
- * Every handler is a pure read/diagnostic operation: no file writes, no
- * session creation, no model calls. Writes are out of scope for M0 by design.
+ * Read paths (list/read/search) only scan and parse session files: bounded,
+ * read-only, never routed through Pi's migration-capable loader.
+ *
+ * Write boundary: `openSession` / `sendPrompt` / `interrupt` / `closeSession`
+ * are reachable ONLY from the renderer allowlist (explicit user gestures) and
+ * are re-gated here by ChatSessionManager policy — SESSION_CONFLICT,
+ * SESSION_NOT_FOUND, RESOURCE_BUSY — with the official Pi RPC subprocess as
+ * the sole writer (`--session <file>`; this process never writes JSONL).
+ * Chat events are pushed as bridge `event` frames ONLY after
+ * `subscribeEvents {topic:'chat'}`.
  */
-import { M0_METHODS, PROTOCOL_VERSION } from '../shared/protocol';
+import { spawn } from 'node:child_process';
+import { ALL_METHODS, PROTOCOL_VERSION } from '../shared/protocol';
 import { BridgeError } from '../shared/errors';
+import {
+  CloseSessionResultSchema,
+  GetStateResultSchema,
+  InterruptResultSchema,
+  ListProjectsResultSchema,
+  ListSessionsParamsSchema,
+  ListSessionsResultSchema,
+  OpenSessionParamsSchema,
+  OpenSessionResultSchema,
+  ReadSessionParamsSchema,
+  ReadSessionResultSchema,
+  SearchParamsSchema,
+  SearchResultSchema,
+  SendPromptParamsSchema,
+  SubscribeParamsSchema,
+} from '../shared/m1Protocol';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
+import { buildSessionIndex, nodeFs } from './sessions';
+import { readSessionFile } from './sessionReader';
+import { searchSessions } from './search';
+import { ChatSessionManager } from './chatSession';
+import type { RpcProcess } from './piRpcClient';
+import type { ZodType } from 'zod';
 
 export { BridgeError };
 
@@ -19,6 +50,25 @@ export interface HandlersContext {
   now?: () => number;
   testMode?: boolean;
   pid?: number;
+  /** Wired by the bridge entrypoint: pushes an event frame to the client. */
+  emitEvent?: (event: string, payload: unknown) => void;
+}
+
+function parseParams<T>(schema: ZodType<T>, data: unknown, method: string): T {
+  const r = schema.safeParse(data);
+  if (!r.success) {
+    const detail = r.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
+    throw new BridgeError('INVALID_REQUEST', `${method}: ${detail}`);
+  }
+  return r.data;
+}
+
+function assertOut<T>(schema: ZodType<T>, value: T, method: string): T {
+  const r = schema.safeParse(value);
+  if (!r.success) {
+    throw new BridgeError('UNKNOWN', `${method}: internal contract violation (${r.error.issues[0]?.message ?? 'invalid result'})`);
+  }
+  return r.data;
 }
 
 export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
@@ -52,6 +102,29 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       );
     });
 
+  /* ---------------- M1 chat: single manager + subscription gate ------------ */
+  const subscriptions = { chat: false };
+  let chat: ChatSessionManager | null = null;
+  const getChat = (): ChatSessionManager => {
+    if (!chat) {
+      chat = new ChatSessionManager({
+        fs: nodeFs,
+        home: ctx.home,
+        env: ctx.env,
+        resolvePi: async () => (await pi()).path,
+        spawnRpc: ({ piPath, args, cwd, env }): RpcProcess =>
+          spawn(piPath, args, { cwd, env, stdio: 'pipe' }),
+        onEvent: (ev) => {
+          if (subscriptions.chat) ctx.emitEvent?.('chat', ev);
+        },
+      });
+    }
+    return chat;
+  };
+
+  const index = (): ReturnType<typeof buildSessionIndex> =>
+    buildSessionIndex({ fs: nodeFs, env: ctx.env, home: ctx.home, now: now() });
+
   const handlers: Record<string, Handler> = {
     health: async () => ({
       status: 'ok',
@@ -79,9 +152,70 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       }
       return {
         protocolVersion: PROTOCOL_VERSION,
-        methods: [...M0_METHODS],
+        methods: [...ALL_METHODS],
         pi: { version: p.version, rpcSupported: p.rpcSupported },
       };
+    },
+
+    /* ----------------------------- M1 read paths ---------------------------- */
+    listProjects: async () => {
+      const idx = await index();
+      return assertOut(
+        ListProjectsResultSchema,
+        { projects: idx.projects, diagnostics: idx.diagnostics.slice(0, 50) },
+        'listProjects',
+      );
+    },
+    listSessions: async (params) => {
+      const { projectId } = parseParams(ListSessionsParamsSchema, params, 'listSessions');
+      const idx = await index();
+      const sessions = projectId === undefined ? idx.sessions : idx.sessions.filter((s) => s.projectId === projectId);
+      return assertOut(
+        ListSessionsResultSchema,
+        { sessions, diagnostics: idx.diagnostics.slice(0, 50) },
+        'listSessions',
+      );
+    },
+    readSession: async (params) => {
+      const p = parseParams(ReadSessionParamsSchema, params, 'readSession');
+      const result = await readSessionFile({ fs: nodeFs, ...p });
+      return assertOut(ReadSessionResultSchema, result, 'readSession');
+    },
+    searchSessions: async (params) => {
+      const p = parseParams(SearchParamsSchema, params, 'searchSessions');
+      const idx = await index();
+      const result = await searchSessions({
+        fs: nodeFs,
+        index: idx,
+        query: p.query,
+        projectId: p.projectId,
+        includeContent: p.includeContent,
+      });
+      return assertOut(SearchResultSchema, result, 'searchSessions');
+    },
+
+    /* ---------------------------- M1 write path ----------------------------- */
+    subscribeEvents: async (params) => {
+      const { topic } = parseParams(SubscribeParamsSchema, params, 'subscribeEvents');
+      if (topic !== 'chat') throw new BridgeError('INVALID_REQUEST', `unknown topic: ${String(topic)}`);
+      subscriptions.chat = true;
+      return { subscribed: true };
+    },
+    openSession: async (params) => {
+      const { file } = parseParams(OpenSessionParamsSchema, params, 'openSession');
+      const state = await getChat().open(file);
+      return assertOut(OpenSessionResultSchema, { state }, 'openSession');
+    },
+    sendPrompt: async (params) => {
+      const p = parseParams(SendPromptParamsSchema, params, 'sendPrompt');
+      const { disposition } = await getChat().sendPrompt(p.message, p.streamingBehavior);
+      return { disposition };
+    },
+    interrupt: async () => assertOut(InterruptResultSchema, await getChat().interrupt(), 'interrupt'),
+    getState: async () => assertOut(GetStateResultSchema, await getChat().getState(), 'getState'),
+    closeSession: async () => {
+      await getChat().close();
+      return assertOut(CloseSessionResultSchema, { closed: true }, 'closeSession');
     },
   };
 

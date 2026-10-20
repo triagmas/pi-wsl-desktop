@@ -5,10 +5,14 @@
  * every file the op will rewrite (side-effect free with respect to user
  * config — only our own backup dir is written) and returns a redacted plan.
  * Phase 2 `apply(planId, confirm: true)`: reuses the previewed plan within
- * its TTL, refreshes the backup immediately before the write, runs the
- * documented Pi CLI (bounded timeout, bounded output), redacts known secret
- * VALUES from every response and verifies the post-state. `rollback` restores
- * the backed-up bytes.
+ * its TTL, refreshes the backup immediately before the write (fail-closed:
+ * no write without a fresh snapshot), runs the documented Pi CLI (bounded
+ * timeout, bounded output), redacts known secret VALUES from every response
+ * and verifies the post-state. `rollback` restores the backed-up bytes ONLY
+ * when they still match the post-apply anchor, and snapshots the current
+ * bytes (`.prerestore`) before any overwrite, so nothing is ever destroyed
+ * losslessly-unchecked. Residual path-TOCTOU windows are disclosed at the
+ * call sites — no absolute guarantee is claimed.
  *
  * Secrets: request-supplied env values exist ONLY in the in-memory plan
  * record and the CLI argv; responses carry masks. Backups live under
@@ -262,8 +266,10 @@ export class ResourceOps {
     return local && this.projectPiDir ? this.projectPiDir : this.agentDir;
   }
 
-  /** skill-set: edit settings.skills with the `-path` exclusion semantics. */
-  private async editSkillSetting(params: PreviewResourceOpParamsT): Promise<void> {
+  /** skill-set: edit settings.skills with the `-path` exclusion semantics.
+   * Returns the exact bytes written — the caller anchors on THIS buffer (no
+   * re-read race, round 8 F1). */
+  private async editSkillSetting(params: PreviewResourceOpParamsT): Promise<string> {
     const [file] = this.targetsFor(params).files;
     let parsed: Record<string, unknown>;
     try {
@@ -283,7 +289,9 @@ export class ResourceOps {
       // enable: drop ONLY exclusion spellings — include declarations stay
       parsed.skills = skills.filter((s) => !this.isExclusionMatch(s, params.source, base));
     }
-    await fsp.writeFile(file, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+    const text = `${JSON.stringify(parsed, null, 2)}\n`;
+    await fsp.writeFile(file, text, 'utf8');
+    return text;
   }
 
   private backupPathFor(basename: string): string {
@@ -418,12 +426,20 @@ export class ResourceOps {
       }
     }
 
+    // [round 8, F1] pre-write anchor: captured AFTER the snapshot gate and
+    // BEFORE our write. On a FAILED op we assume our write did not happen, so
+    // the anchor stays at this pre-state — user edits landing during the
+    // spawn then surface as rollback CONFLICTS instead of being reverted.
+    const pre = new Map<string, string | null>();
+    for (const b of record.backups) pre.set(b.file, await this.stateDigest(b.file));
+
     const argv = this.argvFor(record.params);
     const secretValues = Object.values(record.params.env ?? {}).filter((v) => v.length > 0);
     let spawnResult: SpawnResult;
+    let skillBytes: string | null = null;
     if (record.params.kind === 'skill-set') {
       try {
-        await this.editSkillSetting(record.params);
+        skillBytes = await this.editSkillSetting(record.params);
         spawnResult = { code: 0, stdout: 'settings updated', stderr: '' };
       } catch (error) {
         spawnResult = { code: 1, stdout: '', stderr: (error as Error).message };
@@ -438,12 +454,22 @@ export class ResourceOps {
     const output = maskOutput(`${spawnResult.stdout}\n${spawnResult.stderr}`.trim(), secretValues);
 
     const ok = spawnResult.code === 0;
+    // [round 8, F1] anchor IMMEDIATELY after the write, BEFORE verify():
+    // - success: digest of what our write produced (skill-set anchors on the
+    //   buffer it actually wrote — no re-read race);
+    // - failure: keep the PRE-write anchor (our write is presumed absent), so
+    //   foreign edits during the spawn cannot be misattributed as ours.
+    const after = new Map<string, string | null>();
+    if (ok) {
+      for (const b of record.backups) {
+        const digest = skillBytes !== null && record.params.kind === 'skill-set' ? createHash('sha256').update(skillBytes, 'utf8').digest('hex') : await this.stateDigest(b.file);
+        after.set(b.file, digest);
+      }
+    } else {
+      for (const [file, digest] of pre) after.set(file, digest);
+    }
     const verified = ok ? await this.verify(record.params) : false;
     const opId = planId;
-    // [round 7, P1] capture the post-apply state of every target: rollback
-    // may only overwrite bytes that still match this anchor.
-    const after = new Map<string, string | null>();
-    for (const b of record.backups) after.set(b.file, await this.stateDigest(b.file));
     this.applied.set(opId, { backups: record.backups, after });
     while (this.applied.size > this.appliedCap) {
       const oldest = this.applied.keys().next().value;
@@ -515,25 +541,35 @@ export class ResourceOps {
       const cur = await this.stateDigest(b.file);
       const expected = record.after.get(b.file);
       if (b.backupPath) {
-        // [round 7, P1] NEVER copy the backup over bytes we did not write:
-        // `cur` must still equal the post-apply anchor. Foreign edits, foreign
-        // deletions and unreadable states are CONFLICTS — the file is kept as
-        // is and the caller gets an honest ok:false + conflicts.
+        // [round 7, P1 + round 8, F1] the file must equal the post-apply
+        // anchor (for FAILED ops: the pre-write anchor). Foreign edits,
+        // foreign deletions and unreadable states are CONFLICTS — kept as is.
         if (cur === null && expected === null) continue; // already absent — nothing to restore
         if (expected === undefined || cur !== expected || cur === UNREADABLE || expected === UNREADABLE) {
           conflicts.push(b.file);
           continue;
         }
+        // SECURITY (honest limits): matching the anchor is NECESSARY, not
+        // sufficient — bytes landing in [write → anchor] (the CLI runtime;
+        // excluded for failed spawns, whose anchor is the pre-write state)
+        // and in [digest → copyFile] below are not provably ours. Therefore
+        // the CURRENT bytes are snapshotted (`.prerestore`) BEFORE any
+        // overwrite: even a misattributed window stays recoverable
+        // losslessly. Residual path-TOCTOU remains (a racer between snapshot
+        // and copy); full closure needs fd-based/locked writes — disclosed,
+        // not claimed as absolute.
         try {
-          // SECURITY (honest limit): digest→copyFile is not atomic — an
-          // external writer landing inside this microsecond window can still
-          // be overwritten (residual path-TOCTOU, disclosed). The check
-          // shrinks the exposure from the whole apply→rollback interval to
-          // this window; full closure needs fd-based/locked writes.
+          await fsp.mkdir(this.backupsDir, { recursive: true });
+          await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.prerestore`));
+        } catch {
+          conflicts.push(b.file); // cannot preserve current bytes → do NOT overwrite
+          continue;
+        }
+        try {
           await fsp.copyFile(b.backupPath, b.file);
           restored.push(b.file);
         } catch {
-          /* below: reported via absence from `restored` */
+          /* reported via absence from `restored`; prerestore kept the bytes */
         }
       } else {
         // [round 7, P1] only OUR bytes may be removed: the file must still
@@ -568,7 +604,8 @@ export class ResourceOps {
             await fsp.unlink(b.file);
             restored.push(b.file);
           } catch {
-            /* never existed */
+            /* ENOENT (never existed) or EACCES/EBUSY (still there) — either
+             * way the file is untouched and absent from `restored` → ok:false */
           }
         } else if (!fileWasMissing) {
           // exists but could NOT be preserved → keep it (fail-closed)

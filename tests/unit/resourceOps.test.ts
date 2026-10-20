@@ -634,3 +634,49 @@ describe('ResourceOps — round 7 (P1: rollback must not destroy foreign writes;
     expect(readFileSync(mcpPath, 'utf8')).toBe(userBytes); // user bytes survive
   });
 });
+
+describe('ResourceOps — round 8 (delta F1: write→anchor window + lossless overwrite)', () => {
+  it('[F1-R1] a user edit landing during a FAILED spawn is a rollback conflict — never silently reverted', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: {} });
+    writeFileSync(mcpPath, original);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'f1x', url: 'https://f.invalid/mcp' });
+    h.setSpawn((argv) => {
+      if (argv[0] === 'mcp') {
+        // the CLI fails AND the user edits the file while it runs
+        writeFileSync(
+          mcpPath,
+          JSON.stringify({ mcpServers: { userbox: { url: 'https://user.invalid' } } }),
+        );
+      }
+      return { code: 1, stdout: '', stderr: 'pi failed halfway' };
+    });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(false);
+    const userBytes = readFileSync(mcpPath, 'utf8');
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(userBytes); // user's edit survives untouched
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    expect(rolled.restored).not.toContain(mcpPath);
+  });
+
+  it('[F1-R2] rollback snapshots current bytes (.prerestore) BEFORE any overwrite — lossless by construction', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: {} });
+    writeFileSync(mcpPath, original);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'f1p', url: 'https://p.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    const beforeRestore = readFileSync(mcpPath, 'utf8'); // post-apply bytes being replaced
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(original); // byte-exact restore kept
+    const backups = readdirSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups'));
+    const pre = backups.find((b) => b.includes('prerestore'));
+    expect(pre).toBeTruthy(); // the replaced bytes are preserved losslessly
+    expect(readFileSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups', pre as string), 'utf8')).toBe(beforeRestore);
+  });
+});

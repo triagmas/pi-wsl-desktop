@@ -97,6 +97,11 @@ export const ReadDiagnosticSchema = z.object({
   line: z.number().int().min(1),
   error: z.string().min(1),
 });
+export type ReadDiagnosticT = z.infer<typeof ReadDiagnosticSchema>;
+
+/** One bound for per-read parse diagnostics (sessionReader) and for the
+ * diagnostics accumulated across pagination pages (renderer mergeHistoryPage). */
+export const MAX_READ_DIAGNOSTICS = 100;
 
 export const ReadSessionResultSchema = z.object({
   header: SessionHeaderSchema.nullable(),

@@ -17,6 +17,7 @@
  * - pagination: `sinceEntryId` (strictly-after cursor) + bounded `limit`;
  * - `branch: 'active'` walks leaf→root (parentId chain, cycle-guarded).
  */
+import { MAX_READ_DIAGNOSTICS } from '../shared/m1Protocol';
 import type { ReadSessionResultT, SessionEntryT, SessionHeaderT } from '../shared/m1Protocol';
 import type { FsLike } from './sessions';
 
@@ -40,7 +41,7 @@ const DEFAULTS = {
   maxBytesTotal: 32 * 1024 * 1024,
   maxEntries: 5_000,
 };
-const MAX_DIAGNOSTICS = 100;
+const MAX_DIAGNOSTICS = MAX_READ_DIAGNOSTICS; // one bound, shared with the renderer's page merge (P2#1)
 
 interface LightRow {
   id: string | null;

@@ -93,3 +93,42 @@ describe.skipIf(!HAS_PI)('ResourceOps write parity — REAL `pi install/remove` 
     expect(piList(home)).not.toContain('fixture-pkg');
   }, 90_000);
 });
+
+describe.skipIf(!HAS_PI)('mcp-add parity — REAL `pi mcp add` stores --env under env, never in args', () => {
+  it('real CLI + our argv: env value lands in mcp.json.env, args stay clean, rollback restores', async () => {
+    const { ResourceOps } = await import('../../src/bridge/resources/ops');
+    const { createHash } = await import('node:crypto');
+    const home = makeHome();
+    const agentDir = path.join(home, '.pi', 'agent');
+    const mcpPath = path.join(agentDir, 'mcp.json');
+    const SECRET = 'real-cli-env-secret-918';
+    const sha = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }, null, 2));
+    const before = sha(mcpPath);
+
+    const ops = new ResourceOps({ home, agentDir });
+    const { plan } = await ops.preview({
+      kind: 'mcp-add',
+      source: 'stdio-parity',
+      command: ['/usr/bin/env', 'true'], // stdio-shaped; real pi only stores config here (NO connect)
+      env: { PARITY_TOKEN: SECRET },
+    });
+    const applied = await ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    expect(applied.verified).toBe(true);
+
+    const cfg = JSON.parse(readFileSync(mcpPath, 'utf8')) as { mcpServers: Record<string, { args?: string[]; env?: Record<string, string> }> };
+    const server = cfg.mcpServers['stdio-parity'];
+    expect(server).toBeTruthy();
+    // [BLOCKER r1] the real CLI semantics we depend on: env under `env`,
+    // `--env KEY=VALUE` never becomes part of `args`.
+    expect(server?.env?.PARITY_TOKEN).toBe(SECRET);
+    expect((server?.args ?? []).join(' ')).not.toContain('PARITY_TOKEN=');
+    expect(JSON.stringify(server)).not.toContain('--env');
+
+    const rolled = await ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(sha(mcpPath)).toBe(before);
+    expect(readFileSync(mcpPath, 'utf8')).not.toContain('stdio-parity');
+  }, 90_000);
+});

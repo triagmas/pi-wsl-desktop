@@ -192,6 +192,19 @@ describe('ResourcesView — MCP tab', () => {
             envKeys: ['BOX_TOKEN'],
             hasProjectOverride: false,
             oauthConfigured: false,
+            enabled: true,
+            diagnostics: [],
+          },
+          {
+            name: 'offbox',
+            scope: 'project',
+            transport: 'http',
+            command: 'https://off.invalid/mcp',
+            args: [],
+            envKeys: [],
+            hasProjectOverride: true,
+            oauthConfigured: false,
+            enabled: false,
             diagnostics: [],
           },
         ],
@@ -207,9 +220,10 @@ describe('ResourcesView — MCP tab', () => {
     render(<ResourcesView api={api} />);
     await userEvent.click(await screen.findByTestId('res-tab-mcp'));
     await screen.findByTestId('mcp-table');
-    expect(screen.getByTestId('mcp-envkeys')).toHaveTextContent('BOX_TOKEN');
+    expect(screen.getAllByTestId('mcp-envkeys')[0]).toHaveTextContent('BOX_TOKEN');
     expect(screen.getByTestId('mcp-table')).not.toHaveTextContent('BOX_TOKEN=');
     expect(screen.getByTestId('mcp-builtin')).toHaveTextContent('включён');
+    expect(screen.getByTestId('mcp-disabled')).toHaveTextContent('выключен'); // [r1 MINOR d]
     expect(screen.getByTestId('mcp-log')).toHaveTextContent('boxed ERROR 1');
 
     await userEvent.type(screen.getByTestId('mcp-name'), 'newbox');
@@ -219,7 +233,10 @@ describe('ResourcesView — MCP tab', () => {
     await userEvent.click(screen.getByTestId('mcp-add-submit'));
 
     await screen.findByTestId('op-plan');
-    expect(previewed[0]).toMatchObject({ kind: 'mcp-add', source: 'newbox', env: { NEW_TOKEN: 'raw-secret-input' } });
+    // URL endpoints are http-only: the renderer drops the stdio-only env pair
+    // (the bridge rejects env+url as INVALID_REQUEST)
+    expect(previewed[0]).toMatchObject({ kind: 'mcp-add', source: 'newbox' });
+    expect(previewed[0]).not.toHaveProperty('env');
     expect(screen.getByTestId('op-redacted')).toHaveTextContent('секреты скрыты');
     // form cleared after preview — secret leaves the renderer state
     expect(screen.getByTestId('mcp-env-value')).toHaveProperty('value', '');

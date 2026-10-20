@@ -46,6 +46,7 @@ const mcpServer = {
   envKeys: [],
   hasProjectOverride: false,
   oauthConfigured: false,
+  enabled: true,
   diagnostics: [],
 };
 

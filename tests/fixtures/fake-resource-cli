@@ -56,14 +56,19 @@ if (cmd === 'mcp' && (rest[0] === 'add' || rest[0] === 'remove')) {
     const urlIdx = rest.indexOf('--url');
     const sepIdx = rest.indexOf('--');
     const env = {};
-    for (let i = 0; i < rest.length - 1; i += 1) {
+    // STRICT mirror of the real CLI: `--env` is only recognised BEFORE the
+    // `--` separator (everything after `--` is a literal server argument —
+    // this is exactly how the review-round-1 BLOCKER would surface).
+    const sepAt = rest.indexOf('--');
+    const envLimit = sepAt === -1 ? rest.length : sepAt;
+    for (let i = 0; i < envLimit - 1; i += 1) {
       if (rest[i] === '--env' && (rest[i + 1] ?? '').includes('=')) {
         const [k] = rest[i + 1].split('=');
         env[k] = '${VALUE}'; // NEVER store or echo real env values in fixtures
       }
     }
     if (urlIdx !== -1) servers[name] = { type: 'http', url: rest[urlIdx + 1] };
-    else if (sepIdx !== -1) servers[name] = { command: rest[sepIdx + 1], args: rest.slice(sepIdx + 2).filter((a, i) => a !== '--env' && !Object.prototype.hasOwnProperty.call(env, String(a).split('=')[0])), ...(Object.keys(env).length > 0 ? { env } : {}) };
+    else if (sepIdx !== -1) servers[name] = { command: rest[sepIdx + 1], args: rest.slice(sepIdx + 2), ...(Object.keys(env).length > 0 ? { env } : {}) };
     else {
       console.error('fake-resource-cli: neither --url nor -- command');
       process.exit(2);

@@ -353,11 +353,12 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
               e.preventDefault();
               if (mcpName.trim().length === 0 || mcpEndpoint.trim().length === 0) return;
               const isUrl = mcpEndpoint.startsWith('http');
+              const hasEnv = mcpEnvKey.trim().length > 0 && !isUrl; // --env is stdio-only (bridge rejects it with --url)
               startPreview({
                 kind: 'mcp-add',
                 source: mcpName.trim(),
                 ...(isUrl ? { url: mcpEndpoint.trim() } : { command: mcpEndpoint.trim().split(/\s+/) }),
-                ...(mcpEnvKey.trim().length > 0 ? { env: { [mcpEnvKey.trim()]: mcpEnvValue } } : {}),
+                ...(hasEnv ? { env: { [mcpEnvKey.trim()]: mcpEnvValue } } : {}),
               });
               setMcpName('');
               setMcpEndpoint('');
@@ -409,6 +410,11 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
                         {s.name}
                         {s.hasProjectOverride && <span className="badge">project override</span>}
                         {s.oauthConfigured && <span className="badge">oauth</span>}
+                        {!s.enabled && (
+                          <span className="badge" data-testid="mcp-disabled">
+                            выключен
+                          </span>
+                        )}
                       </td>
                       <td>{s.scope}</td>
                       <td>{s.transport}</td>

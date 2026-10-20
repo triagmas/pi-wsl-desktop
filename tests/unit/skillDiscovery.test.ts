@@ -182,3 +182,51 @@ describe('discoverSkills — sources, status, provenance (Issue #7 inventory)', 
     expect(r.skills.find((s) => s.name === 'ghost')?.status).toBe('missing');
   });
 });
+
+describe('skills — review round 1 fixes (IMPORTANT #2, MINOR f)', () => {
+  it('[IMPORTANT#2] project-settings relative entries resolve from <projectRoot>/.pi, not the agent dir', async () => {
+    const fs = resourceFs({
+      home: dir({ '.pi': dir({ agent: dir({ 'settings.json': file('{}'), 'trust.json': file(JSON.stringify({ '/work/repo': true })) }) }) }),
+      work: dir({
+        repo: dir({
+          '.git': dir({ HEAD: file('ref') }),
+          '.pi': dir({ skills: dir({ 'rel-skill': dir({ 'SKILL.md': file(SKILL_MD('rel-skill', 'project relative')) }) }), 'settings.json': file(JSON.stringify({ skills: ['./skills/rel-skill'] })) }),
+          src: dir({}),
+        }),
+      }),
+    });
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: CWD });
+    const r = await discoverSkills({ fs, cfg, packageDirs: [] });
+    const s = r.skills.find((x) => x.name === 'rel-skill');
+    expect(s).toMatchObject({ source: 'project-settings', status: 'ok' }); // resolved from <root>/.pi
+  });
+
+  it('[MINOR f] an EXCLUDED skill does not consume its name — a loadable same-name skill stays visible', async () => {
+    const homeDir = dir({
+      '.pi': dir({
+        agent: dir({
+          'settings.json': file(JSON.stringify({ skills: ['-~/.agents/skills/code-review'] })),
+          'trust.json': file('{}'),
+        }),
+      }),
+      '.agents': dir({
+        skills: dir({ 'code-review': dir({ 'SKILL.md': file(SKILL_MD('code-review', 'user copy')) }) }),
+      }),
+    });
+    const fs = resourceFs({
+      home: homeDir,
+      work: dir({
+        repo: dir({
+          '.git': dir({ HEAD: file('ref') }),
+          '.agents': dir({ skills: dir({ 'code-review': dir({ 'SKILL.md': file(SKILL_MD('code-review', 'project copy')) }) }) }),
+          src: dir({}),
+        }),
+      }),
+    });
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: CWD });
+    const r = await discoverSkills({ fs, cfg, packageDirs: [] });
+    const visible = r.skills.filter((x) => x.name === 'code-review');
+    // the excluded user copy must not hide the loadable project copy
+    expect(visible.some((x) => x.source === 'project-agents' && x.status === 'ok')).toBe(true);
+  });
+});

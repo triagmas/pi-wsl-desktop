@@ -109,6 +109,8 @@ export const McpServerInfoSchema = z.object({
   hasProjectOverride: z.boolean(),
   /** OAuth fields present in config; stored credentials are never read. */
   oauthConfigured: z.boolean(),
+  /** Effective `enabled` state after the project overlay merge (mcp.md). */
+  enabled: z.boolean(),
   diagnostics: z.array(z.string()).max(20),
 });
 export type McpServerInfoT = z.infer<typeof McpServerInfoSchema>;

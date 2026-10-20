@@ -9,8 +9,9 @@ import { ALL_METHODS } from './codes';
  * boundary (previewResourceOp/applyResourceOp/rollbackResourceOp) are
  * intentionally reachable here: they are driven by explicit user gestures
  * and gated a second time by bridge policy (SESSION_CONFLICT / RESOURCE_BUSY
- * / active-write re-checks; literal confirm: true + single-use plan +
- * backup/rollback for resource ops).
+ * / active-write re-checks for M1; for M2: literal confirm: true + single-use
+ * expiring plan + backup/rollback — resource ops have no busy-gate, they are
+ * serialized only by their own plan lifecycle).
  */
 export function isAllowedRendererMethod(method: string): boolean {
   return (ALL_METHODS as readonly string[]).includes(method);

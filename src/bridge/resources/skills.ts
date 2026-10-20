@@ -8,7 +8,7 @@
  *   `description` (otherwise `invalid` — Pi does not load it);
  * - a `-path` settings entry marks a skill `excluded`;
  * - name collisions keep the FIRST discovered skill (mirrored as a
- *   diagnostic), discovery order documented in `ORDER`.
+ *   diagnostic); discovery order is documented above `MAX_DEPTH`.
  * Read-only: only readdir/stat/readHead, no writes, no session access.
  */
 import path from 'node:path';
@@ -101,11 +101,16 @@ export async function discoverSkills(input: SkillDiscoveryInput): Promise<SkillD
     }
     if (excluded.has(normalized) || excluded.has(skillMd)) entry.status = 'excluded';
 
-    if (seen.has(entry.name)) {
-      diagnostics.push(`skill name collision: "${entry.name}" — first discovered wins, later source ignored`);
-      return;
+    if (entry.status === 'ok') {
+      // Only LOADABLE skills occupy a name (skills.md: excluded/invalid/
+      // missing skills are not loaded by Pi — they must not hide a
+      // loadable same-name skill from another source) [review r1 MINOR f].
+      if (seen.has(entry.name)) {
+        diagnostics.push(`skill name collision: "${entry.name}" — first discovered wins, later source ignored`);
+        return;
+      }
+      seen.add(entry.name);
     }
-    seen.add(entry.name);
     skills.push(entry);
   };
 
@@ -132,9 +137,9 @@ export async function discoverSkills(input: SkillDiscoveryInput): Promise<SkillD
     }
   };
 
-  const settingsEntries = (entries: string[], source: SkillSourceT): void => {
+  const settingsEntries = (entries: string[], source: SkillSourceT, baseDir: string): void => {
     for (const raw of entries) {
-      const resolved = resolveResourceEntry(raw, cfg.agentDir, cfg.home);
+      const resolved = resolveResourceEntry(raw, baseDir, cfg.home);
       if (resolved.glob) {
         diagnostics.push(`glob resource entry not expanded in static inventory: ${raw}`);
         continue;
@@ -152,8 +157,11 @@ export async function discoverSkills(input: SkillDiscoveryInput): Promise<SkillD
 
   const pendingSettings: Array<{ path: string; source: SkillSourceT }> = [];
 
-  settingsEntries(cfg.userSettings.skills, 'user-settings');
-  if (cfg.projectTrusted) settingsEntries(cfg.projectSettings.skills, 'project-settings');
+  settingsEntries(cfg.userSettings.skills, 'user-settings', cfg.agentDir);
+  if (cfg.projectTrusted) {
+    // settings.md:153 — project-settings paths resolve from <projectRoot>/.pi
+    settingsEntries(cfg.projectSettings.skills, 'project-settings', path.posix.join(cfg.projectRoot, '.pi'));
+  }
 
   for (const p of pendingSettings.filter((x) => x.source === 'user-settings')) await add(p.path, 'user-settings', null);
   for (const p of pendingSettings.filter((x) => x.source === 'project-settings')) await add(p.path, 'project-settings', null);

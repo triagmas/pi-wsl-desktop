@@ -154,3 +154,83 @@ describe('discoverMcp — config parsing, scopes, redaction (NO connections)', (
     expect(src).not.toMatch(/mcp-auth/); // credentials stay unread
   });
 });
+
+describe('MCP — review round 1 fixes (IMPORTANT #4, MINOR c/d)', () => {
+  const fsWith = (userMcpRaw: string, projMcpRaw?: string): ReturnType<typeof resourceFs> =>
+    resourceFs({
+      home: dir({
+        '.pi': dir({
+          agent: dir({
+            'settings.json': file('{}'),
+            'trust.json': file(JSON.stringify({ '/work/repo': true })),
+            'mcp.json': file(userMcpRaw),
+          }),
+        }),
+      }),
+      work: dir({
+        repo: dir({
+          '.git': dir({ HEAD: file('ref') }),
+          '.pi': projMcpRaw === undefined ? dir({}) : dir({ 'mcp.json': file(projMcpRaw) }),
+          src: dir({}),
+        }),
+      }),
+    });
+
+  it('[IMPORTANT#4] a PARTIAL project overlay merges with the user entry (mcp.md semantics)', async () => {
+    const fs = fsWith(
+      JSON.stringify({ mcpServers: { boxed: { command: '/usr/bin/boxed', args: ['--serve'], env: { BOX_TOKEN: 'v' } } } }),
+      JSON.stringify({ mcpServers: { boxed: { enabled: false } } }),
+    );
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: '/work/repo/src' });
+    const r = await discoverMcp({ fs, cfg });
+    const boxed = r.servers.find((s) => s.name === 'boxed');
+    // inherited command/args/envKeys from the user entry, overlay flag honoured
+    expect(boxed).toMatchObject({
+      scope: 'project',
+      hasProjectOverride: true,
+      transport: 'stdio',
+      command: '/usr/bin/boxed',
+      args: ['--serve'],
+      envKeys: ['BOX_TOKEN'],
+      enabled: false,
+    });
+  });
+
+  it('[MINOR d] full servers report enabled=true; overlay disable reports false', async () => {
+    const fs = fsWith(JSON.stringify({ mcpServers: { a: { type: 'http', url: 'https://a.invalid/mcp' } } }));
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: '/work/repo/src' });
+    const r = await discoverMcp({ fs, cfg });
+    expect(r.servers.find((s) => s.name === 'a')?.enabled).toBe(true);
+  });
+
+  it('[MINOR c] log aggregation accepts ONLY server names matching the mcp name charset', async () => {
+    const log = [
+      '2026-01-01T00:00:00Z [alpha] error alpha: boom',
+      '2026-01-01T00:00:01Z [bad name! ] error x: private',
+      '2026-01-01T00:00:02Z [ok_srv-1] warning ok: hmm',
+      '',
+    ].join('\n');
+    const fs = fsWith(JSON.stringify({ mcpServers: { a: { type: 'http', url: 'https://a.invalid/mcp' } } }));
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: '/work/repo/src' });
+    // place the log beside the user mcp.json
+    const fs2 = resourceFs({
+      home: dir({
+        '.pi': dir({
+          agent: dir({
+            'settings.json': file('{}'),
+            'trust.json': file(JSON.stringify({ '/work/repo': true })),
+            'mcp.json': file(JSON.stringify({ mcpServers: { a: { type: 'http', url: 'https://a.invalid/mcp' } } })),
+            'mcp.log': file(log),
+          }),
+        }),
+      }),
+      work: dir({ repo: dir({ '.git': dir({ HEAD: file('ref') }), '.pi': dir({}), src: dir({}) }) }),
+    });
+    const r = await discoverMcp({ fs: fs2, cfg });
+    expect(r.logDiagnostics).toContain('alpha ERROR 1');
+    expect(r.logDiagnostics.some((x) => x.includes('ok_srv-1'))).toBe(true);
+    expect(r.logDiagnostics.some((x) => x.includes('bad name'))).toBe(false);
+    expect(r.logDiagnostics.some((x) => x.includes('private'))).toBe(false);
+    void fs;
+  });
+});

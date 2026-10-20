@@ -57,7 +57,7 @@ const SECRET_KEY_RE = /(token|secret|password|api[_-]?key|bearer)/i;
 function maskOutput(text: string, secretValues: string[]): string {
   let out = text;
   for (const value of secretValues) {
-    if (value.length >= 4) out = out.split(value).join(MASK);
+    if (value.length > 0) out = out.split(value).join(MASK); // [r1 MINOR a] any length
   }
   out = out.replace(/([A-Za-z0-9_-]*(?:token|secret|password|api[_-]?key)[A-Za-z0-9_-]*[=:])\S+/gi, `$1${MASK}`);
   return out.length > OUTPUT_CAP ? `${out.slice(0, OUTPUT_CAP)}…` : out;
@@ -145,7 +145,9 @@ export class ResourceOps {
 
   private absolutizeLocalSource(source: string, projectLocal: boolean): string {
     if (!(source.startsWith('./') || source.startsWith('../'))) return source;
-    const base = projectLocal && this.projectPiDir ? path.resolve(this.projectPiDir, '..') : this.agentDir;
+    // settings.md:153 — project-settings paths resolve from the project `.pi`
+    // directory (inventory already does); user settings resolve from agentDir.
+    const base = projectLocal && this.projectPiDir ? this.projectPiDir : this.agentDir;
     return path.resolve(base, source);
   }
 
@@ -178,11 +180,24 @@ export class ResourceOps {
       case 'package-remove':
         return ['remove', source, ...local];
       case 'package-update':
-        return ['update', source, ...local];
+        // `-l` is NOT a documented `pi update` option (1.3.0 cli.md) — project
+        // scope is resolved by the CLI itself from both settings files.
+        return ['update', source];
       case 'mcp-add': {
-        const transport = params.url !== undefined ? ['--url', params.url] : ['--', ...(params.command ?? [])];
-        const envFlatten = Object.entries(params.env ?? {}).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
-        return ['mcp', 'add', params.source, ...local, ...transport, ...envFlatten];
+        const envFlatten = Object.entries(params.env ?? {})
+          .filter(([, v]) => v.length > 0)
+          .flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+        if (params.url !== undefined) {
+          // `--env` documents itself as stdio-only; passing it with `--url`
+          // would either be ignored or corrupt the config — reject instead.
+          if (envFlatten.length > 0) {
+            throw new BridgeError('INVALID_REQUEST', 'mcp-add: --env applies to stdio servers only (drop it for --url)');
+          }
+          return ['mcp', 'add', params.source, ...local, '--url', params.url];
+        }
+        // [review r1 BLOCKER] every `--env` MUST precede `--`: everything
+        // after the separator is a literal server argument on 1.3.0.
+        return ['mcp', 'add', params.source, ...local, ...envFlatten, '--', ...(params.command ?? [])];
       }
       case 'mcp-remove':
         return ['mcp', 'remove', params.source, ...local];
@@ -217,10 +232,18 @@ export class ResourceOps {
     await fsp.writeFile(file, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
   }
 
+  private backupPathFor(basename: string): string {
+    const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, '-');
+    // [review r1 MINOR b] random suffix: two previews in the same millisecond
+    // must never overwrite each other's snapshot.
+    const rand = Math.random().toString(36).slice(2, 8);
+    return path.join(this.backupsDir, `${stamp}-${rand}-${basename}`);
+  }
+
   async preview(params: PreviewResourceOpParamsT): Promise<{ plan: ResourceOpPlanT }> {
     const files = this.targetsFor(params).files;
     const argv = this.argvFor(params);
-    const secretValues = Object.values(params.env ?? {}).filter((v) => v.length >= 4);
+    const secretValues = Object.values(params.env ?? {}).filter((v) => v.length > 0);
     const { display, redacted } = maskArgvForDisplay(argv, secretValues);
 
     const backups: PlanRecord['backups'] = [];
@@ -230,13 +253,12 @@ export class ResourceOps {
     for (const file of files) {
       const made = await (async (): Promise<string | null> => {
         try {
-          const backupName = `${stamp}-${path.basename(file)}`;
-          const target = path.join(this.backupsDir, backupName);
+          const target = this.backupPathFor(path.basename(file));
           await fsp.copyFile(file, target); // preview: snapshot for the plan id
-          backupIds.push(backupName);
+          backupIds.push(path.basename(target));
           return target;
         } catch {
-          return null; // target does not exist yet — rollback will remove it
+          return null; // target does not exist yet — apply re-checks it
         }
       })();
       backups.push({ file, backupPath: made });
@@ -280,13 +302,25 @@ export class ResourceOps {
         try {
           await fsp.copyFile(b.file, b.backupPath);
         } catch {
-          b.backupPath = null; // file vanished between preview and apply
+          // Keep the preview-era backup on a transient error — never null a
+          // valid snapshot (rollback would lose its only restore point).
+        }
+      } else {
+        // [review r1 IMPORTANT#3] the file was absent at preview; if it exists
+        // NOW (the user's own CLI ran during the TTL) snapshot it so rollback
+        // RESTORES it instead of deleting someone else's data.
+        try {
+          const target = this.backupPathFor(path.basename(b.file));
+          await fsp.copyFile(b.file, target);
+          b.backupPath = target;
+        } catch {
+          /* still absent — our op creates it, rollback may remove it */
         }
       }
     }
 
     const argv = this.argvFor(record.params);
-    const secretValues = Object.values(record.params.env ?? {}).filter((v) => v.length >= 4);
+    const secretValues = Object.values(record.params.env ?? {}).filter((v) => v.length > 0);
     let spawnResult: SpawnResult;
     if (record.params.kind === 'skill-set') {
       try {

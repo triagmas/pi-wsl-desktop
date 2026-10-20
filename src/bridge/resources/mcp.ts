@@ -73,6 +73,8 @@ function parseServer(name: string, scope: 'user' | 'project', hasProjectOverride
       envKeys,
       hasProjectOverride,
       oauthConfigured,
+      // mcp.md `enabled` — effective value after the project overlay merge.
+      enabled: cfg.enabled !== false,
       diagnostics,
     },
     diagnostics: [],
@@ -93,8 +95,12 @@ export async function discoverMcp(input: { fs: FsLike; cfg: AgentConfig }): Prom
   }
 
   const merged = new Map<string, { entry: unknown; scope: 'user' | 'project' }>();
+  const userRaw = new Map<string, unknown>();
   if (userServers && typeof userServers === 'object') {
-    for (const [name, entry] of Object.entries(userServers)) merged.set(name, { entry, scope: 'user' });
+    for (const [name, entry] of Object.entries(userServers)) {
+      merged.set(name, { entry, scope: 'user' });
+      userRaw.set(name, entry);
+    }
   }
 
   if (cfg.projectTrusted) {
@@ -104,7 +110,15 @@ export async function discoverMcp(input: { fs: FsLike; cfg: AgentConfig }): Prom
     const projServers = ((projJson.raw as { mcpServers?: unknown } | null)?.mcpServers ?? null) as Record<string, unknown> | null;
     if (projServers && typeof projServers === 'object') {
       for (const [name, entry] of Object.entries(projServers)) {
-        merged.set(name, { entry, scope: 'project' }); // project replaces user by name (mcp.md)
+        // mcp.md:34-40 — a project entry OVERRIDES FIELD-WISE and keeps the
+        // rest (command/args/env/headers/auth inherit from the user entry);
+        // a full project config therefore behaves like a replace.
+        const base = userRaw.get(name);
+        const effective =
+          base !== undefined && typeof base === 'object' && !Array.isArray(base) && typeof entry === 'object' && entry !== null && !Array.isArray(entry)
+            ? { ...(base as Record<string, unknown>), ...(entry as Record<string, unknown>) }
+            : entry;
+        merged.set(name, { entry: effective, scope: 'project' });
       }
     }
   }
@@ -115,7 +129,7 @@ export async function discoverMcp(input: { fs: FsLike; cfg: AgentConfig }): Prom
       result.diagnostics.push(`invalid server name "${name}" (letters, digits, _ and - only) — skipped`);
       continue;
     }
-    const hasProjectOverride = scope === 'project' && merged.has(name) && (userServers ? name in userServers : false);
+    const hasProjectOverride = scope === 'project' && userRaw.has(name);
     const { info, diagnostics } = parseServer(name, scope, hasProjectOverride, entry);
     result.diagnostics.push(...diagnostics);
     if (info) result.servers.push(info);
@@ -142,6 +156,7 @@ export async function discoverMcp(input: { fs: FsLike; cfg: AgentConfig }): Prom
       const m = /\[([^\]]+)\]\s+(error|warn|warning|info|debug|trace)\b/i.exec(line);
       if (!m) continue;
       const server = m[1] ?? '';
+      if (!NAME_RE.test(server)) continue; // [r1 MINOR c] never echo arbitrary log text
       const levelRaw = (m[2] ?? '').toLowerCase();
       const level = levelRaw.startsWith('warn') ? 'WARNING' : levelRaw.toUpperCase();
       const key = `${server} ${level}`;

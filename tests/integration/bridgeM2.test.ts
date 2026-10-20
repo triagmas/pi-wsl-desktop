@@ -153,7 +153,7 @@ describe('bridge M2 resource manager (real subprocess)', () => {
     try {
       await reader.waitForEvent('ready');
 
-      child.stdin.write(req('pv1', 'previewResourceOp', { kind: 'mcp-add', source: 'newbox', url: 'https://new.invalid/mcp', env: { NEW_TOKEN: 'op-secret-value-99' } }) + '\n');
+      child.stdin.write(req('pv1', 'previewResourceOp', { kind: 'mcp-add', source: 'newbox', command: ['/usr/bin/newbox', '--serve'], env: { NEW_TOKEN: 'op-secret-value-99' } }) + '\n');
       const pvFrame = (await reader.waitForResponse('pv1')).frame as ResponseOkFrameT;
       expect(JSON.stringify(pvFrame)).not.toContain('op-secret-value-99'); // redaction on the wire
       const pv = ok(pvFrame) as { plan: { planId: string; command: string[]; commandRedacted: boolean; filesTouched: string[]; backupId: string | null } };
@@ -186,8 +186,13 @@ describe('bridge M2 resource manager (real subprocess)', () => {
 
       // inventory must reflect the applied state (cfg cache invalidated)
       child.stdin.write(req('s2', 'listMcpServers') + '\n');
-      const after = ok((await reader.waitForResponse('s2')).frame as ResponseOkFrameT) as { servers: Array<{ name: string }> };
-      expect(after.servers.some((x) => x.name === 'newbox')).toBe(true);
+      const afterFrame = (await reader.waitForResponse('s2')).frame as ResponseOkFrameT;
+      expect(JSON.stringify(afterFrame)).not.toContain('op-secret-value-99'); // secret never returns on the wire
+      const after = ok(afterFrame) as { servers: Array<{ name: string; args: string[]; envKeys: string[] }> };
+      const added = after.servers.find((x) => x.name === 'newbox');
+      expect(added).toBeTruthy();
+      // [BLOCKER#1] `--env` must never leak into the server ARGS (stdio form)
+      expect(added?.args.join(' ')).not.toContain('NEW_TOKEN');
 
       child.stdin.write(req('rb1', 'rollbackResourceOp', { opId: pv.plan.planId, confirm: true }) + '\n');
       const rolled = ok((await reader.waitForResponse('rb1')).frame as ResponseOkFrameT) as { ok: boolean; restored: string[] };

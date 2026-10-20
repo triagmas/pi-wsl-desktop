@@ -470,7 +470,7 @@ export class ResourceOps {
         // CLOSED: if the snapshot cannot be taken (backups area gone/read-only,
         // disk full) and the file still exists, keep it and report nothing
         // restored — never delete bytes we could not preserve.
-        let snapshotOk = false;
+        let snapshotOk: boolean;
         try {
           await fsp.mkdir(this.backupsDir, { recursive: true });
           await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.preunlink`));

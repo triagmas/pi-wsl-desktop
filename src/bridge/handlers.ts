@@ -14,6 +14,8 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { constants as fsConstants, promises as fsp } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import { ALL_METHODS, PROTOCOL_VERSION } from '../shared/protocol';
 import { BridgeError } from '../shared/errors';
 import {
@@ -33,7 +35,7 @@ import {
   SubscribeParamsSchema,
 } from '../shared/m1Protocol';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
-import { buildSessionIndex, nodeFs, resolveSessionRoots } from './sessions';
+import { buildSessionIndex, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
 import { searchSessions } from './search';
 import { ChatSessionManager } from './chatSession';
@@ -132,17 +134,50 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
   const index = (): ReturnType<typeof buildSessionIndex> =>
     buildSessionIndex({ fs: nodeFs, env: ctx.env, home: ctx.home, now: now() });
 
-  /** Review round 3 (#4, defense-in-depth): session paths must stay inside the resolved session roots. */
-  const assertInsideRoots = async (file: string): Promise<void> => {
+  /** A component-safe containment check ("/root" must not match "/root-other"). */
+  const inside = (root: string, target: string): boolean => {
+    const relative = path.posix.relative(root, target);
+    return relative === '' || (relative !== '..' && !relative.startsWith('../') && !path.posix.isAbsolute(relative));
+  };
+
+  /**
+   * Validate the *opened inode*, not merely a pathname that might be a
+   * symlink. WSL/Linux /proc/self/fd keeps the target stable while a renderer
+   * read is in progress, even if a directory entry is retargeted afterward.
+   * Do not read bytes or start Pi until its canonical location is trusted.
+   */
+  const openInsideRoots = async (file: string): Promise<{ handle: FileHandle; canonical: string } | null> => {
     const { roots } = await resolveSessionRoots({ fs: nodeFs, env: ctx.env, home: ctx.home });
-    const resolved = path.posix.resolve(file);
-    const inside = roots.some((root) => {
-      // Normalize BOTH sides (review round 4): env/settings roots may carry
-      // redundant separators or dot-segments and must not reject legit files.
-      const r = path.posix.resolve(root.endsWith('/') ? root.slice(0, -1) : root);
-      return resolved === r || resolved.startsWith(`${r}/`);
-    });
-    if (!inside) throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+    const requested = path.posix.resolve(file);
+    if (!roots.some((root) => inside(path.posix.resolve(root), requested))) {
+      throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+    }
+
+    let handle: FileHandle;
+    try {
+      // NONBLOCK avoids a hang if an untrusted directory contains a FIFO.
+      handle = await fsp.open(file, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new BridgeError('SESSION_NOT_FOUND', 'Session file could not be opened');
+    }
+
+    try {
+      if (!(await handle.stat()).isFile()) {
+        throw new BridgeError('INVALID_REQUEST', 'session path is not a regular file');
+      }
+      const canonical = await fsp.realpath(`/proc/self/fd/${handle.fd}`);
+      const canonicalRoots = await Promise.all(roots.map((root) => fsp.realpath(root)));
+      if (!canonicalRoots.some((root) => inside(root, canonical))) {
+        throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+      }
+      return { handle, canonical };
+    } catch (error) {
+      await handle.close();
+      if (error instanceof BridgeError) throw error;
+      // Cannot prove the inode's origin: fail closed.
+      throw new BridgeError('INVALID_REQUEST', 'session path could not be verified');
+    }
   };
 
   const handlers: Record<string, Handler> = {
@@ -198,9 +233,36 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     readSession: async (params) => {
       const p = parseParams(ReadSessionParamsSchema, params, 'readSession');
-      await assertInsideRoots(p.file);
-      const result = await readSessionFile({ fs: nodeFs, ...p });
-      return assertOut(ReadSessionResultSchema, result, 'readSession');
+      const opened = await openInsideRoots(p.file);
+      if (!opened) {
+        // The pathname disappeared before it could be opened. Never retry
+        // the unchecked path: it could be retargeted to an outside file.
+        return assertOut(ReadSessionResultSchema, {
+          header: null, entries: [], leafId: null, nextCursor: null,
+          truncated: false, partialTrailing: false, diagnostics: [],
+          availability: 'unreadable' as const,
+        }, 'readSession');
+      }
+      try {
+        // All reads use a single validated descriptor. Never re-open the
+        // original user-controlled symlink between JSONL chunks.
+        const pinnedFs: FsLike = {
+          ...nodeFs,
+          async stat() {
+            const s = await opened.handle.stat();
+            return { size: s.size, mtimeMs: s.mtimeMs };
+          },
+          async readRange(_file, offset, length) {
+            const buf = Buffer.alloc(length);
+            const { bytesRead } = await opened.handle.read(buf, 0, length, offset);
+            return Buffer.from(buf.subarray(0, bytesRead));
+          },
+        };
+        const result = await readSessionFile({ fs: pinnedFs, ...p, file: opened.canonical });
+        return assertOut(ReadSessionResultSchema, result, 'readSession');
+      } finally {
+        await opened.handle.close();
+      }
     },
     searchSessions: async (params) => {
       const p = parseParams(SearchParamsSchema, params, 'searchSessions');
@@ -224,9 +286,16 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     openSession: async (params) => {
       const { file } = parseParams(OpenSessionParamsSchema, params, 'openSession');
-      await assertInsideRoots(file);
-      const state = await getChat().open(file);
-      return assertOut(OpenSessionResultSchema, { state }, 'openSession');
+      const opened = await openInsideRoots(file);
+      if (!opened) throw new BridgeError('SESSION_NOT_FOUND', 'Session file not found');
+      try {
+        // Canonical path prevents a symlink being redirected after validation.
+        // Pi owns writes through official RPC, not through this handle.
+        const state = await getChat().open(opened.canonical);
+        return assertOut(OpenSessionResultSchema, { state }, 'openSession');
+      } finally {
+        await opened.handle.close();
+      }
     },
     sendPrompt: async (params) => {
       const p = parseParams(SendPromptParamsSchema, params, 'sendPrompt');

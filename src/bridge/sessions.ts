@@ -64,13 +64,23 @@ export const nodeFs: FsLike = {
     }
   },
   async readTail(p, maxBytes) {
-    const s = await fsp.stat(p);
-    const offset = Math.max(0, s.size - maxBytes);
     const fh = await fsp.open(p, 'r');
     try {
-      const buf = Buffer.alloc(Math.min(maxBytes, s.size));
-      const { bytesRead } = await fh.read(buf, 0, buf.length, offset);
-      return buf.subarray(0, bytesRead).toString('utf8');
+      // Stat the opened file, not the pathname: concurrent renames should not
+      // make the tail window refer to metadata from a different inode.
+      const { size } = await fh.stat();
+      const length = Math.min(Math.max(0, maxBytes), size);
+      const offset = Math.max(0, size - length);
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, offset);
+      // An arbitrary byte offset may start in the middle of a UTF-8 code
+      // point. Only drop incomplete LEADING continuation bytes; keep all
+      // other bytes untouched and do not alter the original session file.
+      let first = 0;
+      if (offset > 0) {
+        while (first < bytesRead && (buf[first] & 0xc0) === 0x80) first += 1;
+      }
+      return buf.subarray(first, bytesRead).toString('utf8');
     } finally {
       await fh.close();
     }

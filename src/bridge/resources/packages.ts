@@ -61,7 +61,13 @@ function classify(source: string): { kind: PackageKindT; ref: string | null; dir
   if (source.startsWith('.') || path.posix.isAbsolute(source)) {
     return { kind: 'local', ref: null, dirParts: null, unknown: false };
   }
-  return { kind: 'local', ref: null, dirParts: null, unknown: true };
+  if (source.includes(':')) {
+    // scheme-looking (e.g. `wheel:bogus`) — not a documented source
+    return { kind: 'local', ref: null, dirParts: null, unknown: true };
+  }
+  // Bare name: the real CLI stores local packages inside the agent dir as a
+  // plain relative name — resolve it exactly like Pi does (from settings dir).
+  return { kind: 'local', ref: null, dirParts: null, unknown: false };
 }
 
 export async function discoverPackages(input: PackageDiscoveryInput): Promise<PackageDiscoveryResult> {

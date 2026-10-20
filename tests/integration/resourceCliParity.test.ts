@@ -4,7 +4,7 @@
  * Skips honestly when the pi CLI is unavailable (e.g. stock CI runners).
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -63,4 +63,33 @@ describe.skipIf(!HAS_PI)('pi list ↔ discoverPackages parity on an isolated HOM
     const p = r.packages.find((x) => x.source === './fixture-pkg');
     expect(p).toMatchObject({ kind: 'local', scope: 'user', present: true, path: pkgDir });
   });
+});
+
+describe.skipIf(!HAS_PI)('ResourceOps write parity — REAL `pi install/remove` on an isolated HOME', () => {
+  it('preview → apply (real CLI) → verified → rollback restores bytes', async () => {
+    const { ResourceOps } = await import('../../src/bridge/resources/ops');
+    const { createHash } = await import('node:crypto');
+    const home = makeHome();
+    const agentDir = path.join(home, '.pi', 'agent');
+    const pkgDir = path.join(agentDir, 'fixture-pkg');
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'pi-fixture-pkg', keywords: ['pi-package'] }));
+    const settingsPath = path.join(agentDir, 'settings.json');
+    writeFileSync(settingsPath, JSON.stringify({ packages: [] }));
+    const sha = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+    const before = sha(settingsPath);
+
+    const ops = new ResourceOps({ home, agentDir });
+    const { plan } = await ops.preview({ kind: 'package-install', source: './fixture-pkg' });
+    const applied = await ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    expect(applied.verified).toBe(true); // REAL pi wrote settings and listed the package
+    expect(piList(home)).toContain('fixture-pkg'); // REAL pi stores the absolutized local source
+    expect(sha(settingsPath)).not.toBe(before);
+
+    const rolled = await ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(sha(settingsPath)).toBe(before);
+    expect(piList(home)).not.toContain('fixture-pkg');
+  }, 90_000);
 });

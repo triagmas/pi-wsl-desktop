@@ -16,7 +16,8 @@ import type { FsLike } from '../sessions';
 export interface SettingsView {
   skills: string[];
   extensions: string[];
-  packages: string[];
+  /** strings (sources) or resource-filter objects `{source, …}` (packages.md object form). */
+  packages: Array<string | { source: string }>;
 }
 
 export interface AgentConfig {
@@ -36,7 +37,13 @@ const emptySettings = (): SettingsView => ({ skills: [], extensions: [], package
 function pick(raw: unknown): SettingsView {
   const s = (raw ?? {}) as Record<string, unknown>;
   const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-  return { skills: list(s.skills), extensions: list(s.extensions), packages: list(s.packages) };
+  const packages = Array.isArray(s.packages)
+    ? s.packages.filter((x): x is string | { source: string } => {
+        if (typeof x === 'string') return true;
+        return typeof x === 'object' && x !== null && typeof (x as { source?: unknown }).source === 'string';
+      })
+    : [];
+  return { skills: list(s.skills), extensions: list(s.extensions), packages };
 }
 
 /** Walk cwd → ancestors for a `.git` entry; repo root when found, else cwd. */

@@ -158,6 +158,46 @@ record(
   openOutside.error?.message,
 );
 
+// --- M2 resource manager on the same synthetic HOME (read + two-phase write) ---
+const agentDir = path.join(home, '.pi', 'agent');
+mkdirSync(path.join(home, '.agents', 'skills', 'smoke-skill'), { recursive: true });
+writeFileSync(path.join(home, '.agents', 'skills', 'smoke-skill', 'SKILL.md'), '---\nname: smoke-skill\ndescription: synthetic smoke skill\n---\n');
+const resSettings = path.join(agentDir, 'settings.json');
+mkdirSync(agentDir, { recursive: true });
+writeFileSync(resSettings, JSON.stringify({ packages: [], extensions: ['builtin:codemode'] }, null, 2));
+const resShaBefore = createHash('sha256').update(readFileSync(resSettings)).digest('hex');
+
+const skillsRes = await request('listSkills');
+const smokeSkill = (skillsRes.result?.skills ?? []).find((x) => x.name === 'smoke-skill');
+record('M2 listSkills finds the synthetic skill (user-agents)', skillsRes.status === 'ok' && smokeSkill?.source === 'user-agents' && smokeSkill?.status === 'ok');
+
+const pkgsRes = await request('listPackages');
+record(
+  'M2 listPackages reports builtins without spawning anything',
+  pkgsRes.status === 'ok' && (pkgsRes.result?.builtins ?? []).some((b) => b.name === 'codemode' && b.enabled),
+);
+
+const mcpRes = await request('listMcpServers');
+record('M2 listMcpServers succeeds config-only', mcpRes.status === 'ok' && mcpRes.result?.builtinEnabled === true);
+
+const skillDir = path.join(home, '.agents', 'skills', 'smoke-skill');
+const pvSkill = await request('previewResourceOp', { kind: 'skill-set', source: skillDir, disable: true });
+record(
+  'M2 preview (skill-set) is redacted/backed-up and writes nothing',
+  pvSkill.status === 'ok' && pvSkill.result?.plan?.backupId !== null && createHash('sha256').update(readFileSync(resSettings)).digest('hex') === resShaBefore,
+);
+const apSkill = await request('applyResourceOp', { planId: pvSkill.result?.plan?.planId, confirm: true });
+const settingsAfter = JSON.parse(readFileSync(resSettings, 'utf8'));
+record(
+  'M2 apply writes the exclusion and verifies (no CLI, settings edit)',
+  apSkill.status === 'ok' && apSkill.result?.ok === true && apSkill.result?.verified === true && Array.isArray(settingsAfter.skills) && settingsAfter.skills.includes(`-${skillDir}`),
+);
+const rbSkill = await request('rollbackResourceOp', { opId: pvSkill.result?.plan?.planId, confirm: true });
+record(
+  'M2 rollback restores settings.json byte-exactly',
+  rbSkill.status === 'ok' && rbSkill.result?.ok === true && createHash('sha256').update(readFileSync(resSettings)).digest('hex') === resShaBefore,
+);
+
 const shaAfter = createHash('sha256').update(readFileSync(sessionFile)).digest('hex');
 const mtimeAfter = statSync(sessionFile).mtimeMs;
 record('synthetic session bytes unchanged (sha256)', shaBefore === shaAfter);

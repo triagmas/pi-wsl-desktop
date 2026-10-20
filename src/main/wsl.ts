@@ -58,20 +58,22 @@ function runWsl(wslPath: string, args: string[], opts: WslCallOptions & { timeou
       env: opts.env ? { ...process.env, ...opts.env } : process.env,
     });
     const stdout: Buffer[] = [];
-    const stderrChunks: string[] = [];
+    // Byte-faithful accumulation (review round 4): decode stderr ONCE so a
+    // multibyte char straddling a chunk boundary keeps the diagnostics intact.
+    const stderrChunks: Buffer[] = [];
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       reject(new BridgeError('WSL_UNAVAILABLE', `wsl.exe timed out after ${opts.timeoutMs}ms`));
     }, opts.timeoutMs);
     child.stdout.on('data', (c: Buffer) => stdout.push(c));
-    child.stderr.on('data', (c: Buffer) => stderrChunks.push(c.toString('utf8')));
+    child.stderr.on('data', (c: Buffer) => stderrChunks.push(c));
     child.once('error', (err) => {
       clearTimeout(timer);
       reject(new BridgeError('WSL_UNAVAILABLE', `cannot start ${wslPath}: ${err.message}`));
     });
     child.once('exit', (code) => {
       clearTimeout(timer);
-      resolve({ code, stdout: Buffer.concat(stdout), stderr: stderrChunks.join('') });
+      resolve({ code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderrChunks).toString('utf8') });
     });
   });
 }

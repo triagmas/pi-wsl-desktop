@@ -16,6 +16,7 @@ export interface ConnectionLike {
   listDistros(): Promise<string[]>;
   selectDistro(distro: string): void;
   subscribe(cb: (snapshot: unknown) => void): () => void;
+  subscribeChat(cb: (payload: unknown) => void): () => void;
 }
 
 export interface IpcOptions {
@@ -32,7 +33,17 @@ export function registerIpc(
     if (typeof method !== 'string' || !isAllowedRendererMethod(method)) {
       throw new Error(`method not allowed: ${String(method)}`);
     }
-    return conn.request(method, typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : undefined);
+    try {
+      return await conn.request(method, typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : undefined);
+    } catch (err) {
+      // Electron serializes Errors by message only — prefix the stable code
+      // so the renderer can show SESSION_CONFLICT / RESOURCE_BUSY / …
+      const e = err as { code?: unknown; message?: unknown };
+      if (typeof e?.code === 'string' && e.code.length > 0) {
+        throw new Error(`${e.code}: ${typeof e.message === 'string' ? e.message : ''}`, { cause: err });
+      }
+      throw err;
+    }
   });
   ipc.handle('bridge:status', () => conn.snapshot());
   ipc.handle('bridge:retry', () => {
@@ -49,5 +60,10 @@ export function registerIpc(
     return conn.snapshot();
   });
 
-  return conn.subscribe((snapshot) => send('bridge:state', snapshot));
+  const offState = conn.subscribe((snapshot) => send('bridge:state', snapshot));
+  const offChat = conn.subscribeChat((payload) => send('bridge:chat', payload));
+  return () => {
+    offState();
+    offChat();
+  };
 }

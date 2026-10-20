@@ -53,6 +53,7 @@ function makeApi(initial: RendererSnapshot): MockApi {
       subs.push(cb);
       return () => undefined;
     },
+    onChatEvent: () => () => undefined,
   };
   return {
     api,

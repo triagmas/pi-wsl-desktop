@@ -4,7 +4,7 @@
 >
 > Одно окно для проектов, чатов, сессий, Skills, Extensions и MCP. Без собственной реализации Pi, копирования сессий или второй конфигурации.
 
-**Текущий статус:** M0 (Foundation & WSL Bridge) реализован и находится на независимом ревью · `v0.1` · фактические статусы и доказательства — в [ROADMAP.md](ROADMAP.md).
+**Текущий статус:** M0 принят — [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged (`main` `1c24cf23`) · M1 Sessions & Chat реализован и предъявлен на ревью ([Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) · [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6)) · `v0.1` · актуальные статусы и выполненные задачи — в [ROADMAP.md](ROADMAP.md).
 
 ## Документация
 
@@ -56,7 +56,7 @@ Windows-клиент — **интерфейс**. Исполнение Pi, Skills
 
 **Публичный GitHub:** два уровня проверки. [Repository Contract CI](.github/workflows/repository-contract.yml) — только документация и правила учёта (принят в PR #3). [Product CI](.github/workflows/product-ci.yml) — реальные `typecheck` / `lint` / Vitest (unit, contract, integration, UI) / сборка / Playwright Electron E2E на стандартных бесплатных `ubuntu-latest` и `windows-latest` без секретов. Реальный Windows+WSL smoke остаётся отдельным ручным гейтом и никогда не подменяется зелёным CI.
 
-До принятия M0 пользовательские рабочие Pi-сессии должны оставаться неприкосновенными. История CLI Pi используется по месту, без миграции.
+**M0 принят.** В M1 работа с существующими Pi-сессиями начинается только с безопасного чтения; история CLI Pi остаётся по месту и не мигрирует. Продолжение истории через Pi RPC допускается после тестирования контрактов и явного действия пользователя.
 
 ---
 

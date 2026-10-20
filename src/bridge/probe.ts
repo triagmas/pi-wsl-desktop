@@ -33,17 +33,21 @@ export const defaultSpawn: SpawnFn = (command, args, opts) =>
       env: opts.env ? { ...process.env, ...opts.env } : process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    let stdout = '';
-    let stderr = '';
+    let stdout: string;
+    let stderr: string;
+    // Byte-faithful accumulation (review round 4): decode ONCE at exit so a
+    // multibyte char straddling a stream chunk boundary is never corrupted.
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       reject(new Error(`spawn timed out after ${opts.timeoutMs}ms: ${command}`));
     }, opts.timeoutMs);
     child.stdout.on('data', (d: Buffer) => {
-      stdout += d.toString('utf8');
+      stdoutChunks.push(d);
     });
     child.stderr.on('data', (d: Buffer) => {
-      stderr += d.toString('utf8');
+      stderrChunks.push(d);
     });
     child.once('error', (err) => {
       clearTimeout(timer);
@@ -51,11 +55,31 @@ export const defaultSpawn: SpawnFn = (command, args, opts) =>
     });
     child.once('exit', (code) => {
       clearTimeout(timer);
+      stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      stderr = Buffer.concat(stderrChunks).toString('utf8');
       resolve({ code, stdout, stderr });
     });
   });
 
 const VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/;
+
+/**
+ * PATH for spawning Pi itself: candidates may be `#!/usr/bin/env node`
+ * scripts (the real ~/.local/bin/pi is), so node must resolve — the bridge's
+ * own node directory, the user's ~/.local/bin, then system dirs. Shared by
+ * probing AND the RPC chat spawn so both see identical resolution.
+ */
+export function buildProbePath(home: string): string {
+  return [
+    path.dirname(process.execPath),
+    home ? path.posix.join(home, '.local', 'bin') : '',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ]
+    .filter(Boolean)
+    .join(':');
+}
 
 function candidatePaths(env: NodeJS.ProcessEnv, home: string): string[] {
   // An explicit PI_WS_DESKTOP_PI override is authoritative in BOTH
@@ -78,19 +102,7 @@ export async function probePi(
   const home = opts.home ?? env.HOME ?? '';
   const spawnFn = opts.spawnFn ?? defaultSpawn;
   const timeoutMs = opts.timeoutMs ?? 8000;
-  // Candidates may be `#!/usr/bin/env node` scripts (the real ~/.local/bin/pi
-  // is), so probes must run with a PATH that can actually resolve node:
-  // the bridge's own node directory, the user's ~/.local/bin, then system dirs.
-  const probePath = [
-    path.dirname(process.execPath),
-    home ? path.posix.join(home, '.local', 'bin') : '',
-    '/usr/local/bin',
-    '/usr/bin',
-    '/bin',
-  ]
-    .filter(Boolean)
-    .join(':');
-  const childEnv = { PATH: probePath };
+  const childEnv = { PATH: buildProbePath(home) };
 
   for (const candidate of candidatePaths(env, home)) {
     let versionOut: SpawnResult;

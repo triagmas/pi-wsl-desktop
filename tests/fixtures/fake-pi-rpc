@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+/**
+ * Deterministic Pi RPC fixture — mirrors the installed Pi 1.3.0 protocol
+ * (JSONL stdin commands / stdout responses + session events, LF framing,
+ * id correlation, agent_settled terminal, abort-waits-idle).
+ *
+ * Behaviour via FAKE_PI_MODE:
+ *   ok (default)      stream a prompt to agent_settled (unicode deltas)
+ *   handled           prompt answers disposition=handled (no run, no settled)
+ *   hang-prompt       never answer the prompt (deadline/kill tests)
+ *   crash-on-prompt   exit(7) mid-run after two records
+ *   switch-fail       switch_session answers success:false
+ *   ext-ui            emit a fire-and-forget + a blocking dialog at startup
+ *   hostile-start     emit garbage + an oversize line before anything else
+ * FAKE_PI_STREAM_MS delays each stream step (slow runs for interrupt tests).
+ */
+'use strict';
+
+// Probe compatibility (mirror of the REAL pi CLI surface used by probePi):
+// `pi --version` and `pi --help` answer and exit; any other argv (notably
+// `--mode rpc --session …`) enters the RPC loop below.
+if (process.argv.includes('--version')) {
+  process.stdout.write('1.3.0-fake\n');
+  process.exit(0);
+}
+if (process.argv.includes('--help')) {
+  process.stdout.write('Usage: pi\n  --mode <mode>   Output mode: text (default), json, or rpc\n');
+  process.exit(0);
+}
+
+const MODE = process.env.FAKE_PI_MODE || 'ok';
+const STREAM_MS = Number(process.env.FAKE_PI_STREAM_MS || 0);
+
+let buf = '';
+let streaming = false;
+let sessionFile = null;
+let streamTimer = null;
+
+const send = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
+const delay = (fn) => {
+  if (STREAM_MS > 0) {
+    streamTimer = setTimeout(fn, STREAM_MS);
+  } else {
+    setImmediate(fn);
+  }
+};
+
+if (MODE === 'hostile-start') {
+  process.stdout.write('this is not json at all\n');
+  process.stdout.write(`{"type":"noise","pad":"${'x'.repeat(4096)}"}\n`);
+}
+
+if (MODE === 'ext-ui') {
+  send({ type: 'extension_ui_request', id: 'ext-notify-1', method: 'notify', message: 'hello from extension' });
+  send({ type: 'extension_ui_request', id: 'ext-confirm-1', method: 'confirm', title: 'Proceed?', timeout: 5000 });
+}
+
+function streamPrompt(id, message) {
+  streaming = true;
+  send({ id, type: 'response', command: 'prompt', success: true, data: { disposition: 'started' } });
+  if (MODE === 'crash-on-prompt') {
+    send({ type: 'agent_start' });
+    send({ type: 'message_start', message: { role: 'assistant', content: [], timestamp: 1 } });
+    setTimeout(() => process.exit(7), 5);
+    return;
+  }
+  const steps = [
+    { type: 'agent_start' },
+    { type: 'turn_start' },
+    { type: 'message_start', message: { role: 'user', content: message, timestamp: 1 } },
+    { type: 'message_end', message: { role: 'user', content: message, timestamp: 1 } },
+    { type: 'message_start', message: { role: 'assistant', content: [], stopReason: 'pending', timestamp: 2 } },
+    { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Hello 🌍' } },
+    { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: ' — done' } },
+    { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello 🌍 — done' }], stopReason: 'stop', timestamp: 3 } },
+    { type: 'turn_end', toolResults: [] },
+    { type: 'agent_end', willRetry: false },
+    { type: 'agent_settled', aborted: false },
+  ];
+  let i = 0;
+  const next = () => {
+    if (!streaming || i >= steps.length) return;
+    const step = steps[i];
+    i += 1;
+    send(step);
+    if (step.type === 'agent_settled') streaming = false;
+    delay(next);
+  };
+  delay(next);
+}
+
+function handle(cmd) {
+  switch (cmd.type) {
+    case 'get_state':
+      send({
+        id: cmd.id,
+        type: 'response',
+        command: 'get_state',
+        success: true,
+        data: {
+          model: { id: 'fake-model', name: 'Fake Model', provider: 'fake' },
+          thinkingLevel: 'medium',
+          isStreaming: streaming,
+          isCompacting: false,
+          sessionId: 'fake-session-0001',
+          ...(sessionFile !== null ? { sessionFile } : {}),
+          messageCount: 4,
+          pendingMessageCount: 0,
+        },
+      });
+      return;
+    case 'get_session_stats':
+      send({ id: cmd.id, type: 'response', command: 'get_session_stats', success: true, data: { sessionId: 'fake-session-0001', totalMessages: 4 } });
+      return;
+    case 'switch_session': {
+      if (MODE === 'switch-fail') {
+        send({ id: cmd.id, type: 'response', command: 'switch_session', success: false, error: 'Session file not found' });
+        return;
+      }
+      sessionFile = typeof cmd.sessionPath === 'string' ? cmd.sessionPath : null;
+      send({ id: cmd.id, type: 'response', command: 'switch_session', success: true, data: { cancelled: false } });
+      return;
+    }
+    case 'prompt': {
+      if (MODE === 'handled') {
+        send({ id: cmd.id, type: 'response', command: 'prompt', success: true, data: { disposition: 'handled' } });
+        return;
+      }
+      if (streaming && !cmd.streamingBehavior) {
+        send({
+          id: cmd.id,
+          type: 'response',
+          command: 'prompt',
+          success: false,
+          error: 'Agent is streaming: specify streamingBehavior',
+        });
+        return;
+      }
+      if (MODE === 'hang-prompt') return; // no response, no events
+      streamPrompt(cmd.id, String(cmd.message ?? ''));
+      return;
+    }
+    case 'abort': {
+      if (streaming) {
+        if (streamTimer) clearTimeout(streamTimer);
+        streaming = false;
+        send({ type: 'agent_settled', aborted: true });
+      }
+      send({ id: cmd.id, type: 'response', command: 'abort', success: true });
+      return;
+    }
+    default:
+      send({ id: cmd.id, type: 'response', command: String(cmd.type), success: false, error: `Unknown command: ${cmd.type}` });
+  }
+}
+
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  buf += chunk;
+  let idx;
+  while ((idx = buf.indexOf('\n')) >= 0) {
+    const line = buf.slice(0, idx);
+    buf = buf.slice(idx + 1);
+    if (line.trim() === '') continue;
+    let cmd;
+    try {
+      cmd = JSON.parse(line);
+    } catch (err) {
+      send({ type: 'response', command: 'parse', success: false, error: `Failed to parse command: ${err.message}` });
+      continue;
+    }
+    handle(cmd);
+  }
+});
+process.stdin.on('end', () => {
+  if (streamTimer) clearTimeout(streamTimer);
+  process.exit(0);
+});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));

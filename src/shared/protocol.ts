@@ -1,39 +1,18 @@
 import { z } from 'zod';
 
-/** Bridge protocol version. Bump on any breaking frame change. */
-export const PROTOCOL_VERSION = 1;
+// Transport constants live in the node-free module so renderer bundles stay
+// Buffer-free; everything below is re-exported for existing imports.
+import { ALL_ERROR_CODES, ALL_METHODS, MAX_FRAME_BYTES, PROTOCOL_VERSION } from './codes';
 
-/** Hard cap for a single NDJSON frame, bytes. Oversized frames kill the connection. */
-export const MAX_FRAME_BYTES = 1_048_576;
-
-/** Read-only method allowlist for M0. No write methods exist. */
-export const M0_METHODS = ['health', 'getRuntimeInfo', 'getCapabilities', 'ping'] as const;
-export type M0Method = (typeof M0_METHODS)[number];
-
-/**
- * Stable error codes. The first block is mandated by SPECIFICATION.md §7;
- * the second block is generic transport/validation machinery for M0.
- */
-export const ALL_ERROR_CODES = [
-  'WSL_UNAVAILABLE',
-  'NODE_NOT_FOUND',
-  'PI_NOT_FOUND',
-  'PI_INCOMPATIBLE',
-  'BRIDGE_TIMEOUT',
-  'SESSION_CONFLICT',
-  'UNTRUSTED_PROJECT',
-  'RESOURCE_BUSY',
-  'MCP_ERROR',
-  'INVALID_REQUEST',
-  'METHOD_NOT_ALLOWED',
-  'PROTOCOL_ERROR',
-  'UNSUPPORTED_VERSION',
-  'CANCELLED',
-  'DISCONNECTED',
-  'QUEUE_FULL',
-  'UNKNOWN',
-] as const;
-export type ErrorCode = (typeof ALL_ERROR_CODES)[number];
+export {
+  PROTOCOL_VERSION,
+  MAX_FRAME_BYTES,
+  M0_METHODS,
+  M1_METHODS,
+  ALL_METHODS,
+  ALL_ERROR_CODES,
+} from './codes';
+export type { M0Method, M1Method, AllMethod, ErrorCode } from './codes';
 
 const RequestIdSchema = z.string().min(1).max(64);
 
@@ -142,9 +121,9 @@ export function encodeFrame(frame: FrameT): string {
   return json;
 }
 
-/** Return a METHOD_NOT_ALLOWED error body for methods outside the read-only allowlist. */
+/** Return a METHOD_NOT_ALLOWED error body for methods outside the M0∪M1 allowlist. */
 export function mapUnknownMethod(method: string): { code: 'METHOD_NOT_ALLOWED'; message: string } | null {
-  if ((M0_METHODS as readonly string[]).includes(method)) {
+  if ((ALL_METHODS as readonly string[]).includes(method)) {
     return null;
   }
   return { code: 'METHOD_NOT_ALLOWED', message: `Method not allowed: ${method}` };

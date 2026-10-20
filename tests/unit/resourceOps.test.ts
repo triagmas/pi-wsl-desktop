@@ -9,7 +9,7 @@
  * unbounded (spawn timeout) — and no plan/apply happens without both phases.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -23,8 +23,8 @@ afterEach(() => {
 
 interface Harness {
   ops: ResourceOps;
-  calls: Array<{ argv: string[] }>;
-  setSpawn: (fn: (argv: string[]) => SpawnResult | Promise<SpawnResult>) => void;
+  calls: Array<{ argv: string[]; cwd?: string }>;
+  setSpawn: (fn: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult>) => void;
 }
 
 function harness(setup?: (home: string) => void, extraDeps: Record<string, unknown> = {}): Harness {
@@ -33,8 +33,8 @@ function harness(setup?: (home: string) => void, extraDeps: Record<string, unkno
   mkdirSync(path.join(home, '.pi', 'agent'), { recursive: true });
   writeFileSync(path.join(home, '.pi', 'agent', 'settings.json'), JSON.stringify({ packages: [] }));
   setup?.(home);
-  const calls: Array<{ argv: string[] }> = [];
-  let behavior: (argv: string[]) => SpawnResult | Promise<SpawnResult> = (argv) => {
+  const calls: Array<{ argv: string[]; cwd?: string }> = [];
+  let behavior: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult> = (argv) => {
     // emulate `pi install`: append the source to settings.packages
     if (argv[0] === 'install') {
       const f = path.join(home, '.pi', 'agent', 'settings.json');
@@ -55,9 +55,9 @@ function harness(setup?: (home: string) => void, extraDeps: Record<string, unkno
     home,
     agentDir: path.join(home, '.pi', 'agent'),
     now: () => Date.now(),
-    spawnFn: async (argv) => {
-      calls.push({ argv });
-      return behavior(argv);
+    spawnFn: async (argv, opts) => {
+      calls.push({ argv, cwd: opts?.cwd });
+      return behavior(argv, opts);
     },
     ...extraDeps,
   });
@@ -298,5 +298,116 @@ describe('ResourceOps — review round 1 fixes (BLOCKER #1, IMPORTANT #2/#3/#5, 
     const b = await h.ops.preview({ kind: 'package-remove', source: 'npm:x' });
     expect(a.plan.backupId).not.toBeNull();
     expect(a.plan.backupId).not.toBe(b.plan.backupId);
+  });
+});
+
+describe('ResourceOps — round 2 (N2 cwd, N3 branches, N5 sweep/cap, N6 unlink snapshot, N8 pseudo-argv)', () => {
+  it('[N2] local ops spawn the CLI with cwd = project root (backup/verify/rollback agree with the real write)', async () => {
+    const projDir = mkdtempSync(path.join(os.tmpdir(), 'piwsd-cwd-'));
+    const projectPi = path.join(projDir, '.pi');
+    const calls2: Array<{ argv: string[]; cwd?: string }> = [];
+    const home = mkdtempSync(path.join(os.tmpdir(), 'piwsd-cwdhome-'));
+    homes.push(home);
+    mkdirSync(path.join(home, '.pi', 'agent'), { recursive: true });
+    writeFileSync(path.join(home, '.pi', 'agent', 'settings.json'), JSON.stringify({ packages: [] }));
+    const ops = new ResourceOps({
+      home,
+      agentDir: path.join(home, '.pi', 'agent'),
+      projectPiDir: projectPi,
+      now: () => Date.now(),
+      spawnFn: async (argv, opts) => {
+        calls2.push({ argv, cwd: opts?.cwd });
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    const { plan } = await ops.preview({ kind: 'package-install', source: './tool', local: true });
+    expect(plan.filesTouched).toEqual([path.join(projectPi, 'settings.json')]);
+    await ops.apply(plan.planId, true);
+    expect(calls2[0]?.cwd).toBe(projDir); // process-cwd pinned to the project root
+    // user-scope ops stay cwd-independent
+    const { plan: p2 } = await ops.preview({ kind: 'package-install', source: 'npm:x' });
+    await ops.apply(p2.planId, true);
+    expect(calls2[1]?.cwd).toBeUndefined();
+  });
+
+  it('[N3a] a file deleted after preview keeps its preview-era backup restorable', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const beforeSha = sha(mcpPath);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'keepme', url: 'https://k.invalid/mcp' });
+    expect(plan.backupId).toBeTruthy();
+    rmSync(mcpPath); // file vanishes before apply
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true); // CLI recreates it (harness behavior writes mcp.json)
+    await h.ops.rollback(applied.opId, true);
+    expect(sha(mcpPath)).toBe(beforeSha); // restored from the kept preview backup
+  });
+
+  it('[N3b] a failing backup refresh never nulls an existing preview-era backup', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const beforeSha = sha(mcpPath);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'eac', url: 'https://e.invalid/mcp' });
+    expect(plan.backupId).toBeTruthy();
+    // make the REFRESH copy fail transiently: the backup destination dir is
+    // removed (POSIX-only: directory rename), source file intact
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const moved = `${backupsDir}-moved`;
+    renameSync(backupsDir, moved);
+    const applied = await h.ops.apply(plan.planId, true);
+    renameSync(moved, backupsDir); // restore layout before rollback
+    expect(applied.ok).toBe(true);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(sha(mcpPath)).toBe(beforeSha); // the preview-era backup survived the transient failure
+  });
+
+  it('[N5] expired plans are swept and the applied ledger is bounded', async () => {
+    let clock = 1_700_000_000_000;
+    const h = harness(undefined, { now: () => clock, appliedCap: 2 });
+    await h.ops.preview({ kind: 'package-install', source: 'npm:a' });
+    expect(h.ops.stats().plans).toBe(1);
+    clock += 6 * 60_000; // past TTL
+    await h.ops.preview({ kind: 'package-install', source: 'npm:b' });
+    expect(h.ops.stats().plans).toBe(1); // expired plan swept (secrets released)
+    // applied ledger cap: third apply drops the oldest record
+    const { plan: p1 } = await h.ops.preview({ kind: 'package-install', source: 'npm:c' });
+    const a1 = await h.ops.apply(p1.planId, true);
+    const { plan: p2 } = await h.ops.preview({ kind: 'package-install', source: 'npm:d' });
+    await h.ops.apply(p2.planId, true);
+    const { plan: p3 } = await h.ops.preview({ kind: 'package-install', source: 'npm:e' });
+    await h.ops.apply(p3.planId, true);
+    expect(h.ops.stats().applied).toBe(2);
+    await expect(h.ops.rollback(a1.opId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('[N6] rollback unlink first PRESERVES concurrent bytes as a pre-unlink snapshot', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'race', url: 'https://r.invalid/mcp' });
+    expect(plan.backupId).toBeNull(); // absent at preview
+    const concurrent = JSON.stringify({ mcpServers: { userbox: { type: 'http', url: 'https://u.invalid/mcp' } } }, null, 2);
+    h.setSpawn((argv) => {
+      // a rival CLI creates the file DURING our apply (after the refresh check)
+      if (argv[0] === 'mcp') writeFileSync(mcpPath, concurrent);
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    await h.ops.rollback(applied.opId, true);
+    expect(existsSync(mcpPath)).toBe(false); // op-created file removed…
+    const backups = readdirSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups'));
+    const kept = backups.find((b) => b.includes('preunlink'));
+    expect(kept).toBeTruthy(); // …but the concurrent bytes are preserved losslessly
+    expect(readFileSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups', kept as string), 'utf8')).toBe(concurrent);
+  });
+
+  it('[N8] the skill-set plan command honestly states that no process is spawned', async () => {
+    const h = harness();
+    const { plan } = await h.ops.preview({ kind: 'skill-set', source: '/x/s', disable: true });
+    expect(plan.command[0]).toBe('(file edit — no process spawned)');
+    expect(plan.command.join(' ')).not.toMatch(/^pi /);
   });
 });

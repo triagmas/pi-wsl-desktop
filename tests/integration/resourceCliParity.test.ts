@@ -132,3 +132,39 @@ describe.skipIf(!HAS_PI)('mcp-add parity — REAL `pi mcp add` stores --env unde
     expect(readFileSync(mcpPath, 'utf8')).not.toContain('stdio-parity');
   }, 90_000);
 });
+
+describe.skipIf(!HAS_PI)('project-local (-l) parity — REAL pi writes <cwd>/.pi, rollback agrees (round 2 N2)', () => {
+  it('install -l lands in the project .pi the ops backs up; rollback restores those exact bytes', async () => {
+    const { ResourceOps } = await import('../../src/bridge/resources/ops');
+    const { createHash } = await import('node:crypto');
+    const home = makeHome();
+    const proj = mkdtempSync(path.join(os.tmpdir(), 'piwsd-lparity-'));
+    const projPi = path.join(proj, '.pi');
+    mkdirSync(path.join(projPi, 'agent-pkg'), { recursive: true });
+    mkdirSync(projPi, { recursive: true });
+    writeFileSync(path.join(projPi, 'agent-pkg', 'package.json'), JSON.stringify({ name: 'pi-lparity', keywords: ['pi-package'] }));
+    const projSettings = path.join(projPi, 'settings.json');
+    writeFileSync(projSettings, JSON.stringify({ packages: [] }, null, 2));
+    const sha = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+    const before = sha(projSettings);
+    const userSettings = path.join(home, '.pi', 'agent', 'settings.json');
+    writeFileSync(userSettings, JSON.stringify({ packages: [] }, null, 2));
+    // the real CLI refuses -l on an UNTRUSTED project — mirror our own gate
+    // (ops only builds local plans when trust.json trusts the projectRoot)
+    writeFileSync(path.join(home, '.pi', 'agent', 'trust.json'), JSON.stringify({ [proj]: true }, null, 2));
+    const userBefore = sha(userSettings);
+
+    const ops = new ResourceOps({ home, agentDir: path.join(home, '.pi', 'agent'), projectPiDir: projPi });
+    const { plan } = await ops.preview({ kind: 'package-install', source: './agent-pkg', local: true });
+    expect(plan.filesTouched).toEqual([projSettings]); // target = project .pi (matches the CLI's cwd rule)
+    const applied = await ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    expect(applied.verified).toBe(true); // verify READ the same file the CLI wrote
+    expect(sha(projSettings)).not.toBe(before);
+    expect(sha(userSettings)).toBe(userBefore); // user settings untouched
+
+    const rolled = await ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(sha(projSettings)).toBe(before); // byte-exact rollback of the REAL write location
+  }, 90_000);
+});

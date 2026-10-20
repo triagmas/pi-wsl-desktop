@@ -32,9 +32,11 @@ export interface ResourceOpsDeps {
   /** Trusted project `.pi` directory for `-l` writes (optional). */
   projectPiDir?: string;
   now?: () => number;
-  spawnFn?: (argv: string[]) => SpawnResult | Promise<SpawnResult>;
+  spawnFn?: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult>;
   /** CLI executable (resolved by the bridge: env override → real pi). */
   cliPath?: string;
+  /** Max retained applied-op records (round 2, N5 — bound in-memory ledgers). */
+  appliedCap?: number;
   /** Bounded CLI runtime (ms). Never unbounded (AGENTS §3.7). */
   timeoutMs?: number;
 }
@@ -92,24 +94,27 @@ export class ResourceOps {
   private readonly projectPiDir: string | undefined;
   private readonly now: () => number;
   private readonly timeoutMs: number;
-  private readonly spawnFnImpl: (argv: string[]) => SpawnResult | Promise<SpawnResult>;
+  private readonly spawnFnImpl: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult>;
+  private readonly appliedCap: number;
   private readonly plans = new Map<string, PlanRecord>();
   private readonly applied = new Map<string, AppliedRecord>();
 
   constructor(deps: ResourceOpsDeps) {
     this.home = deps.home;
     this.cliPath = deps.cliPath ?? 'pi';
+    this.appliedCap = deps.appliedCap ?? 50;
     this.agentDir = deps.agentDir;
     this.projectPiDir = deps.projectPiDir;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 60_000;
     this.spawnFnImpl =
       deps.spawnFn ??
-      (async (argv) =>
+      (async (argv, opts) =>
         new Promise<SpawnResult>((resolve) => {
           // Like the M0 probe: real `pi` and fixture CLIs are `#!/usr/bin/env
           // node` scripts — guarantee the node directory is on PATH.
           const child = spawn(this.cliPath, argv, {
+            cwd: opts?.cwd, // [round 2, N2] `-l` writes target <cwd>/.pi — pin cwd to the project root
             env: { ...process.env, HOME: this.home, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? '/usr/bin:/bin'}` },
           });
           let stdout = '';
@@ -202,9 +207,10 @@ export class ResourceOps {
       case 'mcp-remove':
         return ['mcp', 'remove', params.source, ...local];
       case 'skill-set':
-        // No CLI exists for per-skill toggling on 1.3.0 — a settings edit;
-        // the pseudo-argv documents the intent in the plan (never spawned).
-        return ['settings.json', 'skills', params.disable === true ? '-' : '+', params.source];
+        // No CLI exists for per-skill toggling on 1.3.0 — a settings edit.
+        // [round 2, N8] The plan command must not pretend to be a `pi …` argv
+        // (contract: "exact argv the bridge will run" — nothing is spawned).
+        return ['(file edit — no process spawned)', 'settings.json', 'skills', params.disable === true ? '-' : '+', params.source];
       default:
         throw new BridgeError('INVALID_REQUEST', `unsupported op kind`);
     }
@@ -240,7 +246,20 @@ export class ResourceOps {
     return path.join(this.backupsDir, `${stamp}-${rand}-${basename}`);
   }
 
+  /** [round 2, N5] Drop expired plans (their in-memory env values) eagerly. */
+  private sweep(): void {
+    for (const [id, rec] of [...this.plans]) {
+      if (this.now() >= rec.plan.expiresAt) this.plans.delete(id);
+    }
+  }
+
+  /** Test/diagnostics hook: in-memory ledger sizes. */
+  stats(): { plans: number; applied: number } {
+    return { plans: this.plans.size, applied: this.applied.size };
+  }
+
   async preview(params: PreviewResourceOpParamsT): Promise<{ plan: ResourceOpPlanT }> {
+    this.sweep();
     const files = this.targetsFor(params).files;
     const argv = this.argvFor(params);
     const secretValues = Object.values(params.env ?? {}).filter((v) => v.length > 0);
@@ -265,11 +284,12 @@ export class ResourceOps {
     }
 
     const planId = `${params.kind}-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
+    const spawned = params.kind !== 'skill-set'; // file-edit ops run no process (N8)
     const plan: ResourceOpPlanT = {
       planId,
       kind: params.kind,
-      description: `pi ${display.join(' ')}`,
-      command: ['pi', ...display],
+      description: spawned ? `pi ${display.join(' ')}` : display.join(' '),
+      command: spawned ? ['pi', ...display] : display,
       commandRedacted: redacted,
       filesTouched: files,
       backupId: backupIds.length > 0 ? backupIds.join(',') : null,
@@ -330,7 +350,11 @@ export class ResourceOps {
         spawnResult = { code: 1, stdout: '', stderr: (error as Error).message };
       }
     } else {
-      spawnResult = await this.spawnFnImpl(argv);
+      // [round 2, N2] the real CLI writes `-l` targets into <process-cwd>/.pi;
+      // pin cwd to the project root so backup/verify/rollback operate on the
+      // SAME file the CLI actually rewrites.
+      const cwd = record.params.local === true && this.projectPiDir ? path.dirname(this.projectPiDir) : undefined;
+      spawnResult = await this.spawnFnImpl(argv, cwd === undefined ? undefined : { cwd });
     }
     const output = maskOutput(`${spawnResult.stdout}\n${spawnResult.stderr}`.trim(), secretValues);
 
@@ -338,6 +362,11 @@ export class ResourceOps {
     const verified = ok ? await this.verify(record.params) : false;
     const opId = planId;
     this.applied.set(opId, { backups: record.backups });
+    while (this.applied.size > this.appliedCap) {
+      const oldest = this.applied.keys().next().value;
+      if (oldest === undefined) break;
+      this.applied.delete(oldest);
+    }
 
     return {
       ok,
@@ -406,6 +435,13 @@ export class ResourceOps {
           /* below: reported via absence from `restored` */
         }
       } else {
+        // [round 2, N6] a rival CLI may have created this file during our
+        // apply — preserve its bytes before removing ours (lossless unlink).
+        try {
+          await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.preunlink`));
+        } catch {
+          /* vanished concurrently — nothing to preserve */
+        }
         try {
           await fsp.unlink(b.file); // op created this file — remove it
           restored.push(b.file);

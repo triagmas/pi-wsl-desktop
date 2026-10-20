@@ -110,14 +110,22 @@ export async function discoverMcp(input: { fs: FsLike; cfg: AgentConfig }): Prom
     const projServers = ((projJson.raw as { mcpServers?: unknown } | null)?.mcpServers ?? null) as Record<string, unknown> | null;
     if (projServers && typeof projServers === 'object') {
       for (const [name, entry] of Object.entries(projServers)) {
-        // mcp.md:34-40 — a project entry OVERRIDES FIELD-WISE and keeps the
-        // rest (command/args/env/headers/auth inherit from the user entry);
-        // a full project config therefore behaves like a replace.
+        // mcp.md:32-40 canonical rules (round 2, N1):
+        // 1) a project entry REPLACES the user entry by default;
+        // 2) ONLY a transport-less entry (no command/url/type) is an overlay,
+        //    and it may override ONLY `enabled`/`exposure`/`toolExposure` —
+        //    everything else (args/env/headers/auth) is KEPT from the user.
         const base = userRaw.get(name);
-        const effective =
-          base !== undefined && typeof base === 'object' && !Array.isArray(base) && typeof entry === 'object' && entry !== null && !Array.isArray(entry)
-            ? { ...(base as Record<string, unknown>), ...(entry as Record<string, unknown>) }
-            : entry;
+        const isPlain = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+        const hasTransport = isPlain(entry) && ['command', 'url', 'type'].some((k) => k in entry);
+        let effective: unknown = entry;
+        if (!hasTransport && isPlain(entry) && isPlain(base)) {
+          const overlaid: Record<string, unknown> = { ...base };
+          for (const key of ['enabled', 'exposure', 'toolExposure']) {
+            if (key in entry) overlaid[key] = entry[key];
+          }
+          effective = overlaid;
+        }
         merged.set(name, { entry: effective, scope: 'project' });
       }
     }

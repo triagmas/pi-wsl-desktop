@@ -234,3 +234,53 @@ describe('MCP — review round 1 fixes (IMPORTANT #4, MINOR c/d)', () => {
     void fs;
   });
 });
+
+describe('MCP — round 2: mcp.md merge semantics (N1)', () => {
+  const fsWith = (user: Record<string, unknown>, proj: Record<string, unknown>): ReturnType<typeof resourceFs> =>
+    resourceFs({
+      home: dir({
+        '.pi': dir({
+          agent: dir({
+            'settings.json': file('{}'),
+            'trust.json': file(JSON.stringify({ '/work/repo': true })),
+            'mcp.json': file(JSON.stringify({ mcpServers: user })),
+          }),
+        }),
+      }),
+      work: dir({
+        repo: dir({
+          '.git': dir({ HEAD: file('ref') }),
+          '.pi': dir({ 'mcp.json': file(JSON.stringify({ mcpServers: proj })) }),
+          src: dir({}),
+        }),
+      }),
+    });
+
+  it('(a) a project entry WITH transport fully REPLACES the user entry (no inheritance)', async () => {
+    const fs = fsWith(
+      {
+        box: { command: '/user/box', args: ['--user'], env: { U_TOKEN: 'u' }, enabled: false, description: 'user desc' },
+      },
+      { box: { command: '/project/box' } },
+    );
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: '/work/repo/src' });
+    const r = await discoverMcp({ fs, cfg });
+    const box = r.servers.find((s) => s.name === 'box');
+    expect(box).toMatchObject({ scope: 'project', hasProjectOverride: true, command: '/project/box', enabled: true });
+    expect(box?.args).toEqual([]); // user args NOT inherited
+    expect(box?.envKeys).toEqual([]); // user env NOT inherited
+  });
+
+  it('(b) a transport-less overlay overrides ONLY enabled/exposure/toolExposure and keeps the rest', async () => {
+    const fs = fsWith(
+      { box: { command: '/user/box', args: ['--keep'], env: { U_TOKEN: 'u' }, enabled: true } },
+      { box: { enabled: false, args: ['--override-attempt'], description: 'project attempt' } },
+    );
+    const cfg = await loadAgentConfig({ fs, home: HOME, cwd: '/work/repo/src' });
+    const r = await discoverMcp({ fs, cfg });
+    const box = r.servers.find((s) => s.name === 'box');
+    expect(box).toMatchObject({ enabled: false, command: '/user/box' });
+    expect(box?.args).toEqual(['--keep']); // overlay may NOT touch args
+    expect(box?.envKeys).toEqual(['U_TOKEN']); // env kept per mcp.md
+  });
+});

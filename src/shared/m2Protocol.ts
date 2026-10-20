@@ -160,7 +160,23 @@ export const PreviewResourceOpParamsSchema = z
      * false/absent → remove it (enable). */
     disable: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((v, ctx) => {
+    // Round 2 (N4): never allow a shape that degrades into a garbage argv or
+    // a silently-dropped option.
+    const hasUrl = typeof v.url === 'string' && v.url.length > 0;
+    const hasCmd = Array.isArray(v.command) && v.command.length > 0;
+    if (v.kind === 'mcp-add') {
+      if (hasUrl === hasCmd) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'mcp-add requires exactly one of command (stdio) or url (http)' });
+      }
+      if (hasUrl && v.env !== undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'env is stdio-only — drop it for url' });
+      }
+    } else if (hasUrl || hasCmd || v.env !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'command/url/env are only valid for mcp-add' });
+    }
+  });
 export type PreviewResourceOpParamsT = z.infer<typeof PreviewResourceOpParamsSchema>;
 
 export const ResourceOpPlanSchema = z.object({

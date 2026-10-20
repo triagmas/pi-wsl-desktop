@@ -162,3 +162,17 @@ describe('m2Protocol — skill disable/enable op (DoD: отключение ск
     expect(m2.ApplyResourceOpParamsSchema.safeParse({ planId: 'p', confirm: 0 }).success).toBe(false);
   });
 });
+
+describe('m2Protocol — mcp-add shape validation (round 2, N4)', () => {
+  const mcpAdd = (extra: Record<string, unknown>): boolean =>
+    PreviewResourceOpParamsSchema.safeParse({ kind: 'mcp-add', source: 's', ...extra }).success;
+
+  it('requires exactly one of --command or --url', () => {
+    expect(mcpAdd({ command: ['/bin/true'] })).toBe(true);
+    expect(mcpAdd({ url: 'https://x.invalid/mcp' })).toBe(true);
+    expect(mcpAdd({})).toBe(false); // neither → would spawn `pi mcp add s --`
+    expect(mcpAdd({ command: ['/bin/true'], url: 'https://x.invalid/mcp' })).toBe(false); // both → silent drop
+    expect(mcpAdd({ url: 'https://x.invalid/mcp', env: { K: 'v' } })).toBe(false); // env is stdio-only
+    expect(mcpAdd({ command: ['/bin/true'], env: { K: 'v' } })).toBe(true);
+  });
+});

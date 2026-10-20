@@ -67,6 +67,15 @@
 - [ ] Тесты установки/отключения/ошибок и приёмка M2.
 - [ ] Отложенный M1-hardening из [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7): **P2#2** fail-closed realpath-политика для `assertInsideRoots` (симлинк-тесты: escape/легитимный in-root/смена цели, без чтения наружу) и **P2#3** byte-safe UTF-8 граница `readTail` в display-name — с регрессиями; severity повышать сразу при подтверждённой эксплуатации.
 - [ ] Условный write/prompt smoke (сейчас **NOT RUN** — только с отдельного разрешения владельца) как gate перед production-grade Chat; без тестов на реальных пользовательских сессиях.
+- [ ] **Проверить реальную token-cost конфигурацию установленной Pi:** поддерживаемые уровни `/thinking`, провайдеры, `/session`, текущие настройки, cache/cost metrics — read-only, без изменения `~/.pi`. [Политика экономии](docs/TOKEN_EFFICIENCY.md) / [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7).
+- [ ] **Замерить стоимость принятой задачи** на ≥3 репрезентативных задачах по классам A/B/C; сравнить `low`/базовый уровень при одинаковых gates и в отчёте учитывать повторы и review. **Сейчас NOT MEASURED**. Никаких автоматических платных API-тестов без согласия.
+- [ ] **Любая фактическая настройка модели/effort** только после согласия владельца, проверки Pi CLI-паритета и TDD (UI-изменение, если вообще понадобится, не отдельный инфраструктурный проект). Пока не выполнено.
+
+## 💸 Экономия токенов Pi — правила разработки (не отдельный продуктовый этап)
+
+- [x] Документировать **профили сложности A/B/C**, минимально достаточный `thinking`, короткие tool-outputs и контекст, выборочные Red→Green тесты с обязательной полной финальной проверкой, независимое ревью. [AGENTS.md §5.1](AGENTS.md#51-экономия-токенов-и-выбор-усилия-обязательный-рабочий-протокол), [TOKEN_EFFICIENCY.md](docs/TOKEN_EFFICIENCY.md). — *правила внесены в ветку PR #8; ещё не слиты*.
+- [x] Разъяснить фактическую настройку Pi (`/model`, `/thinking`, `defaultThinkingLevel`, `modelThinkingLevels`, compaction, `/session`) и что текст `AGENTS.md` **не переключает модель**. — *документация подготовлена, не конфигурация*.
+- [ ] Подтвердить применение политики реальным локальным Pi и измеренный эффект (количество токенов, retries, стоимость принятой задачи). — **NOT MEASURED**, подзадача M2 [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7).
 
 ## 🧩 M3 — Module System
 
@@ -103,6 +112,7 @@
 | 2026-10-20 | Delta review нового HEAD: **ACCEPT** | [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) (диапазон `4fb2260..779100c`, комментарий `6280641448`) | ✅ P2#1 закрыт корректно по TDD (RED-воспроизводимость кейсов 1/3 арифметикой фикстур подтверждена; кейсы 2/4 — честно guard-тесты), поведенческих регрессий нет, состав delta — ровно 5 файлов (ROADMAP + 3 код-модуля + 1 тест, `git diff --stat 4fb2260..779100c` = +115/−7), числа 274/8 · 146/28/76/24 и 170/4 сходятся статически; P2-мелочь ROADMAP:58 (270→274) исправлена в этом docs-коммите · merge — по явному согласию владельца |
 | 2026-10-20 | ✅ M1 Sessions & Chat принят и слит | [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) · [ACCEPT](https://github.com/triagmas/pi-wsl-desktop/pull/6#pullrequestreview-5580577901) · `main` `6b3b9c03` · [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) closed | ✅ 56 файлов, +6 440 / −100; Linux Vitest 274 PASS / 8 SKIP, Electron E2E 7 PASS, Windows 170 PASS / 4 SKIP, два CI PASS; REAL_PI 3/3, REAL_WSL 4/4, native Windows GUI PASS по отчёту Pi; **write/model-call NOT RUN**; P2#2/P2#3 → [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) |
 | 2026-10-20 | M2 Pi Manager — подготовка | [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) · ветка `feat/m2-pi-manager-r01` | 🟡 После принятия M1 открыта стартовая ветка; реализация, TDD и смоук M2 ещё впереди |
+| 2026-10-20 | Политика экономии токенов Pi — документация | [AGENTS.md](AGENTS.md) · [TOKEN_EFFICIENCY.md](docs/TOKEN_EFFICIENCY.md) · [Draft PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8) · [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) | 🟡 Определены профили `minimal/low/medium/high`, selective Skills, ограничение вывода, компактный handoff, правила тестов и измерений; **пока не доказана экономия и настройки Pi не менялись** |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

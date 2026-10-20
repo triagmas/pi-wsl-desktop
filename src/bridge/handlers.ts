@@ -34,11 +34,27 @@ import {
   SendPromptParamsSchema,
   SubscribeParamsSchema,
 } from '../shared/m1Protocol';
+import {
+  ApplyResourceOpParamsSchema,
+  ApplyResourceOpResultSchema,
+  ListMcpServersResultSchema,
+  ListPackagesResultSchema,
+  ListSkillsResultSchema,
+  PreviewResourceOpParamsSchema,
+  PreviewResourceOpResultSchema,
+  RollbackResourceOpParamsSchema,
+  RollbackResourceOpResultSchema,
+} from '../shared/m2Protocol';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
 import { buildSessionIndex, inodeMatches, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
 import { searchSessions } from './search';
 import { ChatSessionManager } from './chatSession';
+import { loadAgentConfig, type AgentConfig } from './resources/agentConfig';
+import { discoverMcp } from './resources/mcp';
+import { ResourceOps } from './resources/ops';
+import { discoverPackages } from './resources/packages';
+import { discoverSkills } from './resources/skills';
 import type { RpcProcess } from './piRpcClient';
 import type { ZodType } from 'zod';
 
@@ -133,6 +149,40 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
 
   const index = (): ReturnType<typeof buildSessionIndex> =>
     buildSessionIndex({ fs: nodeFs, env: ctx.env, home: ctx.home, now: now() });
+
+  /* --------------------------- M2 resource manager -------------------------- */
+  // Isolated resource home/cwd (tests + E2E override; production falls back
+  // to the bridge's real HOME/cwd). Read-only config loads are cached for
+  // the bridge lifetime; ops run the documented Pi CLI, never raw writes.
+  const resourceHome = ctx.env.PI_WS_DESKTOP_AGENT_HOME ?? ctx.home;
+  const resourceCwd = ctx.env.PI_WS_DESKTOP_AGENT_CWD ?? process.cwd();
+  const resourceAgentDir = path.posix.join(resourceHome, '.pi', 'agent');
+  let cfgCache: Promise<AgentConfig> | null = null;
+  const resourceCfg = (): Promise<AgentConfig> =>
+    (cfgCache ??= loadAgentConfig({ fs: nodeFs, home: resourceHome, cwd: resourceCwd }));
+  const resolveCli = async (): Promise<string> => {
+    const explicit = ctx.env.PI_WS_DESKTOP_RESOURCE_CLI ?? ctx.env.PI_WS_DESKTOP_PI;
+    if (explicit) return explicit;
+    const local = path.posix.join(resourceHome, '.local', 'bin', 'pi');
+    try {
+      await fsp.stat(local);
+      return local;
+    } catch {
+      return 'pi'; // PATH lookup (same fallback the probe uses)
+    }
+  };
+  let opsCache: ResourceOps | null = null;
+  const resourceOps = async (): Promise<ResourceOps> => {
+    if (opsCache) return opsCache;
+    const cfg = await resourceCfg();
+    opsCache = new ResourceOps({
+      home: resourceHome,
+      agentDir: resourceAgentDir,
+      projectPiDir: cfg.projectTrusted ? path.posix.join(cfg.projectRoot, '.pi') : undefined,
+      cliPath: await resolveCli(),
+    });
+    return opsCache;
+  };
 
   /** A component-safe containment check ("/root" must not match "/root-other"). */
   const inside = (root: string, target: string): boolean => {
@@ -315,6 +365,50 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     closeSession: async () => {
       await getChat().close();
       return assertOut(CloseSessionResultSchema, { closed: true }, 'closeSession');
+    },
+
+    /* --------------------------- M2 resource manager ------------------------ */
+    listSkills: async () => {
+      const cfg = await resourceCfg();
+      const pkgs = await discoverPackages({ fs: nodeFs, cfg });
+      const r = await discoverSkills({ fs: nodeFs, cfg, packageDirs: pkgs.packageDirs });
+      return assertOut(ListSkillsResultSchema, { skills: r.skills, diagnostics: r.diagnostics.slice(0, 50) }, 'listSkills');
+    },
+    listPackages: async () => {
+      const cfg = await resourceCfg();
+      const r = await discoverPackages({ fs: nodeFs, cfg });
+      return assertOut(
+        ListPackagesResultSchema,
+        {
+          packages: r.packages,
+          builtins: r.builtins,
+          settingsExtensions: r.settingsExtensions.slice(0, 200),
+          diagnostics: r.diagnostics.slice(0, 50),
+        },
+        'listPackages',
+      );
+    },
+    listMcpServers: async () => {
+      const cfg = await resourceCfg();
+      const r = await discoverMcp({ fs: nodeFs, cfg });
+      return assertOut(
+        ListMcpServersResultSchema,
+        { servers: r.servers, builtinEnabled: r.builtinEnabled, logDiagnostics: r.logDiagnostics, diagnostics: r.diagnostics.slice(0, 50) },
+        'listMcpServers',
+      );
+    },
+    previewResourceOp: async (params) => {
+      const p = parseParams(PreviewResourceOpParamsSchema, params, 'previewResourceOp');
+      const { plan } = await (await resourceOps()).preview(p);
+      return assertOut(PreviewResourceOpResultSchema, { plan }, 'previewResourceOp');
+    },
+    applyResourceOp: async (params) => {
+      const p = parseParams(ApplyResourceOpParamsSchema, params, 'applyResourceOp');
+      return assertOut(ApplyResourceOpResultSchema, await (await resourceOps()).apply(p.planId, p.confirm), 'applyResourceOp');
+    },
+    rollbackResourceOp: async (params) => {
+      const p = parseParams(RollbackResourceOpParamsSchema, params, 'rollbackResourceOp');
+      return assertOut(RollbackResourceOpResultSchema, await (await resourceOps()).rollback(p.opId, p.confirm), 'rollbackResourceOp');
     },
   };
 

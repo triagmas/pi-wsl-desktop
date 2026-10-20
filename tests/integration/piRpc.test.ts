@@ -110,7 +110,14 @@ describe('PiRpcClient (real subprocess)', () => {
 
   it('hostile start: garbage + oversize line kill the connection with diagnostics', async () => {
     const run = make('hostile-start', { maxLineBytes: 1024 });
-    await new Promise((r) => setTimeout(r, 200));
+    // Poll for the kill instead of sleeping a fixed 200ms — under parallel
+    // load the diagnostics legitimately arrive later (observed CI/local flake).
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      if (!run.client.alive && run.diagnostics.some((d) => /oversize|json/i.test(d))) break;
+      if (Date.now() > deadline) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
     expect(run.client.alive).toBe(false);
     expect(run.diagnostics.some((d) => /oversize|json/i.test(d))).toBe(true);
     await run.client.close();

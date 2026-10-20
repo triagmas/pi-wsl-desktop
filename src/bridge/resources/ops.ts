@@ -33,6 +33,8 @@ export interface ResourceOpsDeps {
   projectPiDir?: string;
   now?: () => number;
   spawnFn?: (argv: string[]) => SpawnResult | Promise<SpawnResult>;
+  /** CLI executable (resolved by the bridge: env override → real pi). */
+  cliPath?: string;
   /** Bounded CLI runtime (ms). Never unbounded (AGENTS §3.7). */
   timeoutMs?: number;
 }
@@ -86,6 +88,7 @@ function maskArgvForDisplay(argv: string[], secretValues: string[]): { display: 
 export class ResourceOps {
   readonly agentDir: string;
   private readonly home: string;
+  private readonly cliPath: string;
   private readonly projectPiDir: string | undefined;
   private readonly now: () => number;
   private readonly timeoutMs: number;
@@ -95,6 +98,7 @@ export class ResourceOps {
 
   constructor(deps: ResourceOpsDeps) {
     this.home = deps.home;
+    this.cliPath = deps.cliPath ?? 'pi';
     this.agentDir = deps.agentDir;
     this.projectPiDir = deps.projectPiDir;
     this.now = deps.now ?? Date.now;
@@ -103,7 +107,11 @@ export class ResourceOps {
       deps.spawnFn ??
       (async (argv) =>
         new Promise<SpawnResult>((resolve) => {
-          const child = spawn('pi', argv, { env: { ...process.env, HOME: this.home } });
+          // Like the M0 probe: real `pi` and fixture CLIs are `#!/usr/bin/env
+          // node` scripts — guarantee the node directory is on PATH.
+          const child = spawn(this.cliPath, argv, {
+            env: { ...process.env, HOME: this.home, PATH: `${path.dirname(process.execPath)}:${process.env.PATH ?? '/usr/bin:/bin'}` },
+          });
           let stdout = '';
           let stderr = '';
           let settled = false;
@@ -189,16 +197,18 @@ export class ResourceOps {
     await fsp.mkdir(this.backupsDir, { recursive: true });
     const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, '-');
     for (const file of files) {
-      let backupPath: string | null = null;
-      try {
-        const backupName = `${stamp}-${path.basename(file)}`;
-        backupPath = path.join(this.backupsDir, backupName);
-        await fsp.copyFile(file, backupPath); // preview: snapshot for the plan id
-        backupIds.push(backupName);
-      } catch {
-        backupPath = null; // target does not exist yet — rollback will remove it
-      }
-      backups.push({ file, backupPath });
+      const made = await (async (): Promise<string | null> => {
+        try {
+          const backupName = `${stamp}-${path.basename(file)}`;
+          const target = path.join(this.backupsDir, backupName);
+          await fsp.copyFile(file, target); // preview: snapshot for the plan id
+          backupIds.push(backupName);
+          return target;
+        } catch {
+          return null; // target does not exist yet — rollback will remove it
+        }
+      })();
+      backups.push({ file, backupPath: made });
     }
 
     const planId = `${params.kind}-${stamp}-${Math.random().toString(36).slice(2, 8)}`;

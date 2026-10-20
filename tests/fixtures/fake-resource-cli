@@ -1,0 +1,80 @@
+#!/usr/bin/env node
+/**
+ * Fixture CLI for M2 resource-op tests/E2E (POSIX, no network, no real Pi).
+ * Mirrors the WRITE semantics observed on the real Pi 1.3.0:
+ * - local sources inside the agent dir are stored by basename;
+ * - mcp add/remove edit mcp.json's mcpServers map;
+ * - exit 0 on success, 2 on malformed input.
+ * Operates ONLY on $HOME/.pi/agent/* (isolated fixture HOME).
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+
+const [cmd, ...rest] = process.argv.slice(2);
+const agent = path.join(process.env.HOME ?? '', '.pi', 'agent');
+const readJson = (p) => {
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+const writeJson = (p, j) => fs.writeFileSync(p, JSON.stringify(j, null, 2));
+const store = (src) => (path.isAbsolute(src) && src.startsWith(agent + path.sep) ? path.basename(src) : src);
+
+if (cmd === 'install' || cmd === 'remove') {
+  const src = rest[0];
+  if (!src) {
+    console.error('fake-resource-cli: missing source');
+    process.exit(2);
+  }
+  const file = path.join(agent, 'settings.json');
+  const j = readJson(file);
+  const packages = Array.isArray(j.packages) ? j.packages : [];
+  const wanted = new Set([src, store(src)]);
+  const next = cmd === 'install' ? [...packages.filter((p) => !wanted.has(p)), store(src)] : packages.filter((p) => !wanted.has(p));
+  j.packages = next;
+  writeJson(file, j);
+  console.log(cmd === 'install' ? `Installed ${src}` : `Removed ${src}`);
+  process.exit(0);
+}
+if (cmd === 'update') {
+  console.log('Updated');
+  process.exit(0);
+}
+if (cmd === 'mcp' && (rest[0] === 'add' || rest[0] === 'remove')) {
+  const sub = rest[0];
+  const name = rest[1];
+  if (!name) {
+    console.error('fake-resource-cli: missing server name');
+    process.exit(2);
+  }
+  const file = path.join(agent, 'mcp.json');
+  const j = readJson(file);
+  const servers = j.mcpServers && typeof j.mcpServers === 'object' ? j.mcpServers : {};
+  if (sub === 'add') {
+    const urlIdx = rest.indexOf('--url');
+    const sepIdx = rest.indexOf('--');
+    const env = {};
+    for (let i = 0; i < rest.length - 1; i += 1) {
+      if (rest[i] === '--env' && (rest[i + 1] ?? '').includes('=')) {
+        const [k] = rest[i + 1].split('=');
+        env[k] = '${VALUE}'; // NEVER store or echo real env values in fixtures
+      }
+    }
+    if (urlIdx !== -1) servers[name] = { type: 'http', url: rest[urlIdx + 1] };
+    else if (sepIdx !== -1) servers[name] = { command: rest[sepIdx + 1], args: rest.slice(sepIdx + 2).filter((a, i) => a !== '--env' && !Object.prototype.hasOwnProperty.call(env, String(a).split('=')[0])), ...(Object.keys(env).length > 0 ? { env } : {}) };
+    else {
+      console.error('fake-resource-cli: neither --url nor -- command');
+      process.exit(2);
+    }
+  } else {
+    delete servers[name];
+  }
+  j.mcpServers = servers;
+  writeJson(file, j);
+  console.log(`${sub === 'add' ? 'Added' : 'Removed'} ${name}`);
+  process.exit(0);
+}
+console.error(`fake-resource-cli: unknown command ${cmd}`);
+process.exit(2);

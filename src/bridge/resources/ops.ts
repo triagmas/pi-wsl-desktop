@@ -239,7 +239,7 @@ export class ResourceOps {
       if (!base) continue;
       const a = resolveResourceEntry(stripped, base, this.home).path;
       const b = resolveResourceEntry(source, base, this.home).path;
-      if (a === null) continue;
+      if (a === null || b === null) continue; // glob sources never match exactly
       // path.normalize merges mixed separators — '~/' expands via posix.join
       // while sources may arrive platform-shaped (Windows unit CI).
       if (path.normalize(a) === path.normalize(b)) return true;

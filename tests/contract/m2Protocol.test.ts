@@ -176,3 +176,21 @@ describe('m2Protocol — mcp-add shape validation (round 2, N4)', () => {
     expect(mcpAdd({ command: ['/bin/true'], env: { K: 'v' } })).toBe(true);
   });
 });
+
+describe('m2Protocol — round 3 shape holes (NEW-1/NEW-4)', () => {
+  const prev = (extra: Record<string, unknown>): boolean =>
+    PreviewResourceOpParamsSchema.safeParse({ kind: 'mcp-add', source: 's', ...extra }).success;
+
+  it('rejects an EMPTY url (it would silently drop command in argvFor)', () => {
+    expect(prev({ url: '' })).toBe(false);
+    expect(prev({ url: '', command: ['/bin/true'] })).toBe(false);
+  });
+
+  it('rejects command/url/env for the non-mcp-add kinds (the refine branch)', () => {
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'package-remove', source: 'npm:x', command: ['/bin/true'] }).success).toBe(false);
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'package-install', source: 'npm:x', url: 'https://x.invalid/mcp' }).success).toBe(false);
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'mcp-remove', source: 's', env: { K: 'v' } }).success).toBe(false);
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'skill-set', source: '/x/s', disable: true, command: ['/bin/true'] }).success).toBe(false);
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'package-update', source: 'npm:x' }).success).toBe(true);
+  });
+});

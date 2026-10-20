@@ -411,3 +411,56 @@ describe('ResourceOps — round 2 (N2 cwd, N3 branches, N5 sweep/cap, N6 unlink 
     expect(plan.command.join(' ')).not.toMatch(/^pi /);
   });
 });
+
+describe('ResourceOps — round 3 (NEW-2 sweep, NEW-3 fail-closed unlink, skill-set enable matching)', () => {
+  it('[NEW-2] expired plans with secrets are swept by stats() even with no further previews', async () => {
+    let clock = 1_700_000_000_000;
+    const h = harness(undefined, { now: () => clock });
+    await h.ops.preview({ kind: 'mcp-add', source: 'lazy', command: ['/bin/true'], env: { S: 'lingering-secret' } });
+    expect(h.ops.stats().plans).toBe(1);
+    clock += 6 * 60_000; // TTL passes; the bridge stays IDLE (no new preview)
+    const after = h.ops.stats();
+    expect(after.plans).toBe(0); // secrets released without another preview call
+  });
+
+  it('[NEW-3] rollback refuses to unlink when the preunlink snapshot cannot be taken', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'keepconcurrent', url: 'https://k.invalid/mcp' });
+    expect(plan.backupId).toBeNull();
+    const concurrent = JSON.stringify({ mcpServers: { rival: { type: 'http', url: 'https://r.invalid/mcp' } } }, null, 2);
+    h.setSpawn((argv) => {
+      if (argv[0] === 'mcp') writeFileSync(mcpPath, concurrent); // rival writes during our apply
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const applied = await h.ops.apply(plan.planId, true);
+    // BLOCK the backup area with a plain file so mkdir/copyFile must fail
+    // (deleting it would let mkdir(recursive) resurrect it — not a real failure)
+    const backupsPath = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    rmSync(backupsPath, { recursive: true, force: true });
+    writeFileSync(backupsPath, 'blocked');
+    const rolled = await h.ops.rollback(applied.opId, true);
+    // fail-closed: bytes exist but could not be preserved → DO NOT delete
+    expect(existsSync(mcpPath)).toBe(true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(concurrent);
+    expect(rolled.ok).toBe(false); // honest signal: nothing was restored
+  });
+
+  it('[skill-set] enable matches exclusion entries in ANY spelling (-~, relative)', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-skallen-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(
+      path.join(agent, 'settings.json'),
+      JSON.stringify({ skills: [`-~/.agents/skills/code-review`, 'keep'] }, null, 2),
+    );
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: false });
+    const applied = await ops.apply(plan.planId, true);
+    expect(applied).toMatchObject({ ok: true, verified: true });
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual(['keep']); // the -~ spelling is REMOVED, not just -<abs>
+  });
+});

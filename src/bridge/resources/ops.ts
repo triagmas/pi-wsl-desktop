@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { BridgeError } from '../../shared/errors';
+import { resolveResourceEntry } from './agentConfig';
 import type { PreviewResourceOpParamsT, ResourceOpPlanT } from '../../shared/m2Protocol';
 
 export interface SpawnResult {
@@ -187,18 +188,23 @@ export class ResourceOps {
       case 'package-update':
         // `-l` is NOT a documented `pi update` option (1.3.0 cli.md) — project
         // scope is resolved by the CLI itself from both settings files.
+        // Boundary (disclosed, round 3): for a project-scope update the CLI may
+        // consult/rewrite BOTH settings files while we back up only the project
+        // `settings.json`; byte-exact rollback covers the project file only.
         return ['update', source];
       case 'mcp-add': {
+        // Presence-guard mirrors the schema (defense in depth for direct calls).
+        const url = typeof params.url === 'string' && params.url.length > 0 ? params.url : undefined;
         const envFlatten = Object.entries(params.env ?? {})
           .filter(([, v]) => v.length > 0)
           .flatMap(([k, v]) => ['--env', `${k}=${v}`]);
-        if (params.url !== undefined) {
+        if (url !== undefined) {
           // `--env` documents itself as stdio-only; passing it with `--url`
           // would either be ignored or corrupt the config — reject instead.
           if (envFlatten.length > 0) {
             throw new BridgeError('INVALID_REQUEST', 'mcp-add: --env applies to stdio servers only (drop it for --url)');
           }
-          return ['mcp', 'add', params.source, ...local, '--url', params.url];
+          return ['mcp', 'add', params.source, ...local, '--url', url];
         }
         // [review r1 BLOCKER] every `--env` MUST precede `--`: everything
         // after the separator is a literal server argument on 1.3.0.
@@ -216,6 +222,28 @@ export class ResourceOps {
     }
   }
 
+  /**
+   * [round 3, report-only fix] Match an exclusion/plaintext entry against the
+   * skill source in ANY spelling Pi accepts (`-<abs>`, `-~/.agents/…`,
+   * relative) — otherwise «Включить» reports verified while the `-path`
+   * exclusion silently stays in place.
+   * Known Pi quirk (N7, disclosed): MCP server names differing only in `-`/`_`
+   * are ONE server for Pi (the second is rejected) while this inventory lists
+   * both — keep names canonical when creating servers from the GUI.
+   */
+  private entryMatchesSkill(entry: unknown, source: string): boolean {
+    if (typeof entry !== 'string') return false;
+    const stripped = entry.startsWith('-') || entry.startsWith('!') || entry.startsWith('+') ? entry.slice(1) : entry;
+    if (stripped === source || entry === `-${source}`) return true;
+    for (const base of [this.agentDir, this.projectPiDir]) {
+      if (!base) continue;
+      const a = resolveResourceEntry(stripped, base, this.home).path;
+      const b = resolveResourceEntry(source, base, this.home).path;
+      if (a !== null && a === b) return true;
+    }
+    return false;
+  }
+
   /** skill-set: edit settings.skills with the `-path` exclusion semantics. */
   private async editSkillSetting(params: PreviewResourceOpParamsT): Promise<void> {
     const [file] = this.targetsFor(params).files;
@@ -229,11 +257,11 @@ export class ResourceOps {
     const skills = Array.isArray(parsed.skills) ? (parsed.skills as unknown[]) : [];
     const exclusion = `-${params.source}`;
     if (params.disable === true) {
-      if (!skills.some((s) => s === exclusion)) skills.push(exclusion);
+      if (!skills.some((s) => this.entryMatchesSkill(s, params.source))) skills.push(exclusion);
       parsed.skills = skills;
     } else {
-      // enable: drop the exclusion entry (leave every other entry untouched)
-      parsed.skills = skills.filter((s) => s !== exclusion);
+      // enable: drop EVERY spelling of the exclusion (leave the rest untouched)
+      parsed.skills = skills.filter((s) => !this.entryMatchesSkill(s, params.source));
     }
     await fsp.writeFile(file, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
   }
@@ -253,8 +281,9 @@ export class ResourceOps {
     }
   }
 
-  /** Test/diagnostics hook: in-memory ledger sizes. */
+  /** Test/diagnostics hook: in-memory ledger sizes (also sweeps — round 3, NEW-2: an idle bridge must not keep expired env secrets until restart). */
   stats(): { plans: number; applied: number } {
+    this.sweep();
     return { plans: this.plans.size, applied: this.applied.size };
   }
 
@@ -308,6 +337,7 @@ export class ResourceOps {
     verified: boolean;
   }> {
     if (confirm !== true) throw new BridgeError('INVALID_REQUEST', 'resource op requires explicit confirmation');
+    this.sweep(); // [round 3, NEW-2] release expired plans (env secrets) on every entry point
     const record = this.plans.get(planId);
     if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown resource op plan — preview it again');
     if (this.now() >= record.plan.expiresAt) {
@@ -384,8 +414,7 @@ export class ResourceOps {
       try {
         const parsed = JSON.parse(await fsp.readFile(file, 'utf8')) as { skills?: unknown };
         const skills = Array.isArray(parsed.skills) ? (parsed.skills as unknown[]) : [];
-        const exclusion = `-${params.source}`;
-        const hasExclusion = skills.some((s) => s === exclusion);
+        const hasExclusion = skills.some((s) => this.entryMatchesSkill(s, params.source));
         return params.disable === true ? hasExclusion : !hasExclusion;
       } catch {
         return false;
@@ -422,6 +451,7 @@ export class ResourceOps {
 
   async rollback(opId: string, confirm: true): Promise<{ ok: boolean; restored: string[] }> {
     if (confirm !== true) throw new BridgeError('INVALID_REQUEST', 'rollback requires explicit confirmation');
+    this.sweep();
     const record = this.applied.get(opId);
     if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown op — nothing to roll back');
     this.applied.delete(opId);
@@ -435,18 +465,27 @@ export class ResourceOps {
           /* below: reported via absence from `restored` */
         }
       } else {
-        // [round 2, N6] a rival CLI may have created this file during our
-        // apply — preserve its bytes before removing ours (lossless unlink).
+        // [round 2, N6 + round 3, NEW-3] a rival CLI may have created this
+        // file during our apply — its bytes MUST be preserved first. Fail
+        // CLOSED: if the snapshot cannot be taken (backups area gone/read-only,
+        // disk full) and the file still exists, keep it and report nothing
+        // restored — never delete bytes we could not preserve.
+        let snapshotOk = false;
         try {
+          await fsp.mkdir(this.backupsDir, { recursive: true });
           await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.preunlink`));
-        } catch {
-          /* vanished concurrently — nothing to preserve */
+          snapshotOk = true;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          snapshotOk = code === 'ENOENT'; // the file itself vanished — nothing to lose
         }
-        try {
-          await fsp.unlink(b.file); // op created this file — remove it
-          restored.push(b.file);
-        } catch {
-          /* never existed */
+        if (snapshotOk) {
+          try {
+            await fsp.unlink(b.file); // op created this file — remove it
+            restored.push(b.file);
+          } catch {
+            /* never existed */
+          }
         }
       }
     }

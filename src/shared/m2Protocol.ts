@@ -148,8 +148,9 @@ export const PreviewResourceOpParamsSchema = z
     source: z.string().min(1),
     /** mcp-add stdio command argv (first element = executable). */
     command: z.array(z.string().max(4096)).max(32).optional(),
-    /** mcp-add http endpoint. */
-    url: z.string().max(2048).optional(),
+    /** mcp-add http endpoint (min(1): an EMPTY url would silently take the
+     * url-branch in argvFor and drop `command` — round 3, NEW-1). */
+    url: z.string().min(1).max(2048).optional(),
     /** mcp-add env: VALUES travel here once, are used verbatim by the CLI and
      * are NEVER echoed back in plan/results (redaction enforced in ops). */
     env: z.record(z.string().max(256), z.string().max(8192)).optional(),

@@ -487,30 +487,34 @@ export class ResourceOps {
         // CLOSED: if the snapshot cannot be taken (backups area gone/read-only,
         // disk full) and the file still exists, keep it and report nothing
         // restored — never delete bytes we could not preserve.
-        let snapshotOk: boolean;
+        let snapshotSucceeded = false;
+        let fileWasMissing = false;
         try {
           await fsp.mkdir(this.backupsDir, { recursive: true });
           await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.preunlink`));
-          snapshotOk = true;
+          snapshotSucceeded = true;
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
           if (code === 'ENOENT') {
-            // ENOENT may mean the FILE vanished or the BACKUPS area raced
-            // away between mkdir and copy — attribute it by stat'ing the
-            // source: only a genuinely gone file may proceed to unlink.
-            snapshotOk = await fsp.stat(b.file).then(() => false, () => true);
-          } else {
-            snapshotOk = false;
+            // ENOENT may mean the FILE vanished or the BACKUPS area raced away
+            // between mkdir and copy — attribute it by stat'ing the source.
+            fileWasMissing = await fsp.stat(b.file).then(() => false, () => true);
           }
         }
-        if (snapshotOk) {
+        if (snapshotSucceeded) {
+          // bytes preserved → remove ours
           try {
-            await fsp.unlink(b.file); // op created this file — remove it
+            await fsp.unlink(b.file);
             restored.push(b.file);
           } catch {
             /* never existed */
           }
+        } else if (!fileWasMissing) {
+          // exists but could NOT be preserved → keep it (fail-closed)
         }
+        // stat-confirmed absence: nothing to delete, and nothing to lose —
+        // do NOT unlink (round 6 NEW-1: a racer recreating the file between
+        // stat and unlink would otherwise lose bytes we never preserved).
       }
     }
     return { ok: restored.length > 0, restored };

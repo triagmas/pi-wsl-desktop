@@ -514,3 +514,47 @@ describe('ResourceOps — round 5 (P1 matcher vs includes, ENOENT pin)', () => {
     expect(existsSync(mcpPath)).toBe(false);
   });
 });
+
+describe('ResourceOps — round 6 notes (NEW-3 pin, NEW-4 pins)', () => {
+  it('[NEW-3] an expired plan reports the DISTINCT "plan expired" message, not "unknown"', async () => {
+    let clock = 1_700_000_000_000;
+    const h = harness(undefined, { now: () => clock });
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: 'npm:ttl' });
+    clock += 6 * 60_000;
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: expect.stringContaining('plan expired'),
+    });
+  });
+
+  it('[NEW-4a] disable never duplicates an existing exclusion written in another spelling', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-nodup-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ skills: ['-~/.agents/skills/code-review'] }, null, 2));
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: true });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual(['-~/.agents/skills/code-review']); // NO duplicate appended
+    expect(applied.verified).toBe(true);
+  });
+
+  it('[NEW-4b] a PLAIN (prefix-less) include behaves exactly like `+path`', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-plain-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ skills: [skillDir, `-${skillDir}`] }, null, 2));
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    // enable removes ONLY the exclusion; the plain include survives untouched
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: false });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual([skillDir]);
+    expect(applied.verified).toBe(true);
+  });
+});

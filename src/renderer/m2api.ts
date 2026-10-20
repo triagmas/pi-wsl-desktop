@@ -27,6 +27,6 @@ export const m2 = {
     call(api, 'previewResourceOp', input as Record<string, unknown>),
   apply: (api: DesktopApi, planId: string): Promise<{ ok: boolean; opId: string; output: string; backupId: string | null; filesTouched: string[]; verified: boolean }> =>
     call(api, 'applyResourceOp', { planId, confirm: true }),
-  rollback: (api: DesktopApi, opId: string): Promise<{ ok: boolean; restored: string[] }> =>
+  rollback: (api: DesktopApi, opId: string): Promise<{ ok: boolean; restored: string[]; conflicts?: string[] }> =>
     call(api, 'rollbackResourceOp', { opId, confirm: true }),
 };

@@ -330,38 +330,40 @@ describe('ResourceOps — round 2 (N2 cwd, N3 branches, N5 sweep/cap, N6 unlink 
     expect(calls2[1]?.cwd).toBeUndefined();
   });
 
-  it('[N3a] a file deleted after preview keeps its preview-era backup restorable', async () => {
+  it('[N3a, round 7] a file DELETED after preview aborts apply — no CLI call, no blind recreation', async () => {
     const h = harness();
     const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
     writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
-    const beforeSha = sha(mcpPath);
     const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'keepme', url: 'https://k.invalid/mcp' });
     expect(plan.backupId).toBeTruthy();
-    rmSync(mcpPath); // file vanishes before apply
-    const applied = await h.ops.apply(plan.planId, true);
-    expect(applied.ok).toBe(true); // CLI recreates it (harness behavior writes mcp.json)
-    await h.ops.rollback(applied.opId, true);
-    expect(sha(mcpPath)).toBe(beforeSha); // restored from the kept preview backup
+    rmSync(mcpPath); // file vanishes before apply = external change we cannot snapshot
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // fail-closed (round 7 requirement): the op did NOT run
+    expect(existsSync(mcpPath)).toBe(false); // the deletion stays in force; preview again to proceed
   });
 
-  it('[N3b] a failing backup refresh never nulls an existing preview-era backup', async () => {
+  it('[N3b, round 7] a failing backup refresh ABORTS apply and never nulls the preview-era backup', async () => {
     const h = harness();
     const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
     writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
     const beforeSha = sha(mcpPath);
     const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'eac', url: 'https://e.invalid/mcp' });
     expect(plan.backupId).toBeTruthy();
-    // make the REFRESH copy fail transiently: the backup destination dir is
-    // removed (POSIX-only: directory rename), source file intact
+    const backupId = plan.backupId as string;
+    // make the REFRESH copy impossible: the backup destination area is
+    // replaced by a plain file (mkdir recursive cannot heal that)
     const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
     const moved = `${backupsDir}-moved`;
     renameSync(backupsDir, moved);
-    const applied = await h.ops.apply(plan.planId, true);
-    renameSync(moved, backupsDir); // restore layout before rollback
-    expect(applied.ok).toBe(true);
-    const rolled = await h.ops.rollback(applied.opId, true);
-    expect(rolled.ok).toBe(true);
-    expect(sha(mcpPath)).toBe(beforeSha); // the preview-era backup survived the transient failure
+    writeFileSync(backupsDir, 'blocked');
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // the write never ran without a fresh snapshot
+    rmSync(backupsDir); // unblock
+    renameSync(moved, backupsDir); // restore layout
+    const kept = path.join(backupsDir, backupId.split(',')[0]);
+    expect(existsSync(kept)).toBe(true); // preview-era backup never nulled
+    expect(sha(kept)).toBe(beforeSha);
+    expect(sha(mcpPath)).toBe(beforeSha); // target file untouched
   });
 
   it('[N5] expired plans are swept and the applied ledger is bounded', async () => {
@@ -556,5 +558,79 @@ describe('ResourceOps — round 6 notes (NEW-3 pin, NEW-4 pins)', () => {
     const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
     expect(after.skills).toEqual([skillDir]);
     expect(applied.verified).toBe(true);
+  });
+});
+
+describe('ResourceOps — round 7 (P1: rollback must not destroy foreign writes; apply fail-closed without a fresh snapshot)', () => {
+  it('[P1-R1] rollback NEVER clobbers bytes written by another process after apply — honest conflict instead', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alpha: { url: 'https://a.invalid' } } })); // state A
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'beta', url: 'https://b.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true); // file now B (apply output)
+    // an UNRELATED process appends its own server AFTER our apply
+    const foreign = JSON.stringify({
+      mcpServers: {
+        alpha: { url: 'https://a.invalid' },
+        beta: { url: 'https://placeholder' },
+        gamma: { url: 'https://g.invalid' },
+      },
+    });
+    writeFileSync(mcpPath, foreign); // state C — foreign bytes
+    const rolled = await h.ops.rollback(applied.opId, true);
+    // the foreign bytes MUST survive in place; the rollback reports a conflict
+    expect(readFileSync(mcpPath, 'utf8')).toBe(foreign);
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    expect(rolled.restored).not.toContain(mcpPath);
+  });
+
+  it('[P1-R1b] the standard case keeps byte-exact rollback: unchanged post-apply bytes restore cleanly', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: {} });
+    writeFileSync(mcpPath, original);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'clean', url: 'https://c.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled).toMatchObject({ ok: true, conflicts: [] });
+    expect(readFileSync(mcpPath, 'utf8')).toBe(original); // byte-exact
+    expect(rolled.restored).toEqual([mcpPath]);
+  });
+
+  const blockBackups = (agentDir: string): void => {
+    // replace the backups DIRECTORY with a FILE so mkdir+copyFile must fail
+    const backupsPath = path.join(agentDir, 'pi-ws-desktop-backups');
+    rmSync(backupsPath, { recursive: true, force: true });
+    writeFileSync(backupsPath, 'blocked');
+  };
+
+  it('[P1-R2a] a FAILED refresh snapshot with a preview-era backup aborts apply — zero CLI calls, file untouched', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} })); // exists at preview (backupPath set)
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'nosnap', url: 'https://n.invalid/mcp' });
+    expect(plan.backupId).toBeTruthy();
+    // another client rewrites the file, THEN the snapshot area breaks
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alien: { url: 'https://x.invalid' } } }));
+    const alienBytes = readFileSync(mcpPath, 'utf8');
+    blockBackups(h.ops.agentDir);
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // fail-closed: the write NEVER ran
+    expect(readFileSync(mcpPath, 'utf8')).toBe(alienBytes); // alien bytes untouched
+  });
+
+  it('[P1-R2b] a file that FIRST APPEARS after preview is never overwritten when its snapshot fails', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'latep', url: 'https://l.invalid/mcp' });
+    expect(plan.backupId).toBeNull(); // absent at preview
+    const userBytes = JSON.stringify({ mcpServers: { userbox: { url: 'https://user.invalid' } } });
+    writeFileSync(mcpPath, userBytes); // the user's CLI created it during the TTL
+    blockBackups(h.ops.agentDir);
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // not a single CLI invocation
+    expect(readFileSync(mcpPath, 'utf8')).toBe(userBytes); // user bytes survive
   });
 });

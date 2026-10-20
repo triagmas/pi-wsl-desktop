@@ -15,6 +15,7 @@
  * `<agentDir>/pi-ws-desktop-backups` so isolated-HOME tests stay isolated.
  */
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { BridgeError } from '../../shared/errors';
@@ -50,9 +51,14 @@ interface PlanRecord {
 
 interface AppliedRecord {
   backups: Array<{ file: string; backupPath: string | null }>;
+  /** [round 7, P1] digest of each target RIGHT AFTER our write — the anchor
+   * rollback compares against to detect foreign modifications. */
+  after: Map<string, string | null>;
 }
 
 const PLAN_TTL_MS = 5 * 60_000;
+/** stateDigest sentinel: the file exists but cannot be read (never matches a digest). */
+const UNREADABLE = '!unreadable';
 const OUTPUT_CAP = 4_000;
 const MASK = '***';
 const SECRET_KEY_RE = /(token|secret|password|api[_-]?key|bearer)/i;
@@ -288,6 +294,16 @@ export class ResourceOps {
     return path.join(this.backupsDir, `${stamp}-${rand}-${basename}`);
   }
 
+  /** sha256 of a file, `null` when absent, `UNREADABLE` on any other error. */
+  private async stateDigest(file: string): Promise<string | null> {
+    try {
+      const buf = await fsp.readFile(file);
+      return createHash('sha256').update(buf).digest('hex');
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ENOENT' ? null : UNREADABLE;
+    }
+  }
+
   /** [round 2, N5] Drop expired plans (their in-memory env values) eagerly. */
   private sweep(): void {
     for (const [id, rec] of [...this.plans]) {
@@ -362,26 +378,43 @@ export class ResourceOps {
     if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown resource op plan — preview it again');
     this.plans.delete(planId); // single-use plan
 
-    // Refresh backups immediately before the write (state right before apply).
+    // [round 7, P1] Refresh the snapshot immediately before the write — and
+    // FAIL CLOSED if a fresh snapshot cannot be guaranteed. Proceeding on a
+    // stale preview-era backup (or over a file we could not snapshot) would
+    // let a later rollback resurrect outdated bytes / destroy a file the user
+    // created during the TTL. No CLI call happens after any failure here.
     for (const b of record.backups) {
-      if (b.backupPath) {
-        try {
-          await fsp.copyFile(b.file, b.backupPath);
-        } catch {
-          // Keep the preview-era backup on a transient error — never null a
-          // valid snapshot (rollback would lose its only restore point).
+      let exists: boolean;
+      try {
+        await fsp.stat(b.file);
+        exists = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') exists = false;
+        else throw new BridgeError('INVALID_REQUEST', `cannot inspect ${path.basename(b.file)} before writing — preview it again`);
+      }
+      if (!exists) {
+        if (b.backupPath) {
+          // existed at preview, gone now = external change we cannot snapshot
+          throw new BridgeError('INVALID_REQUEST', `${path.basename(b.file)} was removed since preview — preview it again`);
         }
-      } else {
-        // [review r1 IMPORTANT#3] the file was absent at preview; if it exists
-        // NOW (the user's own CLI ran during the TTL) snapshot it so rollback
-        // RESTORES it instead of deleting someone else's data.
-        try {
+        continue; // absent both at preview and now — our op creates it
+      }
+      try {
+        await fsp.mkdir(this.backupsDir, { recursive: true });
+        if (b.backupPath) {
+          await fsp.copyFile(b.file, b.backupPath); // refresh in place
+        } else {
+          // created by the user's own CLI during the TTL — snapshot so
+          // rollback RESTORES their file instead of deleting it
           const target = this.backupPathFor(path.basename(b.file));
           await fsp.copyFile(b.file, target);
           b.backupPath = target;
-        } catch {
-          /* still absent — our op creates it, rollback may remove it */
         }
+      } catch {
+        throw new BridgeError(
+          'INVALID_REQUEST',
+          `cannot snapshot ${path.basename(b.file)} before writing — rollback safety (preview it again)`,
+        );
       }
     }
 
@@ -407,7 +440,11 @@ export class ResourceOps {
     const ok = spawnResult.code === 0;
     const verified = ok ? await this.verify(record.params) : false;
     const opId = planId;
-    this.applied.set(opId, { backups: record.backups });
+    // [round 7, P1] capture the post-apply state of every target: rollback
+    // may only overwrite bytes that still match this anchor.
+    const after = new Map<string, string | null>();
+    for (const b of record.backups) after.set(b.file, await this.stateDigest(b.file));
+    this.applied.set(opId, { backups: record.backups, after });
     while (this.applied.size > this.appliedCap) {
       const oldest = this.applied.keys().next().value;
       if (oldest === undefined) break;
@@ -466,22 +503,46 @@ export class ResourceOps {
     }
   }
 
-  async rollback(opId: string, confirm: true): Promise<{ ok: boolean; restored: string[] }> {
+  async rollback(opId: string, confirm: true): Promise<{ ok: boolean; restored: string[]; conflicts: string[] }> {
     if (confirm !== true) throw new BridgeError('INVALID_REQUEST', 'rollback requires explicit confirmation');
     this.sweep();
     const record = this.applied.get(opId);
     if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown op — nothing to roll back');
     this.applied.delete(opId);
     const restored: string[] = [];
+    const conflicts: string[] = [];
     for (const b of record.backups) {
+      const cur = await this.stateDigest(b.file);
+      const expected = record.after.get(b.file);
       if (b.backupPath) {
+        // [round 7, P1] NEVER copy the backup over bytes we did not write:
+        // `cur` must still equal the post-apply anchor. Foreign edits, foreign
+        // deletions and unreadable states are CONFLICTS — the file is kept as
+        // is and the caller gets an honest ok:false + conflicts.
+        if (cur === null && expected === null) continue; // already absent — nothing to restore
+        if (expected === undefined || cur !== expected || cur === UNREADABLE || expected === UNREADABLE) {
+          conflicts.push(b.file);
+          continue;
+        }
         try {
+          // SECURITY (honest limit): digest→copyFile is not atomic — an
+          // external writer landing inside this microsecond window can still
+          // be overwritten (residual path-TOCTOU, disclosed). The check
+          // shrinks the exposure from the whole apply→rollback interval to
+          // this window; full closure needs fd-based/locked writes.
           await fsp.copyFile(b.backupPath, b.file);
           restored.push(b.file);
         } catch {
           /* below: reported via absence from `restored` */
         }
       } else {
+        // [round 7, P1] only OUR bytes may be removed: the file must still
+        // match the post-apply anchor. Anything else (foreign file, foreign
+        // edit) is a conflict and stays in place.
+        if (cur === UNREADABLE || expected === undefined || expected === null || cur !== expected) {
+          if (cur !== null) conflicts.push(b.file);
+          continue;
+        }
         // [round 2, N6 + round 3, NEW-3] a rival CLI may have created this
         // file during our apply — its bytes MUST be preserved first. Fail
         // CLOSED: if the snapshot cannot be taken (backups area gone/read-only,
@@ -517,7 +578,7 @@ export class ResourceOps {
         // stat and unlink would otherwise lose bytes we never preserved).
       }
     }
-    return { ok: restored.length > 0, restored };
+    return { ok: conflicts.length === 0 && restored.length > 0, restored, conflicts };
   }
 
   /** Test hook: force a plan past its TTL. */

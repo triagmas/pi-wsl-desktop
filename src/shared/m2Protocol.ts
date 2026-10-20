@@ -230,4 +230,7 @@ export const RollbackResourceOpParamsSchema = z
 export const RollbackResourceOpResultSchema = z.object({
   ok: z.boolean(),
   restored: z.array(z.string()).max(8),
+  /** [round 7, P1] files kept untouched because another process changed them
+   * after apply — the rollback refuses to destroy those bytes. */
+  conflicts: z.array(z.string()).max(8).optional(),
 });

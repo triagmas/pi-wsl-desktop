@@ -203,3 +203,13 @@ describe('m2Protocol — round 5: disable belongs to skill-set only', () => {
     expect(m2.PreviewResourceOpParamsSchema.safeParse({ kind: 'skill-set', source: '/x/s', disable: true }).success).toBe(true);
   });
 });
+
+describe('m2Protocol — round 7: rollback conflict reporting', () => {
+  it('RollbackResourceOpResultSchema carries `conflicts` (files kept due to foreign changes)', async () => {
+    const m2 = await import('../../src/shared/m2Protocol');
+    const parsed = m2.RollbackResourceOpResultSchema.parse({ ok: false, restored: [], conflicts: ['/x/settings.json'] });
+    expect(parsed.conflicts).toEqual(['/x/settings.json']);
+    // absence still tolerated for older callers (optional field)
+    expect(m2.RollbackResourceOpResultSchema.safeParse({ ok: true, restored: ['/x'] }).success).toBe(true);
+  });
+});

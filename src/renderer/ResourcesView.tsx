@@ -123,7 +123,13 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
     m2
       .rollback(api, opResult.opId)
       .then((r) => {
-        setNotice(r.ok ? `Откат выполнен: ${r.restored.length} файл(ов) восстановлено` : 'Откат не нашёл сохранённые копии');
+        setNotice(
+          r.conflicts && r.conflicts.length > 0
+            ? `Откат отменён для ${r.conflicts.length} файл(ов): они изменены внешним процессом — чужие данные сохранены`
+            : r.ok
+              ? `Откат выполнен: ${r.restored.length} файл(ов) восстановлено`
+              : 'Откат не нашёл сохранённые копии',
+        );
         setOpResult(null);
         void load(tab);
       })

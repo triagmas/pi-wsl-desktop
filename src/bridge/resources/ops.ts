@@ -10,9 +10,10 @@
  * timeout, bounded output), redacts known secret VALUES from every response
  * and verifies the post-state. `rollback` restores the backed-up bytes ONLY
  * when they still match the post-apply anchor, and snapshots the current
- * bytes (`.prerestore`) before any overwrite, so nothing is ever destroyed
- * losslessly-unchecked. Residual path-TOCTOU windows are disclosed at the
- * call sites — no absolute guarantee is claimed.
+ * bytes (`.prerestore`) before any overwrite, so even a misattributed
+ * overwrite stays recoverable. Residual path-TOCTOU windows are disclosed at
+ * the call sites — they are SHRUNK, not eliminated; no absolute guarantee
+ * is claimed.
  *
  * Secrets: request-supplied env values exist ONLY in the in-memory plan
  * record and the CLI argv; responses carry masks. Backups live under
@@ -45,6 +46,9 @@ export interface ResourceOpsDeps {
   appliedCap?: number;
   /** Bounded CLI runtime (ms). Never unbounded (AGENTS §3.7). */
   timeoutMs?: number;
+  /** [round 9, N1] TEST/DIAG seam: runs after the snapshot gate, before the
+   * pre-write anchor — simulates a racer inside the gate→anchor window. */
+  gateHook?: () => void | Promise<void>;
 }
 
 interface PlanRecord {
@@ -63,6 +67,10 @@ interface AppliedRecord {
 const PLAN_TTL_MS = 5 * 60_000;
 /** stateDigest sentinel: the file exists but cannot be read (never matches a digest). */
 const UNREADABLE = '!unreadable';
+/** [round 9, N5] snapshots older than this AND unreferenced by any live
+ * preview/applied record are pruned. Conflicted rollbacks keep their record
+ * (see rollback), so their restore point survives until eviction + retention. */
+const BACKUP_RETENTION_MS = 7 * 24 * 3600_000;
 const OUTPUT_CAP = 4_000;
 const MASK = '***';
 const SECRET_KEY_RE = /(token|secret|password|api[_-]?key|bearer)/i;
@@ -107,6 +115,7 @@ export class ResourceOps {
   private readonly timeoutMs: number;
   private readonly spawnFnImpl: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult>;
   private readonly appliedCap: number;
+  private readonly gateHook: (() => void | Promise<void>) | undefined;
   private readonly plans = new Map<string, PlanRecord>();
   private readonly applied = new Map<string, AppliedRecord>();
 
@@ -114,6 +123,7 @@ export class ResourceOps {
     this.home = deps.home;
     this.cliPath = deps.cliPath ?? 'pi';
     this.appliedCap = deps.appliedCap ?? 50;
+    this.gateHook = deps.gateHook;
     this.agentDir = deps.agentDir;
     this.projectPiDir = deps.projectPiDir;
     this.now = deps.now ?? Date.now;
@@ -302,6 +312,52 @@ export class ResourceOps {
     return path.join(this.backupsDir, `${stamp}-${rand}-${basename}`);
   }
 
+  /** [N5] owner-only backups area (mode bits best-effort where supported —
+   * Windows uses ACLs; there the chmod is a no-op by contract). */
+  private async ensureBackupsDir(): Promise<void> {
+    await fsp.mkdir(this.backupsDir, { recursive: true, mode: 0o700 });
+    await fsp.chmod(this.backupsDir, 0o700).catch(() => {
+      /* best-effort (Windows: ACL-based, mode bits not authoritative) */
+    });
+  }
+
+  /** [N5] snapshot copy with owner-only mode (chmod best-effort). */
+  private async snapshotFile(src: string, dest: string): Promise<void> {
+    await fsp.copyFile(src, dest);
+    await fsp.chmod(dest, 0o600).catch(() => {
+      /* best-effort (Windows: ACL-based) */
+    });
+  }
+
+  /** [round 9, N5] retention: unlink only OWN snapshots that are (a) NOT
+   * referenced by any live preview/applied record and (b) older than
+   * BACKUP_RETENTION_MS. Scope is strictly the backups dir — never user
+   * settings/sessions. */
+  private async pruneBackups(): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await fsp.readdir(this.backupsDir);
+    } catch {
+      return;
+    }
+    const referenced = new Set<string>();
+    for (const rec of [...this.plans.values(), ...this.applied.values()]) {
+      for (const b of rec.backups) if (b.backupPath) referenced.add(b.backupPath);
+    }
+    const cutoff = this.now() - BACKUP_RETENTION_MS;
+    for (const name of entries) {
+      const full = path.join(this.backupsDir, name);
+      if (referenced.has(full)) continue;
+      try {
+        const st = await fsp.stat(full);
+        if (!st.isFile() || st.mtimeMs >= cutoff) continue;
+        await fsp.unlink(full);
+      } catch {
+        /* raced — skip */
+      }
+    }
+  }
+
   /** sha256 of a file, `null` when absent, `UNREADABLE` on any other error. */
   private async stateDigest(file: string): Promise<string | null> {
     try {
@@ -334,13 +390,14 @@ export class ResourceOps {
 
     const backups: PlanRecord['backups'] = [];
     const backupIds: string[] = [];
-    await fsp.mkdir(this.backupsDir, { recursive: true });
+    await this.ensureBackupsDir();
+    await this.pruneBackups(); // [N5] bounded accumulation on every entry
     const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, '-');
     for (const file of files) {
       const made = await (async (): Promise<string | null> => {
         try {
           const target = this.backupPathFor(path.basename(file));
-          await fsp.copyFile(file, target); // preview: snapshot for the plan id
+          await this.snapshotFile(file, target); // preview: snapshot for the plan id
           backupIds.push(path.basename(target));
           return target;
         } catch {
@@ -408,14 +465,14 @@ export class ResourceOps {
         continue; // absent both at preview and now — our op creates it
       }
       try {
-        await fsp.mkdir(this.backupsDir, { recursive: true });
+        await this.ensureBackupsDir();
         if (b.backupPath) {
-          await fsp.copyFile(b.file, b.backupPath); // refresh in place
+          await this.snapshotFile(b.file, b.backupPath); // refresh in place
         } else {
           // created by the user's own CLI during the TTL — snapshot so
           // rollback RESTORES their file instead of deleting it
           const target = this.backupPathFor(path.basename(b.file));
-          await fsp.copyFile(b.file, target);
+          await this.snapshotFile(b.file, target);
           b.backupPath = target;
         }
       } catch {
@@ -426,12 +483,27 @@ export class ResourceOps {
       }
     }
 
-    // [round 8, F1] pre-write anchor: captured AFTER the snapshot gate and
-    // BEFORE our write. On a FAILED op we assume our write did not happen, so
-    // the anchor stays at this pre-state — user edits landing during the
-    // spawn then surface as rollback CONFLICTS instead of being reverted.
+    await this.gateHook?.(); // [round 9, N1] TEST/DIAG seam (racer between gate and anchor)
+
+    // [round 8 F1 + round 9 N1] pre-write anchor = the gate's OWN snapshot
+    // bytes (NOT a later pathname re-read): a write landing between the gate
+    // and this anchor then surfaces as a rollback CONFLICT instead of
+    // becoming the anchor. Absent at gate → null. This SHRINKS one window
+    // only — the path-based TOCTOU during/after the CLI run remains
+    // (disclosed, not eliminated). If the snapshot cannot be bound to what we
+    // are about to write, fail closed with zero CLI calls.
     const pre = new Map<string, string | null>();
-    for (const b of record.backups) pre.set(b.file, await this.stateDigest(b.file));
+    for (const b of record.backups) {
+      if (!b.backupPath) {
+        pre.set(b.file, null);
+        continue;
+      }
+      const snapshotDigest = await this.stateDigest(b.backupPath);
+      if (snapshotDigest === null || snapshotDigest === UNREADABLE) {
+        throw new BridgeError('INVALID_REQUEST', `cannot bind snapshot for ${path.basename(b.file)} — preview it again`);
+      }
+      pre.set(b.file, snapshotDigest);
+    }
 
     const argv = this.argvFor(record.params);
     const secretValues = Object.values(record.params.env ?? {}).filter((v) => v.length > 0);
@@ -534,7 +606,9 @@ export class ResourceOps {
     this.sweep();
     const record = this.applied.get(opId);
     if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown op — nothing to roll back');
-    this.applied.delete(opId);
+    // [round 9, N5] the record is released only after a CLEAN rollback — a
+    // conflicted one keeps it so its backups stay referenced and survive
+    // pruning (the user's protected restore point).
     const restored: string[] = [];
     const conflicts: string[] = [];
     for (const b of record.backups) {
@@ -559,8 +633,8 @@ export class ResourceOps {
         // and copy); full closure needs fd-based/locked writes — disclosed,
         // not claimed as absolute.
         try {
-          await fsp.mkdir(this.backupsDir, { recursive: true });
-          await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.prerestore`));
+          await this.ensureBackupsDir();
+          await this.snapshotFile(b.file, this.backupPathFor(`${path.basename(b.file)}.prerestore`));
         } catch {
           conflicts.push(b.file); // cannot preserve current bytes → do NOT overwrite
           continue;
@@ -587,8 +661,8 @@ export class ResourceOps {
         let snapshotSucceeded = false;
         let fileWasMissing = false;
         try {
-          await fsp.mkdir(this.backupsDir, { recursive: true });
-          await fsp.copyFile(b.file, this.backupPathFor(`${path.basename(b.file)}.preunlink`));
+          await this.ensureBackupsDir();
+          await this.snapshotFile(b.file, this.backupPathFor(`${path.basename(b.file)}.preunlink`));
           snapshotSucceeded = true;
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
@@ -615,6 +689,8 @@ export class ResourceOps {
         // stat and unlink would otherwise lose bytes we never preserved).
       }
     }
+    if (conflicts.length === 0) this.applied.delete(opId);
+    await this.pruneBackups(); // [N5] bounded accumulation on every entry
     return { ok: conflicts.length === 0 && restored.length > 0, restored, conflicts };
   }
 

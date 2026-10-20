@@ -32,3 +32,11 @@
 ## Приёмка
 - 7 TDD-гейтов Issue #7 (inventory/scope/provenance/status · write confirmation · safety/rollback · CLI parity · no real writes without consent · tests · real smoke).
 - Merge не выполнять; Draft до independent ACCEPT; write-упражнение против реального `~/.pi` — только отдельное разрешение владельца (NOT RUN).
+
+## Appendendum (round 9): backups lifecycle — N5 minimal contract
+
+- **Расположение:** `<agentDir>/pi-ws-desktop-backups` — собственные снапшоты `settings.json`/`mcp.json` (могут содержать env-токены MCP → каталог чувствителен).
+- **Permissions:** каталог `0700`, файлы `0600` (best-effort chmod; на Windows mode-биты не авторитетны — контракт ACL-семантики, раскрыто).
+- **Retention:** на каждом входе (preview/rollback) — prune только файлов, которые (а) **не ссылается** ни одна живая preview/applied-запись и (б) старше **7 дней** (mtime). Конфликтный rollback **сохраняет** запись → его restore point защищён от prune (до eviction ledger-cap + retention).
+- **Границы:** prune строго внутри каталога backups — пользовательские settings/sessions не трогаются; единственные точки восстановления (preunlink/prerestore) не удаляются для referenced-записей.
+- **Production-задел (Issue #9):** шифрование каталога, UI-браузер восстановлений, защищённый user-decision flow сверх ledger-cap.

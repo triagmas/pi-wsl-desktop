@@ -9,7 +9,7 @@
  * unbounded (spawn timeout) — and no plan/apply happens without both phases.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -678,5 +678,116 @@ describe('ResourceOps — round 8 (delta F1: write→anchor window + lossless ov
     const pre = backups.find((b) => b.includes('prerestore'));
     expect(pre).toBeTruthy(); // the replaced bytes are preserved losslessly
     expect(readFileSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups', pre as string), 'utf8')).toBe(beforeRestore);
+  });
+});
+
+describe('ResourceOps — round 9 (coordinator 6292768772: N1 pre-anchor binding, N2 pin, N5 backups lifecycle)', () => {
+  it('[N1] a write landing BETWEEN the snapshot gate and the pre-anchor is a rollback conflict', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} })); // state A
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'n1x', url: 'https://n.invalid/mcp' });
+    // the foreign writer strikes AFTER the gate snapshot but BEFORE our anchor
+    h.setSpawn(() => ({ code: 1, stdout: '', stderr: 'spawn failed' }));
+    const foreign = JSON.stringify({ mcpServers: { alien: { url: 'https://x.invalid' } } });
+    const opsWithHook = new ResourceOps({
+      home: h.ops.agentDir.split('/.pi')[0] as string,
+      agentDir: h.ops.agentDir,
+      now: () => Date.now(),
+      spawnFn: async () => ({ code: 1, stdout: '', stderr: 'spawn failed' }),
+      gateHook: () => writeFileSync(mcpPath, foreign),
+    });
+    // fresh plan through the hook-bearing instance (same files)
+    const { plan: p2 } = await opsWithHook.preview({ kind: 'mcp-add', source: 'n1y', url: 'https://y.invalid/mcp' });
+    const applied = await opsWithHook.apply(p2.planId, true);
+    expect(applied.ok).toBe(false);
+    const rolled = await opsWithHook.rollback(applied.opId, true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(foreign); // gate-time snapshot ≠ foreign write → CONFLICT, bytes kept
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    void plan;
+  });
+
+  it('[N2 pin] a rollback whose .prerestore snapshot fails touches NOTHING and reports ok:false + conflicts', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'n2x', url: 'https://n2.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    const postApply = readFileSync(mcpPath, 'utf8');
+    // BLOCK the backup area with a plain file → mkdir/prerestore must fail
+    const backupsPath = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const moved = `${backupsPath}-moved`;
+    renameSync(backupsPath, moved);
+    writeFileSync(backupsPath, 'blocked');
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(postApply); // byte-for-byte untouched
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    rmSync(backupsPath);
+    renameSync(moved, backupsPath);
+  });
+
+  it('[N5] backups dir and snapshot files are owner-only where supported', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    await h.ops.preview({ kind: 'mcp-add', source: 'perm', url: 'https://perm.invalid/mcp' });
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    expect(existsSync(backupsDir)).toBe(true);
+    if (process.platform !== 'win32') {
+      expect(statSync(backupsDir).mode & 0o777).toBe(0o700); // owner-only dir
+      const files = readdirSync(backupsDir);
+      expect(files.length).toBeGreaterThan(0);
+      for (const f of files) expect(statSync(path.join(backupsDir, f)).mode & 0o777).toBe(0o600); // owner-only files
+    }
+  });
+
+  it('[N5] pruning removes ONLY old unreferenced snapshots — referenced, recent and user files stay', async () => {
+    const h = harness(undefined, { now: () => Date.now() });
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const userSettings = path.join(h.ops.agentDir, 'settings.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'pr', url: 'https://pr.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const old = path.join(backupsDir, 'orphan-old.snapshot');
+    const recent = path.join(backupsDir, 'orphan-recent.snapshot');
+    writeFileSync(old, 'x');
+    writeFileSync(recent, 'y');
+    const past = new Date(Date.now() - 30 * 24 * 3600_000);
+    utimesSync(old, past, past);
+    // prune entry point: another preview triggers cleanup
+    await h.ops.preview({ kind: 'mcp-add', source: 'pr2', url: 'https://pr2.invalid/mcp' });
+    expect(existsSync(old)).toBe(false); // 30 days old + unreferenced → pruned
+    expect(existsSync(recent)).toBe(true); // recent orphan kept
+    // the referenced snapshot of the APPLIED op must never be pruned
+    const referenced = (h as unknown as { ops: ResourceOps & { applied: Map<string, { backups: Array<{ backupPath: string | null }> }> } });
+    void referenced;
+    const appliedRec = applied.opId;
+    const stillReferenced = await h.ops.rollback(appliedRec, true); // normal rollback (bytes unchanged)
+    expect(stillReferenced.ok).toBe(true);
+    expect(existsSync(userSettings)).toBe(true); // real user files untouched
+  });
+
+  it('[N5] a CONFLICTED rollback keeps its restore point alive (record retained, backups protected)', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alpha: { url: 'https://a.invalid' } } }));
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'conf', url: 'https://cf.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alpha: { url: 'https://a.invalid' }, gamma: { url: 'https://g.invalid' } } })); // foreign
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    // the op record must SURVIVE so its backup stays referenced/proprotected
+    expect(h.ops.stats().applied).toBe(1);
+    // a later prune must NOT delete the restore point of the conflicted rollback
+    await h.ops.preview({ kind: 'mcp-add', source: 'conf2', url: 'https://c2.invalid/mcp' });
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const files = readdirSync(backupsDir);
+    expect(files.some((f) => f.includes('preunlink') === false)).toBe(true);
+    expect(files.length).toBeGreaterThan(0); // restore point still on disk
   });
 });

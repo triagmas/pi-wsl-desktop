@@ -58,6 +58,7 @@ export const ListSkillsResultSchema = z.object({
 /* ------------------------------------------------------------------ */
 
 export const PackageKindSchema = z.enum(['npm', 'git', 'url', 'local']);
+export type PackageKindT = z.infer<typeof PackageKindSchema>;
 export const PackageScopeSchema = z.enum(['user', 'project']);
 
 export const PackageInfoSchema = z.object({

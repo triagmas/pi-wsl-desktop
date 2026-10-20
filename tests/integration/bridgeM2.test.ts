@@ -184,6 +184,11 @@ describe('bridge M2 resource manager (real subprocess)', () => {
       child.stdin.write(req('ap2', 'applyResourceOp', { planId: pv.plan.planId, confirm: true }) + '\n');
       expect(errCode((await reader.waitForResponse('ap2')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
 
+      // inventory must reflect the applied state (cfg cache invalidated)
+      child.stdin.write(req('s2', 'listMcpServers') + '\n');
+      const after = ok((await reader.waitForResponse('s2')).frame as ResponseOkFrameT) as { servers: Array<{ name: string }> };
+      expect(after.servers.some((x) => x.name === 'newbox')).toBe(true);
+
       child.stdin.write(req('rb1', 'rollbackResourceOp', { opId: pv.plan.planId, confirm: true }) + '\n');
       const rolled = ok((await reader.waitForResponse('rb1')).frame as ResponseOkFrameT) as { ok: boolean; restored: string[] };
       expect(rolled.ok).toBe(true);

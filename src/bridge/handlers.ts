@@ -404,11 +404,24 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     applyResourceOp: async (params) => {
       const p = parseParams(ApplyResourceOpParamsSchema, params, 'applyResourceOp');
-      return assertOut(ApplyResourceOpResultSchema, await (await resourceOps()).apply(p.planId, p.confirm), 'applyResourceOp');
+      const ops = await resourceOps();
+      try {
+        return assertOut(ApplyResourceOpResultSchema, await ops.apply(p.planId, p.confirm), 'applyResourceOp');
+      } finally {
+        // Any attempt may have rewritten settings/mcp.json — drop the cached
+        // config so the next inventory read reflects the new state (the E2E
+        // write cycle caught stale `excluded` badges without this).
+        cfgCache = null;
+      }
     },
     rollbackResourceOp: async (params) => {
       const p = parseParams(RollbackResourceOpParamsSchema, params, 'rollbackResourceOp');
-      return assertOut(RollbackResourceOpResultSchema, await (await resourceOps()).rollback(p.opId, p.confirm), 'rollbackResourceOp');
+      const ops = await resourceOps();
+      try {
+        return assertOut(RollbackResourceOpResultSchema, await ops.rollback(p.opId, p.confirm), 'rollbackResourceOp');
+      } finally {
+        cfgCache = null; // restored bytes change the inventory too
+      }
     },
   };
 

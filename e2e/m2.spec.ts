@@ -1,0 +1,158 @@
+/**
+ * M2 E2E (real Electron window): Resources tab inventory from an ISOLATED
+ * fixture agent-home, secret redaction on screen, and the full two-phase
+ * write cycle against the committed fixture CLI — preview → confirm →
+ * verified write → byte-exact rollback. Never touches the real ~/.pi.
+ */
+import { expect, test, _electron as electron } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const repoRoot = path.join(__dirname, '..');
+const mainScript = path.join(repoRoot, 'dist', 'main', 'index.cjs');
+const fakeWsl = path.join(repoRoot, 'tests', 'fixtures', 'fake-wsl');
+const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
+const fakeCli = path.join(repoRoot, 'tests', 'fixtures', 'fake-resource-cli');
+const sessionsRoot = path.join(repoRoot, 'tests', 'fixtures', 'sessions');
+
+const SECRET = 'e2e-never-on-screen-777';
+
+let home = '';
+let proj = '';
+let settingsPath = '';
+let settingsShaBefore = '';
+
+function makeFixture(): void {
+  home = mkdtempSync(path.join(os.tmpdir(), 'piwsd-e2e-m2home-'));
+  proj = mkdtempSync(path.join(os.tmpdir(), 'piwsd-e2e-m2proj-'));
+  const agent = path.join(home, '.pi', 'agent');
+  mkdirSync(agent, { recursive: true });
+  // user agents skills live under HOME/.agents/skills (skills.md) — NOT under
+  // the agent dir (the first draft of this fixture put them in the wrong tree
+  // and the inventory correctly reported zero skills).
+  mkdirSync(path.join(home, '.agents', 'skills', 'code-review'), { recursive: true });
+  mkdirSync(path.join(proj, '.git'), { recursive: true });
+  mkdirSync(path.join(proj, '.pi'), { recursive: true });
+  writeFileSync(
+    path.join(home, '.agents', 'skills', 'code-review', 'SKILL.md'),
+    `---\nname: code-review\ndescription: e2e fixture skill\n---\n# code-review\n`,
+  );
+  settingsPath = path.join(agent, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ packages: [], extensions: ['builtin:codemode'] }, null, 2));
+  writeFileSync(path.join(agent, 'trust.json'), JSON.stringify({ [proj]: true }, null, 2));
+  writeFileSync(
+    path.join(agent, 'mcp.json'),
+    JSON.stringify({ mcpServers: { boxed: { command: '/usr/bin/boxed', args: [], env: { E2E_TOKEN: SECRET } } } }, null, 2),
+  );
+  writeFileSync(path.join(proj, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  writeFileSync(path.join(proj, '.pi', 'settings.json'), JSON.stringify({ packages: [] }, null, 2));
+  settingsShaBefore = createHash('sha256').update(readFileSync(settingsPath)).digest('hex');
+}
+
+async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
+  const env = Object.fromEntries(
+    Object.entries({
+      ...process.env,
+      PI_WS_DESKTOP_WSL_PATH: fakeWsl,
+      PI_WS_DESKTOP_TIMEOUT_MS: '8000',
+      PI_CODING_AGENT_SESSION_DIR: sessionsRoot,
+      PI_WS_DESKTOP_PI: fakePiRpc,
+      PI_WS_DESKTOP_AGENT_HOME: home,
+      PI_WS_DESKTOP_AGENT_CWD: proj,
+      PI_WS_DESKTOP_RESOURCE_CLI: fakeCli,
+      FAKE_WSL_PROBE_JSON: JSON.stringify({
+        ok: true,
+        nodePath: process.execPath,
+        nodeVersion: process.version,
+        home: '/home/fake',
+        bridgeOk: true,
+      }),
+    }).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  const app = await electron.launch({ args: [mainScript], env });
+  const page = await app.firstWindow();
+  return { app, page };
+}
+
+test.describe('M2 resources E2E', () => {
+  test.beforeAll(() => {
+    makeFixture();
+  });
+  test.afterAll(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+    if (proj) rmSync(proj, { recursive: true, force: true });
+  });
+
+  test('resources tab inventories the isolated home; secrets never reach the screen', async () => {
+    const { app, page } = await launch();
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.getByTestId('tab-resources').click();
+
+      // Skills: fixture skill listed with provenance
+      const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
+      await expect(skillRow).toBeVisible({ timeout: 15_000 });
+      await expect(skillRow).toContainText('user-agents');
+      await expect(skillRow).toContainText('ok');
+
+      // Packages: builtins visible
+      await page.getByTestId('res-tab-packages').click();
+      await expect(page.getByTestId('builtins-list')).toContainText('codemode — включено');
+
+      // MCP: keys only — the env VALUE from the fixture never renders
+      await page.getByTestId('res-tab-mcp').click();
+      await expect(page.getByTestId('mcp-table')).toContainText('boxed');
+      await expect(page.getByTestId('mcp-envkeys')).toHaveText('E2E_TOKEN');
+      await expect(page.locator('body')).not.toContainText(SECRET);
+      const bodyText = (await page.locator('body').textContent()) ?? '';
+      expect(bodyText).not.toContain(SECRET);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('two-phase write: preview shows the plan, confirm applies via fixture CLI, rollback restores bytes', async () => {
+    const { app, page } = await launch();
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.getByTestId('tab-resources').click();
+      const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
+      await expect(skillRow).toBeVisible({ timeout: 15_000 });
+
+      // preview → plan panel; NOTHING written yet
+      await skillRow.getByTestId('skill-toggle').click();
+      await expect(page.getByTestId('op-plan')).toBeVisible();
+      await expect(page.getByTestId('op-files')).toContainText('settings.json');
+      expect(createHash('sha256').update(readFileSync(settingsPath)).digest('hex')).toBe(settingsShaBefore);
+
+      // cancel path: dismissed, still untouched
+      await page.getByTestId('op-cancel').click();
+      await expect(page.getByTestId('op-plan')).toHaveCount(0);
+      expect(createHash('sha256').update(readFileSync(settingsPath)).digest('hex')).toBe(settingsShaBefore);
+
+      // confirm path: applied + verified by the fixture CLI in the bridge
+      await skillRow.getByTestId('skill-toggle').click();
+      await expect(page.getByTestId('op-plan')).toBeVisible();
+      await page.getByTestId('op-confirm').click();
+      const result = page.getByTestId('op-result');
+      await expect(result).toBeVisible({ timeout: 15_000 });
+      await expect(result).toContainText('проверка: подтверждена');
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as { skills?: string[] };
+      expect(settings.skills).toContain(`-${path.join(home, '.agents', 'skills', 'code-review')}`);
+      expect(createHash('sha256').update(readFileSync(settingsPath)).digest('hex')).not.toBe(settingsShaBefore);
+
+      // inventory reflects the new state
+      await expect(skillRow).toContainText('excluded', { timeout: 10_000 });
+
+      // rollback → byte-exact restore
+      await page.getByTestId('op-rollback').click();
+      await expect(page.getByTestId('res-notice')).toContainText(/Откат/i, { timeout: 15_000 });
+      expect(createHash('sha256').update(readFileSync(settingsPath)).digest('hex')).toBe(settingsShaBefore);
+    } finally {
+      await app.close();
+    }
+  });
+});

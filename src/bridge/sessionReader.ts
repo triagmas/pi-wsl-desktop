@@ -22,7 +22,11 @@ import type { ReadSessionResultT, SessionEntryT, SessionHeaderT } from '../share
 import type { FsLike } from './sessions';
 
 export interface ReadSessionFileOptions {
-  fs: FsLike;
+  /** NARROWED by the M2 hardening (R1b): reads of a validated descriptor use
+   * only stat+readRange; readHead/readTail stay path-based and are never part
+   * of this reader — the type keeps a future refactor from silently
+   * re-opening a pathname mid-read. */
+  fs: Pick<FsLike, 'stat' | 'readRange'>;
   file: string;
   sinceEntryId?: string;
   /** Bounded page size (contract caps it at 500). */

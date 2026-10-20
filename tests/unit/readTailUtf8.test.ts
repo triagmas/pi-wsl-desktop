@@ -51,3 +51,27 @@ describe('nodeFs.readTail — UTF-8 boundary safety (M2 P2#3)', () => {
     expect(await nodeFs.readTail(f, 64 * 1024)).toBe(text);
   });
 });
+
+describe('nodeFs.readTail — R1c EOF/corruption extremes', () => {
+  it('a file ending mid-multibyte decodes without crashing and stays untouched', async () => {
+    const bytes = Buffer.from('имя сессии 🚀', 'utf8').subarray(0, Buffer.byteLength('имя сессии 🚀') - 2); // cut the rocket in half
+    const f = await file(bytes);
+    const beforeBytes = await readFile(f);
+    const beforeStat = await stat(f);
+    const tail = await nodeFs.readTail(f, 64 * 1024);
+    expect(typeof tail).toBe('string');
+    expect(tail.startsWith('имя сессии')).toBe(true);
+    expect(await readFile(f)).toEqual(beforeBytes);
+    expect((await stat(f)).mtimeMs).toBe(beforeStat.mtimeMs);
+  });
+
+  it('window starting on continuation bytes of a corrupt file drops only the incomplete head', async () => {
+    // a lone continuation byte (as if a multibyte char lost its lead byte)
+    const bytes = Buffer.concat([Buffer.from('prefix\n'), Buffer.from([0x83]), Buffer.from('\nreal line\n')]);
+    const f = await file(bytes);
+    const tail = await nodeFs.readTail(f, bytes.length - 7); // starts at the 0x83 byte
+    expect(tail).not.toContain('\uFFFD');
+    expect(tail).toContain('real line');
+    expect(await readFile(f)).toEqual(bytes);
+  });
+});

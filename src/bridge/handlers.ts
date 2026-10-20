@@ -35,7 +35,7 @@ import {
   SubscribeParamsSchema,
 } from '../shared/m1Protocol';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
-import { buildSessionIndex, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
+import { buildSessionIndex, inodeMatches, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
 import { searchSessions } from './search';
 import { ChatSessionManager } from './chatSession';
@@ -173,7 +173,7 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       }
       return { handle, canonical };
     } catch (error) {
-      await handle.close();
+      await handle.close().catch(() => undefined); // R1d: never mask the original error
       if (error instanceof BridgeError) throw error;
       // Cannot prove the inode's origin: fail closed.
       throw new BridgeError('INVALID_REQUEST', 'session path could not be verified');
@@ -261,7 +261,7 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
         const result = await readSessionFile({ fs: pinnedFs, ...p, file: opened.canonical });
         return assertOut(ReadSessionResultSchema, result, 'readSession');
       } finally {
-        await opened.handle.close();
+        await opened.handle.close().catch(() => undefined); // R1d: keep the original error
       }
     },
     searchSessions: async (params) => {
@@ -289,12 +289,20 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       const opened = await openInsideRoots(file);
       if (!opened) throw new BridgeError('SESSION_NOT_FOUND', 'Session file not found');
       try {
-        // Canonical path prevents a symlink being redirected after validation.
+        // Canonicalization removed the symlinks that existed AT validation;
+        // the dev/ino recheck below additionally catches a rename/symlink swap
+        // between validation and spawn (maps to SESSION_CONFLICT). Full
+        // atomicity is impossible with path-based `pi --session` — the
+        // residual microsecond TOCTOU is documented in the PR/ROADMAP risk
+        // list and requires write access to the session directory anyway.
+        if (!(await inodeMatches(opened.handle, opened.canonical))) {
+          throw new BridgeError('SESSION_CONFLICT', 'session file changed on disk before opening');
+        }
         // Pi owns writes through official RPC, not through this handle.
         const state = await getChat().open(opened.canonical);
         return assertOut(OpenSessionResultSchema, { state }, 'openSession');
       } finally {
-        await opened.handle.close();
+        await opened.handle.close().catch(() => undefined); // R1d: keep the original error
       }
     },
     sendPrompt: async (params) => {

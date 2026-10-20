@@ -4,7 +4,7 @@
  * and the byte+mtime no-mutation guarantee across the whole session.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -271,6 +271,62 @@ describe('bridge M1 path scope (review round 3, #4 — defense-in-depth)', () =>
       child.stdin.write(req('x4', 'readSession', { file: fx.sessionFile }) + '\n');
       const okFrame = (await reader.waitForResponse('x4')).frame as ResponseOkFrameT;
       expect(okFrame.type).toBe('response');
+    } finally {
+      child.kill();
+    }
+  });
+});
+
+describe('bridge M2 canonical path hardening — symlink escape (P2#2)', () => {
+  it('rejects read and open through a symlink to outside roots, but permits an in-root symlink', async () => {
+    const fx = makeFixture();
+    const outsideDir = mkdtempSync(path.join(os.tmpdir(), 'piwsd-m2-foreign-'));
+    const outsideFile = path.join(outsideDir, 'foreign.jsonl');
+    writeFileSync(outsideFile, readFileSync(fx.sessionFile));
+    utimesSync(outsideFile, T0, T0);
+    const insideLink = path.join(fx.root, 'in-root.jsonl');
+    const outsideLink = path.join(fx.root, 'outside.jsonl');
+    symlinkSync(fx.sessionFile, insideLink);
+    symlinkSync(outsideFile, outsideLink);
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('sl1', 'readSession', { file: insideLink }) + '\n');
+      expect(((await reader.waitForResponse('sl1')).frame as ResponseOkFrameT).status).toBe('ok');
+
+      child.stdin.write(req('sl2', 'readSession', { file: outsideLink }) + '\n');
+      const rejectedRead = (await reader.waitForResponse('sl2')).frame as ResponseErrorFrameT;
+      expect(errCode(rejectedRead)).toBe('INVALID_REQUEST');
+      expect(rejectedRead.error.message).toContain('outside the session roots');
+
+      child.stdin.write(req('sl3', 'openSession', { file: outsideLink }) + '\n');
+      expect(errCode((await reader.waitForResponse('sl3')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+
+      // Retarget a previously accepted link: the next request must recheck
+      // the real inode/target, not trust cached lexical or resolved paths.
+      unlinkSync(insideLink);
+      symlinkSync(outsideFile, insideLink);
+      child.stdin.write(req('sl4', 'readSession', { file: insideLink }) + '\n');
+      expect(errCode((await reader.waitForResponse('sl4')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+    } finally {
+      child.kill();
+    }
+    expect(createHash('sha256').update(readFileSync(fx.sessionFile)).digest('hex')).toBe(fx.sha);
+  });
+
+  it('rejects a symlinked parent directory that escapes the trusted root', async () => {
+    const fx = makeFixture();
+    const outsideDir = mkdtempSync(path.join(os.tmpdir(), 'piwsd-m2-parent-'));
+    const outsideFile = path.join(outsideDir, 'foreign.jsonl');
+    writeFileSync(outsideFile, readFileSync(fx.sessionFile));
+    symlinkSync(outsideDir, path.join(fx.root, 'escape-dir'), 'dir');
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('sl5', 'readSession', { file: path.join(fx.root, 'escape-dir', 'foreign.jsonl') }) + '\n');
+      expect(errCode((await reader.waitForResponse('sl5')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
     } finally {
       child.kill();
     }

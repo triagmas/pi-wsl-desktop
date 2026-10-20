@@ -194,3 +194,12 @@ describe('m2Protocol — round 3 shape holes (NEW-1/NEW-4)', () => {
     expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'package-update', source: 'npm:x' }).success).toBe(true);
   });
 });
+
+describe('m2Protocol — round 5: disable belongs to skill-set only', () => {
+  it('rejects `disable` on non-skill-set kinds (documented field, silently ignored otherwise)', async () => {
+    const m2 = await import('../../src/shared/m2Protocol');
+    expect(m2.PreviewResourceOpParamsSchema.safeParse({ kind: 'package-install', source: 'npm:x', disable: true }).success).toBe(false);
+    expect(m2.PreviewResourceOpParamsSchema.safeParse({ kind: 'mcp-remove', source: 's', disable: false }).success).toBe(false);
+    expect(m2.PreviewResourceOpParamsSchema.safeParse({ kind: 'skill-set', source: '/x/s', disable: true }).success).toBe(true);
+  });
+});

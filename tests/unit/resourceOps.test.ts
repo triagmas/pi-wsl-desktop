@@ -464,3 +464,53 @@ describe('ResourceOps — round 3 (NEW-2 sweep, NEW-3 fail-closed unlink, skill-
     expect(after.skills).toEqual(['keep']); // the -~ spelling is REMOVED, not just -<abs>
   });
 });
+
+describe('ResourceOps — round 5 (P1 matcher vs includes, ENOENT pin)', () => {
+  it('[P1] disable ADDS the exclusion even when an include entry names the same skill', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-p1dis-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ skills: [`+${skillDir}`] }, null, 2));
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: true });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    // the include must NOT suppress the exclusion, and both must survive
+    expect(after.skills).toContain(`-${skillDir}`);
+    expect(after.skills).toContain(`+${skillDir}`);
+    expect(applied.verified).toBe(true); // verified only because the exclusion REALLY landed
+  });
+
+  it('[P1] enable removes ONLY the exclusion — include declarations stay', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-p1en-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(
+      path.join(agent, 'settings.json'),
+      JSON.stringify({ skills: [`+${skillDir}`, `-${skillDir}`, 'keep'] }, null, 2),
+    );
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: false });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual([`+${skillDir}`, 'keep']); // include PRESERVED, exclusion gone
+    expect(applied.verified).toBe(true);
+  });
+
+  it('[pin] rollback of a plan whose file never existed and never appeared: ok:false, no crash', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'ghost', url: 'https://g.invalid/mcp' });
+    expect(plan.backupId).toBeNull();
+    h.setSpawn(() => ({ code: 1, stdout: '', stderr: 'cli failed, file untouched' })); // no file created
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(false);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(false); // ENOENT path: nothing restored, nothing deleted, no throw
+    expect(existsSync(mcpPath)).toBe(false);
+  });
+});

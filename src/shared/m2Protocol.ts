@@ -177,6 +177,9 @@ export const PreviewResourceOpParamsSchema = z
     } else if (hasUrl || hasCmd || v.env !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'command/url/env are only valid for mcp-add' });
     }
+    if (v.kind !== 'skill-set' && v.disable !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'disable is only valid for skill-set' });
+    }
   });
 export type PreviewResourceOpParamsT = z.infer<typeof PreviewResourceOpParamsSchema>;
 

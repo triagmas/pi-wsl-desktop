@@ -231,20 +231,29 @@ export class ResourceOps {
    * are ONE server for Pi (the second is rejected) while this inventory lists
    * both — keep names canonical when creating servers from the GUI.
    */
-  private entryMatchesSkill(entry: unknown, source: string): boolean {
+  private entryMatchesSkill(entry: unknown, source: string, base: string): boolean {
     if (typeof entry !== 'string') return false;
     const stripped = entry.startsWith('-') || entry.startsWith('!') || entry.startsWith('+') ? entry.slice(1) : entry;
     if (stripped === source || entry === `-${source}`) return true;
-    for (const base of [this.agentDir, this.projectPiDir]) {
-      if (!base) continue;
-      const a = resolveResourceEntry(stripped, base, this.home).path;
-      const b = resolveResourceEntry(source, base, this.home).path;
-      if (a === null || b === null) continue; // glob sources never match exactly
-      // path.normalize merges mixed separators — '~/' expands via posix.join
-      // while sources may arrive platform-shaped (Windows unit CI).
-      if (path.normalize(a) === path.normalize(b)) return true;
-    }
-    return false;
+    const a = resolveResourceEntry(stripped, base, this.home).path;
+    const b = resolveResourceEntry(source, base, this.home).path;
+    if (a === null || b === null) return false; // glob sources never match exactly
+    // path.normalize merges mixed separators — '~/' expands via posix.join
+    // while sources may arrive platform-shaped (Windows unit CI).
+    return path.normalize(a) === path.normalize(b);
+  }
+
+  /** [round 5, P1] ONLY `-`/`!` spellings are EXCLUSIONS — plain/`+` entries
+   * are INCLUDE declarations and must never be mistaken for one (otherwise
+   * disable silently no-ops with a false `verified:true`, and enable wipes
+   * the include). */
+  private isExclusionMatch(entry: unknown, source: string, base: string): boolean {
+    return typeof entry === 'string' && (entry.startsWith('-') || entry.startsWith('!')) && this.entryMatchesSkill(entry, source, base);
+  }
+
+  /** Base directory of the settings FILE this op edits (settings.md:153). */
+  private skillSettingsBase(local: boolean): string {
+    return local && this.projectPiDir ? this.projectPiDir : this.agentDir;
   }
 
   /** skill-set: edit settings.skills with the `-path` exclusion semantics. */
@@ -259,12 +268,14 @@ export class ResourceOps {
     }
     const skills = Array.isArray(parsed.skills) ? (parsed.skills as unknown[]) : [];
     const exclusion = `-${params.source}`;
+    const base = this.skillSettingsBase(params.local === true);
     if (params.disable === true) {
-      if (!skills.some((s) => this.entryMatchesSkill(s, params.source))) skills.push(exclusion);
+      // includes never suppress the exclusion [round 5, P1]
+      if (!skills.some((s) => this.isExclusionMatch(s, params.source, base))) skills.push(exclusion);
       parsed.skills = skills;
     } else {
-      // enable: drop EVERY spelling of the exclusion (leave the rest untouched)
-      parsed.skills = skills.filter((s) => !this.entryMatchesSkill(s, params.source));
+      // enable: drop ONLY exclusion spellings — include declarations stay
+      parsed.skills = skills.filter((s) => !this.isExclusionMatch(s, params.source, base));
     }
     await fsp.writeFile(file, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
   }
@@ -340,13 +351,15 @@ export class ResourceOps {
     verified: boolean;
   }> {
     if (confirm !== true) throw new BridgeError('INVALID_REQUEST', 'resource op requires explicit confirmation');
-    this.sweep(); // [round 3, NEW-2] release expired plans (env secrets) on every entry point
     const record = this.plans.get(planId);
-    if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown resource op plan — preview it again');
-    if (this.now() >= record.plan.expiresAt) {
+    if (record && this.now() >= record.plan.expiresAt) {
+      // target check BEFORE sweeping so the distinct `expired` message stays
+      // reachable (round 5, P2 — the branch went dead behind an eager sweep)
       this.plans.delete(planId);
       throw new BridgeError('INVALID_REQUEST', 'resource op plan expired — preview it again');
     }
+    this.sweep(); // [round 3, NEW-2] release other expired plans (env secrets)
+    if (!record) throw new BridgeError('INVALID_REQUEST', 'unknown resource op plan — preview it again');
     this.plans.delete(planId); // single-use plan
 
     // Refresh backups immediately before the write (state right before apply).
@@ -417,7 +430,8 @@ export class ResourceOps {
       try {
         const parsed = JSON.parse(await fsp.readFile(file, 'utf8')) as { skills?: unknown };
         const skills = Array.isArray(parsed.skills) ? (parsed.skills as unknown[]) : [];
-        const hasExclusion = skills.some((s) => this.entryMatchesSkill(s, params.source));
+        const base = this.skillSettingsBase(params.local === true);
+        const hasExclusion = skills.some((s) => this.isExclusionMatch(s, params.source, base));
         return params.disable === true ? hasExclusion : !hasExclusion;
       } catch {
         return false;
@@ -480,7 +494,14 @@ export class ResourceOps {
           snapshotOk = true;
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
-          snapshotOk = code === 'ENOENT'; // the file itself vanished — nothing to lose
+          if (code === 'ENOENT') {
+            // ENOENT may mean the FILE vanished or the BACKUPS area raced
+            // away between mkdir and copy — attribute it by stat'ing the
+            // source: only a genuinely gone file may proceed to unlink.
+            snapshotOk = await fsp.stat(b.file).then(() => false, () => true);
+          } else {
+            snapshotOk = false;
+          }
         }
         if (snapshotOk) {
           try {

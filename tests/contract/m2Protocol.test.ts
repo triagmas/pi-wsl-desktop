@@ -1,0 +1,140 @@
+/**
+ * RED gate T1 — M2 Pi Resource Manager contract (Issue #7).
+ * Zod schemas for skills/packages/MCP inventory and the two-phase
+ * write-op protocol. RED first: `src/shared/m2Protocol.ts` does not exist.
+ */
+import { describe, expect, it } from 'vitest';
+import { ALL_METHODS, M2_METHODS } from '../../src/shared/codes';
+import {
+  ApplyResourceOpParamsSchema,
+  ListMcpServersResultSchema,
+  ListPackagesResultSchema,
+  ListSkillsResultSchema,
+  PreviewResourceOpParamsSchema,
+  ResourceOpPlanSchema,
+  RollbackResourceOpParamsSchema,
+} from '../../src/shared/m2Protocol';
+
+const skill = {
+  name: 'code-review',
+  dir: '/home/u/.agents/skills/code-review',
+  source: 'user-agents',
+  package: null,
+  description: 'Review diffs',
+  status: 'ok',
+  disableModelInvocation: false,
+  diagnostics: [],
+};
+
+const pkg = {
+  source: 'npm:pi-subagents',
+  kind: 'npm',
+  scope: 'user',
+  path: '/home/u/.pi/agent/npm/node_modules/pi-subagents',
+  present: true,
+  declaredRef: null,
+  diagnostics: [],
+};
+
+const builtin = { name: 'mcp', enabled: true };
+const mcpServer = {
+  name: 'context7',
+  scope: 'user',
+  transport: 'http',
+  command: null,
+  args: ['https://mcp.context7.com/mcp'],
+  envKeys: [],
+  hasProjectOverride: false,
+  oauthConfigured: false,
+  diagnostics: [],
+};
+
+describe('m2Protocol — inventory contracts', () => {
+  it('accepts a skills inventory result', () => {
+    const r = ListSkillsResultSchema.parse({ skills: [skill], diagnostics: [] });
+    expect(r.skills[0]?.name).toBe('code-review');
+  });
+
+  it('rejects junk skills (missing name / bad source / bad status)', () => {
+    expect(ListSkillsResultSchema.safeParse({ skills: [{ ...skill, name: '' }], diagnostics: [] }).success).toBe(false);
+    expect(ListSkillsResultSchema.safeParse({ skills: [{ ...skill, source: 'elsewhere' }], diagnostics: [] }).success).toBe(false);
+    expect(ListSkillsResultSchema.safeParse({ skills: [{ ...skill, status: 'mystery' }], diagnostics: [] }).success).toBe(false);
+  });
+
+  it('accepts packages + builtins and rejects junk', () => {
+    expect(
+      ListPackagesResultSchema.safeParse({
+        packages: [pkg],
+        builtins: [builtin],
+        settingsExtensions: ['/x/ext.ts'],
+        diagnostics: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      ListPackagesResultSchema.safeParse({ packages: [{ ...pkg, kind: 'wheel' }], builtins: [], settingsExtensions: [], diagnostics: [] })
+        .success,
+    ).toBe(false);
+  });
+
+  it('accepts MCP inventory with env KEYS only and rejects junk transports', () => {
+    expect(
+      ListMcpServersResultSchema.safeParse({
+        servers: [mcpServer],
+        builtinEnabled: true,
+        logDiagnostics: ['context7 ERROR 1'],
+        diagnostics: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      ListMcpServersResultSchema.safeParse({
+        servers: [{ ...mcpServer, transport: 'carrier-pigeon' }],
+        builtinEnabled: true,
+        logDiagnostics: [],
+        diagnostics: [],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('m2Protocol — two-phase write ops', () => {
+  it('previews a package install plan (CLI argv, files, expiry)', () => {
+    const p = PreviewResourceOpParamsSchema.parse({ kind: 'package-install', source: 'npm:pi-x' });
+    expect(p.kind).toBe('package-install');
+    const plan = ResourceOpPlanSchema.parse({
+      planId: 'op-1',
+      kind: 'package-install',
+      description: 'pi install npm:pi-x',
+      command: ['pi', 'install', 'npm:pi-x'],
+      commandRedacted: false,
+      filesTouched: ['/home/u/.pi/agent/settings.json'],
+      backupId: 'b-1',
+      expiresAt: Date.now() + 60_000,
+    });
+    expect(plan.command[0]).toBe('pi');
+  });
+
+  it('plan schema carries no place for raw secret values (env keys travel only on request)', () => {
+    expect(Object.keys(ResourceOpPlanSchema.shape)).not.toContain('env');
+    expect(Object.keys(ResourceOpPlanSchema.shape)).not.toContain('envKeys');
+  });
+
+  it('apply/rollback REQUIRE confirm: true (literal, not truthy)', () => {
+    expect(ApplyResourceOpParamsSchema.safeParse({ planId: 'op-1', confirm: true }).success).toBe(true);
+    expect(ApplyResourceOpParamsSchema.safeParse({ planId: 'op-1', confirm: 'yes' }).success).toBe(false);
+    expect(ApplyResourceOpParamsSchema.safeParse({ planId: 'op-1' }).success).toBe(false);
+    expect(RollbackResourceOpParamsSchema.safeParse({ opId: 'op-1' }).success).toBe(false);
+    expect(RollbackResourceOpParamsSchema.safeParse({ opId: 'op-1', confirm: true }).success).toBe(true);
+  });
+
+  it('rejects previews for unknown op kinds or empty source', () => {
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'rm-rf', source: 'x' }).success).toBe(false);
+    expect(PreviewResourceOpParamsSchema.safeParse({ kind: 'package-install', source: '' }).success).toBe(false);
+  });
+});
+
+describe('m2Protocol — whitelist integration', () => {
+  it('exposes exactly the six M2 methods and ALL_METHODS includes them', () => {
+    expect(M2_METHODS).toHaveLength(6);
+    for (const m of M2_METHODS) expect(ALL_METHODS as readonly string[]).toContain(m);
+  });
+});

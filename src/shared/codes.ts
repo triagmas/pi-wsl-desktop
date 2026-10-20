@@ -38,8 +38,27 @@ export const M1_METHODS = [
 ] as const;
 export type M1Method = (typeof M1_METHODS)[number];
 
-/** Every method the bridge serves (M0 read-only + M1 sessions/chat). */
-export const ALL_METHODS = [...M0_METHODS, ...M1_METHODS] as const;
+/**
+ * Bridge contract methods added in M2 (Pi Resource Manager), Issue #7.
+ * Inventory methods are read-only; `previewResourceOp` is a pure plan (no
+ * side effects); `applyResourceOp`/`rollbackResourceOp` are the M2 write
+ * boundary — both REQUIRE `confirm: true` (literal) and are reachable only
+ * from the renderer UI on an explicit user confirmation. Writes shell out to
+ * the documented Pi CLI inside the WSL bridge, never to raw file writes
+ * outside the plan/backup cycle.
+ */
+export const M2_METHODS = [
+  'listSkills',
+  'listPackages',
+  'listMcpServers',
+  'previewResourceOp',
+  'applyResourceOp',
+  'rollbackResourceOp',
+] as const;
+export type M2Method = (typeof M2_METHODS)[number];
+
+/** Every method the bridge serves (M0 read-only + M1 sessions/chat + M2 resources). */
+export const ALL_METHODS = [...M0_METHODS, ...M1_METHODS, ...M2_METHODS] as const;
 export type AllMethod = (typeof ALL_METHODS)[number];
 
 /**

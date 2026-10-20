@@ -155,6 +155,11 @@ export class ResourceOps {
 
   private targetsFor(params: PreviewResourceOpParamsT): { files: string[] } {
     const local = params.local === true;
+    if (local && !this.projectPiDir) {
+      // Fail closed instead of silently writing the USER settings when the
+      // project is untrusted (project .pi is trust-gated on 1.3.0).
+      throw new BridgeError('INVALID_REQUEST', 'project is not trusted — project-local writes are unavailable');
+    }
     if (params.kind === 'mcp-add' || params.kind === 'mcp-remove') {
       return { files: [path.join(local && this.projectPiDir ? this.projectPiDir : this.agentDir, 'mcp.json')] };
     }
@@ -181,9 +186,35 @@ export class ResourceOps {
       }
       case 'mcp-remove':
         return ['mcp', 'remove', params.source, ...local];
+      case 'skill-set':
+        // No CLI exists for per-skill toggling on 1.3.0 — a settings edit;
+        // the pseudo-argv documents the intent in the plan (never spawned).
+        return ['settings.json', 'skills', params.disable === true ? '-' : '+', params.source];
       default:
         throw new BridgeError('INVALID_REQUEST', `unsupported op kind`);
     }
+  }
+
+  /** skill-set: edit settings.skills with the `-path` exclusion semantics. */
+  private async editSkillSetting(params: PreviewResourceOpParamsT): Promise<void> {
+    const [file] = this.targetsFor(params).files;
+    let parsed: Record<string, unknown>;
+    try {
+      const text = await fsp.readFile(file, 'utf8');
+      parsed = JSON.parse(text) as Record<string, unknown>;
+    } catch (error) {
+      throw new BridgeError('INVALID_REQUEST', `settings.json unreadable: ${(error as Error).message}`);
+    }
+    const skills = Array.isArray(parsed.skills) ? (parsed.skills as unknown[]) : [];
+    const exclusion = `-${params.source}`;
+    if (params.disable === true) {
+      if (!skills.some((s) => s === exclusion)) skills.push(exclusion);
+      parsed.skills = skills;
+    } else {
+      // enable: drop the exclusion entry (leave every other entry untouched)
+      parsed.skills = skills.filter((s) => s !== exclusion);
+    }
+    await fsp.writeFile(file, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
   }
 
   async preview(params: PreviewResourceOpParamsT): Promise<{ plan: ResourceOpPlanT }> {
@@ -256,7 +287,17 @@ export class ResourceOps {
 
     const argv = this.argvFor(record.params);
     const secretValues = Object.values(record.params.env ?? {}).filter((v) => v.length >= 4);
-    const spawnResult = await this.spawnFnImpl(argv);
+    let spawnResult: SpawnResult;
+    if (record.params.kind === 'skill-set') {
+      try {
+        await this.editSkillSetting(record.params);
+        spawnResult = { code: 0, stdout: 'settings updated', stderr: '' };
+      } catch (error) {
+        spawnResult = { code: 1, stdout: '', stderr: (error as Error).message };
+      }
+    } else {
+      spawnResult = await this.spawnFnImpl(argv);
+    }
     const output = maskOutput(`${spawnResult.stdout}\n${spawnResult.stderr}`.trim(), secretValues);
 
     const ok = spawnResult.code === 0;
@@ -276,6 +317,17 @@ export class ResourceOps {
 
   private async verify(params: PreviewResourceOpParamsT): Promise<boolean> {
     const [file] = this.targetsFor(params).files;
+    if (params.kind === 'skill-set') {
+      try {
+        const parsed = JSON.parse(await fsp.readFile(file, 'utf8')) as { skills?: unknown };
+        const skills = Array.isArray(parsed.skills) ? (parsed.skills as unknown[]) : [];
+        const exclusion = `-${params.source}`;
+        const hasExclusion = skills.some((s) => s === exclusion);
+        return params.disable === true ? hasExclusion : !hasExclusion;
+      } catch {
+        return false;
+      }
+    }
     try {
       const text = await fsp.readFile(file, 'utf8');
       const parsed = JSON.parse(text) as Record<string, unknown>;

@@ -133,6 +133,9 @@ export const ResourceOpKindSchema = z.enum([
   'package-update',
   'mcp-add',
   'mcp-remove',
+  /** Toggle `-path` exclusion of a skill in settings.skills (no CLI exists
+   * for per-skill enable/disable on 1.3.0 — a documented settings edit). */
+  'skill-set',
 ]);
 export type ResourceOpKindT = z.infer<typeof ResourceOpKindSchema>;
 
@@ -151,6 +154,9 @@ export const PreviewResourceOpParamsSchema = z
     scope: PackageScopeSchema.optional(),
     /** `-l` project-local write for install/remove/mcp. */
     local: z.boolean().optional(),
+    /** skill-set only: true → add the `-path` exclusion (disable),
+     * false/absent → remove it (enable). */
+    disable: z.boolean().optional(),
   })
   .strict();
 export type PreviewResourceOpParamsT = z.infer<typeof PreviewResourceOpParamsSchema>;

@@ -138,3 +138,26 @@ describe('m2Protocol — whitelist integration', () => {
     for (const m of M2_METHODS) expect(ALL_METHODS as readonly string[]).toContain(m);
   });
 });
+
+describe('m2Protocol — skill disable/enable op (DoD: отключение скиллов)', () => {
+  it('accepts the skill-set kind with an explicit disable flag', async () => {
+    const m2 = await import('../../src/shared/m2Protocol');
+    expect(m2.ResourceOpKindSchema.safeParse('skill-set').success).toBe(true);
+    const p = m2.PreviewResourceOpParamsSchema.safeParse({
+      kind: 'skill-set',
+      source: '/home/u/.agents/skills/code-review',
+      disable: true,
+    });
+    expect(p.success).toBe(true);
+    // no flag → default enable-restore path still previews
+    expect(m2.PreviewResourceOpParamsSchema.safeParse({ kind: 'skill-set', source: '/x/s' }).success).toBe(true);
+    // unknown flags stay rejected (strict schema)
+    expect(m2.PreviewResourceOpParamsSchema.safeParse({ kind: 'skill-set', source: '/x/s', extra: 1 }).success).toBe(false);
+  });
+
+  it('keeps apply/rollback literal-confirm semantics for skill-set', async () => {
+    const m2 = await import('../../src/shared/m2Protocol');
+    expect(m2.ApplyResourceOpParamsSchema.safeParse({ planId: 'p', confirm: true }).success).toBe(true);
+    expect(m2.ApplyResourceOpParamsSchema.safeParse({ planId: 'p', confirm: 0 }).success).toBe(false);
+  });
+});

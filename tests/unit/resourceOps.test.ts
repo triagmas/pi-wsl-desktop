@@ -167,3 +167,59 @@ describe('ResourceOps — rollback restores bytes', () => {
     await expect(h.ops.rollback('ghost', true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
   });
 });
+
+describe('ResourceOps — skill-set (documented settings edit, no CLI exists)', () => {
+  it('disables a skill via the -path exclusion, verifies, and rolls back byte-for-byte', async () => {
+    const h = harness((home) => {
+      writeFileSync(
+        path.join(home, '.pi', 'agent', 'settings.json'),
+        JSON.stringify({ skills: ['extra-skill'] }, null, 2),
+      );
+    });
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const before = sha(settingsPath);
+    const skillDir = '/home/u/.agents/skills/code-review';
+
+    const { plan } = await h.ops.preview({ kind: 'skill-set', source: skillDir, disable: true });
+    expect(plan.filesTouched).toEqual([settingsPath]);
+    expect(plan.backupId).toBeTruthy();
+    expect(h.calls).toHaveLength(0); // NO CLI spawned for settings edits
+    expect(sha(settingsPath)).toBe(before); // preview side-effect free
+
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied).toMatchObject({ ok: true, verified: true });
+    expect(h.calls).toHaveLength(0);
+    const after = JSON.parse(readFileSync(settingsPath, 'utf8')) as { skills: string[] };
+    expect(after.skills).toContain(`-${skillDir}`);
+
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(sha(settingsPath)).toBe(before);
+  });
+
+  it('re-enables by removing only the exclusion entry', async () => {
+    const h = harness((home) => {
+      writeFileSync(
+        path.join(home, '.pi', 'agent', 'settings.json'),
+        JSON.stringify({ skills: ['keep-me', '-/gone/skill'], other: 1 }, null, 2),
+      );
+    });
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const { plan } = await h.ops.preview({ kind: 'skill-set', source: '/gone/skill', disable: false });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.verified).toBe(true);
+    const after = JSON.parse(readFileSync(settingsPath, 'utf8')) as { skills: string[]; other: number };
+    expect(after.skills).toEqual(['keep-me']); // exclusion gone, others intact
+    expect(after.other).toBe(1); // unrelated keys untouched
+  });
+
+  it('project-local writes fail closed when the project is untrusted', async () => {
+    const h = harness(); // no projectPiDir configured (untrusted)
+    await expect(h.ops.preview({ kind: 'package-install', source: 'npm:x', local: true })).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+    await expect(h.ops.preview({ kind: 'skill-set', source: '/x/s', local: true })).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+  });
+});

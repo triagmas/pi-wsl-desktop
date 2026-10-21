@@ -4,24 +4,52 @@ import { getDesktopApi, type DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
 import { SessionsView } from './SessionsView';
 import { ResourcesView } from './ResourcesView';
+import { ModulesView } from './ModulesView';
+import { ModuleTabView } from './ModuleTabView';
 import { useConnection } from './useConnection';
+import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
+import { moduleTabs, registerModules, setModuleEnabled, type ModuleEntry } from './modules/registry';
 
 export interface AppProps {
   /** Injectable for tests; by default the preload contextBridge API is used. */
   api?: DesktopApi | null;
+  /**
+   * M3: raw module manifests to register. Injectable for tests; the default
+   * registers the built-in demo module. Adding a module here (or later from a
+   * catalog) never requires patching this component.
+   */
+  moduleDefinitions?: unknown[];
 }
 
-type View = 'status' | 'sessions' | 'resources';
+type View = 'status' | 'sessions' | 'resources' | 'modules' | `module:${string}`;
 
-export function App({ api }: AppProps = {}) {
+export function App({ api, moduleDefinitions }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
   const { snapshot, requestError, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
   const [view, setView] = useState<View>('status');
+  // M3 module registry: registered once from the definitions, then toggled.
+  const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
+    registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
+  );
+
+  const toggleModule = (moduleId: string, enabled: boolean) => {
+    setModuleEntries((entries) => setModuleEnabled(entries, moduleId, enabled));
+    // Leaving a module tab when its module gets disabled keeps the app sane.
+    if (!enabled) {
+      setView((current) =>
+        current.startsWith(`module:${moduleId}/`) ? 'status' : current,
+      );
+    }
+  };
+
+  const tabs = moduleTabs(moduleEntries);
+  const activeModuleTab =
+    view.startsWith('module:') ? tabs.find((t) => t.tabKey === view.slice('module:'.length)) : undefined;
 
   return (
     <main data-testid="app-root" className="app">
       <h1>Pi WSL Desktop</h1>
-      <p className="subtitle">Foundation &amp; Sessions &amp; Resources · M0 + M1 + M2</p>
+      <p className="subtitle">Foundation &amp; Sessions &amp; Resources &amp; Modules · M0 + M1 + M2 + M3</p>
       <nav className="main-tabs" data-testid="main-tabs">
         <button
           type="button"
@@ -50,8 +78,31 @@ export function App({ api }: AppProps = {}) {
         >
           Ресурсы
         </button>
+        <button
+          type="button"
+          data-testid="tab-modules"
+          className={view === 'modules' ? 'tab tab-active' : 'tab'}
+          aria-pressed={view === 'modules'}
+          onClick={() => setView('modules')}
+        >
+          Модули
+        </button>
+        {tabs.map(({ tabKey, tab }) => (
+          <button
+            key={tabKey}
+            type="button"
+            data-testid={`tab-module-${tabKey}`}
+            className={view === `module:${tabKey}` ? 'tab tab-active' : 'tab'}
+            aria-pressed={view === `module:${tabKey}`}
+            onClick={() => setView(`module:${tabKey}`)}
+          >
+            {tab.title}
+          </button>
+        ))}
       </nav>
-      {view === 'status' ? (
+      {activeModuleTab ? (
+        <ModuleTabView tab={activeModuleTab} onDisable={(id) => toggleModule(id, false)} />
+      ) : view === 'status' ? (
         <StatusPanel
           snapshot={snapshot}
           requestError={requestError}
@@ -62,8 +113,13 @@ export function App({ api }: AppProps = {}) {
         />
       ) : view === 'sessions' ? (
         <SessionsView api={effectiveApi} />
-      ) : (
+      ) : view === 'resources' ? (
         <ResourcesView api={effectiveApi} />
+      ) : (
+        <ModulesView
+          entries={moduleEntries}
+          onToggle={(id, enabled) => toggleModule(id, enabled)}
+        />
       )}
     </main>
   );

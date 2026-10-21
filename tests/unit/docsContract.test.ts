@@ -26,7 +26,9 @@ const SKILLS = [
 ] as const;
 
 function read(rel: string): string {
-  return readFileSync(path.join(ROOT, rel), 'utf8');
+  // Windows checkouts use CRLF (git autocrlf); normalize so line-oriented
+  // parsing and anchor extraction behave identically on every platform.
+  return readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 }
 
 function githubSlug(heading: string): string {
@@ -53,7 +55,8 @@ function trackedMarkdown(): string[] {
     cwd: ROOT,
     encoding: 'utf8',
   })
-    .split('\n')
+    .split(/\r?\n/)
+    .map((f) => f.trim())
     .filter(Boolean);
 }
 

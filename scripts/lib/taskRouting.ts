@@ -55,6 +55,27 @@ export function escalateForSourceEdit(current: TaskType): TaskType {
   return RISKY_TYPES.includes(current) ? current : 'coding';
 }
 
+/**
+ * Sanitized handoff line for worker/subagent dispatch records:
+ * task_type, role, requested level, assignment status and the effective
+ * level (disclosed clamp, never silent). Takes no provider/model input by
+ * construction, so no provider identifiers can leak into the record.
+ */
+export function formatHandoff(
+  type: TaskType,
+  requested: ThinkingLevel,
+  plan: AssignmentPlan,
+): string {
+  const route = TASK_MATRIX[type];
+  const effective =
+    plan.status === 'ok'
+      ? plan.level
+      : plan.status === 'UNSUPPORTED' && plan.clampedTo !== undefined
+        ? `${plan.clampedTo} (clamped)`
+        : 'UNKNOWN';
+  return `task_type=${type} role=${route.role} requested=${requested} status=${plan.status} effective=${effective}`;
+}
+
 /** Minimum-level gate: code/security/review work requires effective `high`. */
 export function assertLevelAllowsWrite(
   type: TaskType,

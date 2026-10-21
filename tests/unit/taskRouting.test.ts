@@ -19,6 +19,7 @@ import {
   assertLevelAllowsWrite,
   classifyTaskType,
   escalateForSourceEdit,
+  formatHandoff,
   planThinkingAssignment,
 } from '../../scripts/lib/taskRouting';
 
@@ -128,5 +129,32 @@ describe('planThinkingAssignment (fail-closed readback gate)', () => {
     const r = planThinkingAssignment('off', ['low', 'medium']);
     expect(r.status).toBe('UNSUPPORTED');
     if (r.status === 'UNSUPPORTED') expect(r.clampedTo).toBe('low');
+  });
+});
+
+describe('formatHandoff (sanitized task handoff record)', () => {
+  it('records task_type, role, requested and effective without provider data', () => {
+    const plan = planThinkingAssignment('low', ['off', 'high']);
+    const line = formatHandoff('documentation', 'low', plan);
+    expect(line).toContain('task_type=documentation');
+    expect(line).toContain('role=PRIMARY');
+    expect(line).toContain('requested=low');
+    expect(line).toContain('status=UNSUPPORTED');
+    expect(line).toContain('effective=high'); // what Pi would clamp to — disclosed, not silent
+    expect(line).not.toMatch(/provider|modelId|token|secret/i);
+  });
+
+  it('records a clean effective level when the assignment is ok', () => {
+    const plan = planThinkingAssignment('off', ['off', 'high']);
+    const line = formatHandoff('mechanical', 'off', plan);
+    expect(line).toContain('status=ok');
+    expect(line).toContain('effective=off');
+  });
+
+  it('reports MAPPING_NEEDS_REVIEW with unknown effective (fail closed)', () => {
+    const plan = planThinkingAssignment('high', []);
+    const line = formatHandoff('coding', 'high', plan);
+    expect(line).toContain('status=MAPPING_NEEDS_REVIEW');
+    expect(line).toContain('effective=UNKNOWN');
   });
 });

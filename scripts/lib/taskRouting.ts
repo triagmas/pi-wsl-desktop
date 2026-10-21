@@ -18,6 +18,72 @@
 
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+/**
+ * Dispatch mapping onto the EXISTING builtin pi-subagents profiles
+ * (pi-subagents@0.79.2 agents/: scout, researcher, worker, reviewer,
+ * oracle, evidence-auditor, delegate, …). `source` records where the
+ * thinking value comes from: the profile's own frontmatter, or a per-run
+ * override needed when it differs from the matrix target (dispatched as
+ * `subagent({ agent, model: '<provider>/<id>:<level>' })`, which
+ * pi-subagents applies to the child Pi process via applyThinkingSuffix →
+ * `--model <fullId>:<level>`). Pure data + linter; nothing here spawns
+ * anything and no runtime code imports it.
+ */
+export interface AgentProfileRoute {
+  agent: string;
+  thinking: ThinkingLevel;
+  source: 'frontmatter' | 'per-run-override';
+}
+
+export const BUILTIN_AGENTS = [
+  'claude-code',
+  'claude-code-writer',
+  'codex-exec',
+  'codex-exec-writer',
+  'cursor-agent',
+  'cursor-agent-writer',
+  'delegate',
+  'evidence-auditor',
+  'oracle',
+  'researcher',
+  'reviewer',
+  'scout',
+  'worker',
+] as const;
+
+export type AgentProfileMap = Record<TaskType, AgentProfileRoute>;
+
+export const AGENT_PROFILES: AgentProfileMap = {
+  mechanical: { agent: 'scout', thinking: 'off', source: 'per-run-override' },
+  documentation: { agent: 'scout', thinking: 'low', source: 'frontmatter' },
+  analysis: { agent: 'researcher', thinking: 'medium', source: 'frontmatter' },
+  coding: { agent: 'worker', thinking: 'high', source: 'frontmatter' },
+  security: { agent: 'oracle', thinking: 'high', source: 'frontmatter' },
+  review: { agent: 'reviewer', thinking: 'high', source: 'frontmatter' },
+};
+
+/**
+ * Fail-closed consistency check: every profile must name a real builtin
+ * agent and must not sit below its TASK_MATRIX target level.
+ */
+export function assertAgentProfileConsistent(profiles: AgentProfileMap = AGENT_PROFILES): void {
+  for (const type of Object.keys(TASK_MATRIX) as TaskType[]) {
+    const profile = profiles[type];
+    if (!profile) throw new Error(`agent profiles missing task type "${type}" (fail closed)`);
+    if (!(BUILTIN_AGENTS as readonly string[]).includes(profile.agent)) {
+      throw new Error(
+        `agent profiles: task type "${type}" names unknown agent "${profile.agent}" — expected one of the builtin pi-subagents agents (fail closed)`,
+      );
+    }
+    const target = TASK_MATRIX[type].target;
+    if (EXTENDED_LEVELS.indexOf(profile.thinking) < EXTENDED_LEVELS.indexOf(target)) {
+      throw new Error(
+        `agent profiles: task type "${type}" sits at thinking "${profile.thinking}" below matrix target "${target}" (fail closed)`,
+      );
+    }
+  }
+}
+
 export type TaskType = 'mechanical' | 'documentation' | 'analysis' | 'coding' | 'security' | 'review';
 
 export interface TaskRoute {

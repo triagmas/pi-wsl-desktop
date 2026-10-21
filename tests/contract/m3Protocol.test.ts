@@ -104,4 +104,19 @@ describe('module manifest contract', () => {
       stage: 'manifest',
     });
   });
+
+  it('rejects duplicate ui entry ids inside one manifest (colliding tabKeys)', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      ui: [
+        { kind: 'tab', id: 'welcome', title: 'A', blocks: validBlockList },
+        { kind: 'tab', id: 'welcome', title: 'B', blocks: validBlockList },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.stage).toBe('manifest');
+      expect(result.errors.join(' ')).toMatch(/duplicate ui id/i);
+    }
+  });
 });

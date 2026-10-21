@@ -85,6 +85,31 @@ describe('M3 module registration UI', () => {
     expect(screen.getByTestId('module-tab-demo')).toBeInTheDocument();
   });
 
+  it('keeps the valid module working with several malformed forms registered alongside (Review Focus #1)', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          DEMO_MODULE_MANIFEST,
+          { id: 'badver', version: '1.0', apiVersion: 1, capabilities: ['runtime'], ui: [{ kind: 'tab', id: 'x', title: 'X', blocks: [{ type: 'text', value: 'x' }] }] },
+          { version: '1.0.0' }, // missing id
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByTestId('tab-modules'));
+    // both malformed entries are listed with a reason, not crashed on
+    expect(screen.getByTestId('module-entry-module-1')).toBeInTheDocument();
+    expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/version/i);
+    expect(screen.getByTestId('module-entry-module-2')).toBeInTheDocument();
+    expect(screen.getByTestId('module-errors-module-2')).toHaveTextContent(/id/i);
+
+    // the valid demo tab is untouched and still opens
+    await user.click(screen.getByTestId('tab-module-demo/welcome'));
+    expect(screen.getByTestId('module-tab-demo')).toBeInTheDocument();
+  });
+
   it('marks an apiVersion-incompatible module and gives it no nav tab', async () => {
     const user = userEvent.setup();
     render(
@@ -105,6 +130,8 @@ describe('M3 module registration UI', () => {
 
     await user.click(screen.getByTestId('tab-modules'));
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('incompatible');
+    // M1: the incompatible reason is actually visible to the user
+    expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/apiVersion/i);
     expect(screen.queryByTestId('tab-module-future/main')).not.toBeInTheDocument();
     // the built-in demo is unaffected
     expect(screen.getByTestId('tab-module-demo/welcome')).toBeInTheDocument();

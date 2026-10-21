@@ -62,6 +62,20 @@ describe('module registry', () => {
     expect(entries[1]!.errors.join(' ')).toMatch(/duplicate id/i);
   });
 
+  it('isolates every malformed form alongside a valid module (Review Focus #1)', () => {
+    const entries = registerModules([
+      validRaw(), // valid → enabled
+      { ...validRaw(), version: '1.0' }, // bad version → invalid
+      { ...validRaw(), id: undefined }, // missing id → invalid
+      'not-an-object', // non-object → invalid
+    ]);
+    expect(entries.map((e) => e.state)).toEqual(['enabled', 'invalid', 'invalid', 'invalid']);
+    // the valid module still owns exactly its one tab; nothing malformed leaks
+    expect(moduleTabs(entries).map((t) => t.tabKey)).toEqual(['demo/welcome']);
+    // and each malformed entry carries a reason
+    for (const entry of entries.slice(1)) expect(entry.errors.length).toBeGreaterThan(0);
+  });
+
   it('returns an empty registry for an empty input list', () => {
     expect(registerModules([])).toEqual([]);
   });

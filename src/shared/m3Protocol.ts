@@ -79,15 +79,31 @@ const SemverSchema = z
   .string()
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
 
-export const ModuleManifestSchema = z.object({
-  id: ModuleIdSchema,
-  version: SemverSchema,
-  apiVersion: z.number().int().positive(),
-  capabilities: z.array(z.enum(MODULE_CAPABILITIES)).min(1),
-  ui: z.array(ModuleUiEntrySchema).min(1),
-  dependencies: z.array(ModuleIdSchema).default([]),
-  params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
-});
+export const ModuleManifestSchema = z
+  .object({
+    id: ModuleIdSchema,
+    version: SemverSchema,
+    apiVersion: z.number().int().positive(),
+    capabilities: z.array(z.enum(MODULE_CAPABILITIES)).min(1),
+    ui: z.array(ModuleUiEntrySchema).min(1),
+    dependencies: z.array(ModuleIdSchema).default([]),
+    params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+  })
+  .superRefine((manifest, ctx) => {
+    // Duplicate ui entry ids would project colliding tabKeys / React keys,
+    // silently making the second contribution unreachable — fail closed.
+    const seen = new Set<string>();
+    manifest.ui.forEach((entry, index) => {
+      if (seen.has(entry.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ui', index, 'id'],
+          message: `duplicate ui id: "${entry.id}" is declared more than once`,
+        });
+      }
+      seen.add(entry.id);
+    });
+  });
 export type ModuleManifest = z.infer<typeof ModuleManifestSchema>;
 
 export type ManifestParseResult =

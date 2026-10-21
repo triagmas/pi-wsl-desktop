@@ -25,6 +25,7 @@
     "tests/helpers/**/*.ts",
     "e2e/**/*.ts",
     "scripts/**/*.mjs",
+    "scripts/lib/**/*.ts",
     "vitest.config.ts",
     "playwright.config.ts",
     "eslint.config.mjs"

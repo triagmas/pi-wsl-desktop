@@ -150,3 +150,16 @@
 - [ ] Владелец продукта явно утвердил merge.
 
 > Контрольный принцип: **GitHub PR/коммиты — доказательство, ROADMAP.md — читаемая сводка, Issues — постановка задач.**
+
+---
+
+## 🧭 Процесс разработки — короткий AGENTS + Skills (Draft, не принят)
+
+**Issue [#14](https://github.com/triagmas/pi-wsl-desktop/issues/14)** · ветка `docs/compact-agents-project-skills-r01`. После обсуждения 2026-10-21 стартовал независимый **документационный пакет**: короткий `AGENTS.md`, четыре on-demand проектных Skills (`status`, `development`, `safety`, `review`) и согласованная политика thinking `off / low / medium / high`. **Готовность не засчитывать до проверки PR и явного решения владельца.**
+
+- [ ] Проверить правила и frontmatter четырёх Skills, ссылки, CI и фактическое обнаружение Pi в каноническом F: checkout.
+- [ ] Сверить отсутствие изменения Pi settings, subagents, сессий, продуктового кода и M3 ветки.
+- [ ] Независимый review, `ACCEPT`, отдельное разрешение владельца на merge.
+- **За рамками пакета:** event-driven automation и визуальный dashboard — следующие обсуждённые этапы, ещё не реализованы.
+- **Без ложного зачёта:** реальные prompts/model calls и user `~/.pi` writes не запускались; эффективность в токенах `NOT MEASURED`.
+

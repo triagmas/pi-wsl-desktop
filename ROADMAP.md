@@ -73,7 +73,7 @@
 
 ## 💸 Экономия токенов Pi — правила разработки (не отдельный продуктовый этап)
 
-- [x] Документировать **профили сложности A/B/C**, минимально достаточный `thinking`, короткие tool-outputs и контекст, выборочные Red→Green тесты с обязательной полной финальной проверкой, независимое ревью. [AGENTS.md §5.1](AGENTS.md#51-экономия-токенов-и-выбор-усилия-обязательный-рабочий-протокол), [TOKEN_EFFICIENCY.md](docs/TOKEN_EFFICIENCY.md). — *правила внесены в ветку PR #8; ещё не слиты*.
+- [x] Документировать **профили сложности A/B/C**, минимально достаточный `thinking`, короткие tool-outputs и контекст, выборочные Red→Green тесты с обязательной полной финальной проверкой, независимое ревью. [AGENTS.md](AGENTS.md), [TOKEN_EFFICIENCY.md](docs/TOKEN_EFFICIENCY.md). — *правила внесены в ветку PR #8; ещё не слиты*.
 - [x] Разъяснить фактическую настройку Pi (`/model`, `/thinking`, `defaultThinkingLevel`, `modelThinkingLevels`, compaction, `/session`) и что текст `AGENTS.md` **не переключает модель**. — *документация подготовлена, не конфигурация*.
 - [ ] Подтвердить применение политики реальным локальным Pi и измеренный эффект (количество токенов, retries, стоимость принятой задачи). — **NOT MEASURED**, подзадача M2 [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7).
 
@@ -150,3 +150,16 @@
 - [ ] Владелец продукта явно утвердил merge.
 
 > Контрольный принцип: **GitHub PR/коммиты — доказательство, ROADMAP.md — читаемая сводка, Issues — постановка задач.**
+
+---
+
+## 🧭 Процесс разработки — короткий AGENTS + Skills (Draft, не принят)
+
+**Issue [#14](https://github.com/triagmas/pi-wsl-desktop/issues/14)** · ветка `docs/compact-agents-project-skills-r01`. После обсуждения 2026-10-21 стартовал независимый **документационный пакет**: короткий `AGENTS.md`, четыре on-demand проектных Skills (`status`, `development`, `safety`, `review`) и согласованная политика thinking `off / low / medium / high`. **Готовность не засчитывать до проверки PR и явного решения владельца.**
+
+- [ ] Проверить правила и frontmatter четырёх Skills, ссылки, CI и фактическое обнаружение Pi в каноническом F: checkout. — *приёмка R01: frontmatter **4/4**; Pi **1.3.0** discovery **4/4** при project trust (`--approve`), **0/4** без доверия (корректный security-gate: `.pi/skills` — защищённый ресурс, в `trust.json` решения по репозиторию нет); конфликтов имён с глобальными Skills нет; якоря исправлены и закреплены контракт-тестом `tests/unit/docsContract.test.ts` (Repository Contract режет ссылку по `#` и якоря не проверял — это маскировало дефект); CI на HEAD `d6592b2` — SUCCESS (Linux+Windows).*
+- [ ] Сверить отсутствие изменения Pi settings, subagents, сессий, продуктового кода и M3 ветки. — *подтверждено: дельта PR — только Markdown + один тест (`tests/unit/docsContract.test.ts`), в `src/` правок нет; `main` = `6107f959`, PR #11 / ветка `feat/m3-module-system-r01` = `d10a57c` (нетронуты); `settings.json` и `trust.json` byte-identical (md5+inode+mtime) после всех Pi-вызовов, новых сессий не создано (`--no-session`).*
+- [ ] Независимый review, `ACCEPT`, отдельное разрешение владельца на merge. — *независимый fresh-context review (thinking `high`, отдельно от исполнителя) на HEAD `b606255f`: **ACCEPT — OK with notes**, 0 BLOCKER / 0 IMPORTANT / 1 MINOR — тест thinking-routing проверяет наличие четырёх уровней, но не соответствие «тип работы → уровень» (документы фактически согласованы, неблокирующее; правка сдвинула бы HEAD за пределы принятого diff и потребовала бы повторного ревью — оставлено владельцу). Merge и снятие Draft не выполнялись.*
+- **За рамками пакета:** event-driven automation и визуальный dashboard — следующие обсуждённые этапы, ещё не реализованы.
+- **Без ложного зачёта:** реальные prompts/model calls и user `~/.pi` writes не запускались; эффективность в токенах `NOT MEASURED`.
+

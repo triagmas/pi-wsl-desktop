@@ -31,6 +31,17 @@
 
 Pi поддерживает команды `/model`, `/thinking`, `/settings`; `/session` показывает usage и стоимость, `/compact` уменьшает старый контекст. Настройки живут в `~/.pi/agent/settings.json` (пользовательские) или `.pi/settings.json` в доверенном проекте; проектные настройки влияют на другие задачи в этом каталоге.
 
+**Фактически подтверждённый механизм назначения уровня на установленной Pi 1.3.0** (проверено help + RPC + bundle; каждый класс назначает уровень ДО работы):
+
+| Класс | Как назначить уровень (нативные средства Pi) |
+|:--|:--|
+| A — mechanical → `off` | новая сессия: `pi --thinking off …` или `pi --model <id>:off …`; либо RPC `set_thinking_level {level:"off"}` в запущенной сессии |
+| B — documentation → `low` | то же с `low`; при недоступности уровня моделью см. гейт ниже |
+| C — analysis → `medium` | то же с `medium` |
+| D/E/F — coding/security/review → `high` | предпочтительно `pi --model <coding-id>:high …` (MiMo 2.6 Flash) или `--thinking high`; независимый ревью — отдельная сессия на `high` |
+
+Обязательная сверка перед работой: RPC `get_available_thinking_levels` → список доступных уровней для фактической модели; RPC `set_thinking_level` + readback `get_state.thinkingLevel` — подтверждение effective-уровня. **Конкретные факты для текущего coding-модели (id в публичный GitHub не писать):** карта `models-store.json` предлагает `[off, high]`; `low/medium` при запросе Pi клампит вверх в `high` — это ограничение карты модели, а не Pi и не кэш. Поэтому процессный гейт `scripts/lib/taskRouting.ts` (`planThinkingAssignment` + `assertLevelAllowsWrite`) для `low/medium` на этой модели возвращает `UNSUPPORTED` с disclosed `clampedTo=high`, а не молчаливый успех; code/security/review ниже `high` блокируются. На модели с картой, допускающей `low/medium`, тот же гейт вернёт `ok`. Деньги/сравнение стоимости — **NOT MEASURED**; маршрутизация не зависит от платных бенчмарков.
+
 **Пример для обсуждения, НЕ применять автоматически** (если подтверждена совместимость Pi и согласовано владельцем):
 
 ```json

@@ -1,10 +1,20 @@
 /**
- * M2 token-cost measurement runner (Issue #12, plan Task 2).
+ * M2 token-cost measurement runner (Issue #12, plan Task 3 realignment).
  *
- * Runs the three fixed synthetic tasks (A/B/C from m2AcceptanceTasks) twice
- * each — baseline (user default thinking) and conservative candidate
- * (--thinking low) — through the REAL Pi and the REAL provider:
- *   6 paid model calls total, STOP-GATE 1 enforced in code.
+ * OPTIONAL, owner-authorized harness — NOT a routing requirement. Task
+ * routing success does not depend on paid benchmarking; genuine savings
+ * stay NOT MEASURED until ordinary work passively provides comparable data
+ * (TOKEN_EFFICIENCY.md §5). This runner only exists so the owner MAY
+ * authorize a bounded comparison later; it never auto-runs, never creates
+ * a consent file, and never requests permission by itself.
+ *
+ * If authorized, it runs the three fixed synthetic tasks (A/B/C from
+ * m2AcceptanceTasks) twice each — a baseline tier and a candidate tier —
+ * through the REAL Pi and REAL provider: 6 paid calls, STOP-GATE 1
+ * enforced in code. Tier levels are PARAMETERS read from
+ * PI_ACCEPTANCE_TIER_LEVELS (comma-separated, default "baseline=,candidate=off");
+ * the harness makes no claim about which levels a model supports — check
+ * get_available_thinking_levels first (see m2ThinkingParity smoke).
  *
  * Gates: REAL_PI=1 AND PI_ACCEPTANCE_PAID_CONSENT=1 AND
  * PI_ACCEPTANCE_CONSENT_FILE=<json validated by assertPaidCallConsent with
@@ -45,13 +55,21 @@ const PI_BIN = process.env.PI_WS_DESKTOP_PI ?? path.join(os.homedir(), '.local',
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const runtimeRoot = path.join(repoRoot, '.superpowers', 'acceptance-runtime');
 const measureDir = path.join(runtimeRoot, 'measure');
-const TIERS = [
-  { tier: 'baseline', thinking: null },
-  // Measured parity (m2ThinkingParity): granular levels clamp to `high` on
-  // this model, so the only conservative candidate below the baseline is
-  // `off` — `low` would run at the same effective level as the baseline.
-  { tier: 'candidate-off', thinking: 'off' },
-] as const;
+// Tier levels are parameters, not a policy claim: the default candidate is
+// `off` only because it is the single level BELOW the current baseline that
+// this machine's default model map offers (see m2ThinkingParity). Pass
+// PI_ACCEPTANCE_TIER_LEVELS="baseline=,candidate=low" etc. to measure other
+// levels on a model that actually supports them (get_available_thinking_levels).
+const TIER_SPEC = process.env.PI_ACCEPTANCE_TIER_LEVELS ?? 'baseline=,candidate=off';
+const TIERS: Array<{ tier: string; thinking: string | null }> = TIER_SPEC.split(',')
+  .map((entry) => {
+    const [tier, level] = entry.split('=' );
+    return { tier: tier.trim(), thinking: level !== undefined && level.trim() !== '' ? level.trim() : null };
+  })
+  .filter((t) => t.tier.length > 0);
+if (TIERS.length !== 2) {
+  throw new Error(`PI_ACCEPTANCE_TIER_LEVELS must describe exactly two tiers, got ${TIERS.length}`);
+}
 
 interface Cost {
   input: number;

@@ -47,7 +47,10 @@ const runtimeRoot = path.join(repoRoot, '.superpowers', 'acceptance-runtime');
 const measureDir = path.join(runtimeRoot, 'measure');
 const TIERS = [
   { tier: 'baseline', thinking: null },
-  { tier: 'candidate-low', thinking: 'low' },
+  // Measured parity (m2ThinkingParity): granular levels clamp to `high` on
+  // this model, so the only conservative candidate below the baseline is
+  // `off` — `low` would run at the same effective level as the baseline.
+  { tier: 'candidate-off', thinking: 'off' },
 ] as const;
 
 interface Cost {
@@ -223,7 +226,12 @@ describe.skipIf(!REAL_PI || !PAID)('m2 token measurement (Issue #12, STOP-GATE 1
           const agentDir = path.join(tmpHome, '.pi', 'agent');
           mkdirSync(agentDir, { recursive: true });
           const realAgentDir = path.join(os.homedir(), '.pi', 'agent');
-          copyFileSync(path.join(realAgentDir, 'settings.json'), path.join(agentDir, 'settings.json'));
+          // Stripped settings copy: same model/provider/thinking defaults, no
+          // package auto-installs in the throwaway home (deterministic startup).
+          const realSettings = JSON.parse(readFileSync(path.join(realAgentDir, 'settings.json'), 'utf8')) as Record<string, unknown>;
+          const strippedSettings = { ...realSettings };
+          delete strippedSettings.packages;
+          writeFileSync(path.join(agentDir, 'settings.json'), JSON.stringify(strippedSettings));
           copyFileSync(path.join(realAgentDir, 'auth.json'), path.join(agentDir, 'auth.json'));
           chmodSync(path.join(agentDir, 'auth.json'), 0o600);
 

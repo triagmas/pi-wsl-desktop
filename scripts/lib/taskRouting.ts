@@ -41,7 +41,9 @@ const EXTENDED_LEVELS: ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'hi
 const RISKY_TYPES: TaskType[] = ['coding', 'security', 'review'];
 
 export function classifyTaskType(type: string): TaskType {
-  if (!(type in TASK_MATRIX)) {
+  // Object.hasOwn: prototype-chain keys (constructor/toString/…) must not
+  // pass the membership check (independent review P1, fail closed).
+  if (!Object.hasOwn(TASK_MATRIX, type)) {
     throw new Error(`unknown task type "${type}" — classify before dispatch (fail closed)`);
   }
   return type as TaskType;
@@ -81,6 +83,11 @@ export function assertLevelAllowsWrite(
   type: TaskType,
   effective: ThinkingLevel | null | undefined,
 ): void {
+  // Same fail-closed guard as classifyTaskType: a forged prototype-chain
+  // "type" must never unlock a write (independent review P1).
+  if (!Object.hasOwn(TASK_MATRIX, type)) {
+    throw new Error(`unknown task type "${String(type)}" — classify before dispatch (fail closed)`);
+  }
   if (RISKY_TYPES.includes(type)) {
     if (effective !== 'high') {
       throw new Error(

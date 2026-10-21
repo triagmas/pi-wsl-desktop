@@ -43,7 +43,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { assertIsolatedSessionRoot, assertPaidCallConsent } from '../../scripts/lib/acceptanceGuards';
 import { ACCEPTANCE_TASKS } from '../../scripts/lib/m2AcceptanceTasks';
 import { PiRpcClient } from '../../src/bridge/piRpcClient';
@@ -63,13 +63,13 @@ const measureDir = path.join(runtimeRoot, 'measure');
 const TIER_SPEC = process.env.PI_ACCEPTANCE_TIER_LEVELS ?? 'baseline=,candidate=off';
 const TIERS: Array<{ tier: string; thinking: string | null }> = TIER_SPEC.split(',')
   .map((entry) => {
-    const [tier, level] = entry.split('=' );
+    const [tier, level] = entry.split('=');
     return { tier: tier.trim(), thinking: level !== undefined && level.trim() !== '' ? level.trim() : null };
   })
   .filter((t) => t.tier.length > 0);
-if (TIERS.length !== 2) {
-  throw new Error(`PI_ACCEPTANCE_TIER_LEVELS must describe exactly two tiers, got ${TIERS.length}`);
-}
+// Tier-count validation lives INSIDE the gated describe (beforeAll), so a
+// malformed PI_ACCEPTANCE_TIER_LEVELS never breaks smoke collection while
+// the paid tiers are NOT RUN (independent review P2).
 
 interface Cost {
   input: number;
@@ -201,6 +201,12 @@ function makeRpc(home: string, thinking: string | null, events: string[], sessio
 }
 
 describe.skipIf(!REAL_PI || !PAID)('m2 token measurement (Issue #12, STOP-GATE 1)', () => {
+  beforeAll(() => {
+    if (TIERS.length !== 2) {
+      throw new Error(`PI_ACCEPTANCE_TIER_LEVELS must describe exactly two tiers, got ${TIERS.length}`);
+    }
+  });
+
   it('validates the owner consent for all 6 paid calls before anything runs', () => {
     const consentPath = process.env.PI_ACCEPTANCE_CONSENT_FILE;
     expect(consentPath, 'PI_ACCEPTANCE_CONSENT_FILE required').toBeTruthy();

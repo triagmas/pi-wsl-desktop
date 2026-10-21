@@ -44,6 +44,20 @@ describe('TASK_MATRIX (owner-approved 4-level policy)', () => {
     expect(() => classifyTaskType('refactor-unknown' as never)).toThrow(/unknown/i);
   });
 
+  it('rejects prototype-chain keys (fail closed, review P1)', () => {
+    for (const key of ['constructor', 'toString', 'valueOf', '__proto__']) {
+      expect(() => classifyTaskType(key as never), key).toThrow(/unknown/i);
+    }
+  });
+
+  it('assertLevelAllowsWrite also fails closed on prototype-chain keys (review P1)', () => {
+    // A forged "type" must never unlock a write, even at effective=high.
+    for (const key of ['constructor', 'toString', 'valueOf']) {
+      expect(() => assertLevelAllowsWrite(key as never, 'off'), key).toThrow(/unknown/i);
+      expect(() => assertLevelAllowsWrite(key as never, 'high'), key).toThrow(/unknown/i);
+    }
+  });
+
   it('keeps targets monotone off < low < medium < high across the ladder', () => {
     const order = ['off', 'low', 'medium', 'high'];
     const ladder = ['mechanical', 'documentation', 'analysis', 'coding'] as const;
@@ -125,7 +139,9 @@ describe('planThinkingAssignment (fail-closed readback gate)', () => {
     expect(planThinkingAssignment('high', undefined as never).status).toBe('MAPPING_NEEDS_REVIEW');
   });
 
-  it('treats a requested level Pi would clamp downward as UNSUPPORTED', () => {
+  it('treats a requested level above the available ceiling as UNSUPPORTED (clamped up)', () => {
+    // requested "off" with available [low, medium]: Pi's upward-first clamp
+    // lands on "low" — the request is not honored as-is.
     const r = planThinkingAssignment('off', ['low', 'medium']);
     expect(r.status).toBe('UNSUPPORTED');
     if (r.status === 'UNSUPPORTED') expect(r.clampedTo).toBe('low');

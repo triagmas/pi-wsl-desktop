@@ -227,6 +227,33 @@ describe.skipIf(!REAL_PI)('m2 thinking parity on disposable Pi state (Issue #12)
     expect(await effectiveLevel(e)).toBe('high');
   }, 120_000);
 
+  it('subagent dispatch form: --model <fullId>:<level> readback matches the gate verdicts', async () => {
+    // This is the EXACT argument shape pi-subagents passes to a native Pi
+    // child (applyThinkingSuffix → spawn `--model provider/id:level`).
+    // Free offline readback only — no prompt, no model call.
+    const settings = JSON.parse(
+      readFileSync(path.join(os.homedir(), '.pi', 'agent', 'settings.json'), 'utf8'),
+    ) as { defaultProvider?: string; defaultModel?: string };
+    expect(typeof settings.defaultProvider).toBe('string');
+    expect(typeof settings.defaultModel).toBe('string');
+    const fullId = `${settings.defaultProvider!}/${settings.defaultModel!}`;
+    const e = env({ defaultThinkingLevel: 'high' });
+    const levels = await rpcSession(e, [], async (client) => {
+      const res = (await client.request('get_available_thinking_levels')) as { levels?: string[] };
+      return res.levels ?? [];
+    });
+    expect(levels.length).toBeGreaterThan(0);
+    for (const requested of ['off', 'high', 'low'] as const) {
+      const readback = await rpcSession(e, ['--model', `${fullId}:${requested}`], async (client) => {
+        const st = (await client.request('get_state')) as { thinkingLevel?: string };
+        return st.thinkingLevel ?? 'MISSING';
+      });
+      const plan = planThinkingAssignment(requested, levels as never);
+      expect(readback, `--model ${fullId}:${requested}`).toBe(clampLikePi(requested, levels as never));
+      if (plan.status === 'ok') expect(readback).toBe(requested);
+    }
+  }, 180_000);
+
   it('negative: unsupported settings value falls back to off', async () => {
     const e = env({ defaultThinkingLevel: 'ultra' });
     expect(await effectiveLevel(e)).toBe('off');

@@ -3,6 +3,7 @@ import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
 import { SessionsView } from './SessionsView';
+import { ResourcesView } from './ResourcesView';
 import { useConnection } from './useConnection';
 
 export interface AppProps {
@@ -10,7 +11,7 @@ export interface AppProps {
   api?: DesktopApi | null;
 }
 
-type View = 'status' | 'sessions';
+type View = 'status' | 'sessions' | 'resources';
 
 export function App({ api }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
@@ -20,7 +21,7 @@ export function App({ api }: AppProps = {}) {
   return (
     <main data-testid="app-root" className="app">
       <h1>Pi WSL Desktop</h1>
-      <p className="subtitle">Foundation &amp; Sessions · M0 + M1</p>
+      <p className="subtitle">Foundation &amp; Sessions &amp; Resources · M0 + M1 + M2</p>
       <nav className="main-tabs" data-testid="main-tabs">
         <button
           type="button"
@@ -40,6 +41,15 @@ export function App({ api }: AppProps = {}) {
         >
           Сессии
         </button>
+        <button
+          type="button"
+          data-testid="tab-resources"
+          className={view === 'resources' ? 'tab tab-active' : 'tab'}
+          aria-pressed={view === 'resources'}
+          onClick={() => setView('resources')}
+        >
+          Ресурсы
+        </button>
       </nav>
       {view === 'status' ? (
         <StatusPanel
@@ -50,8 +60,10 @@ export function App({ api }: AppProps = {}) {
           onRefresh={() => void refreshRuntime()}
           onSelectDistro={(d) => void selectDistro(d)}
         />
-      ) : (
+      ) : view === 'sessions' ? (
         <SessionsView api={effectiveApi} />
+      ) : (
+        <ResourcesView api={effectiveApi} />
       )}
     </main>
   );

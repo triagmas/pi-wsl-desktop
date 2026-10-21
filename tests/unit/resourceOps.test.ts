@@ -1,0 +1,790 @@
+/**
+ * RED gate T5 — M2 two-phase resource operations (Issue #7 write boundary).
+ * RED first: `src/bridge/resources/ops.ts` does not exist.
+ *
+ * Invariants under test: preview is side-effect free; apply REQUIRES a live
+ * plan (literal confirm is contract-pinned); secrets accepted on the request
+ * are used verbatim by the CLI but never appear in any response; every write
+ * is preceded by a backup that rollback restores byte-for-byte; nothing runs
+ * unbounded (spawn timeout) — and no plan/apply happens without both phases.
+ */
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { BridgeError } from '../../src/shared/errors';
+import { ResourceOps, type SpawnResult } from '../../src/bridge/resources/ops';
+
+const homes: string[] = [];
+afterEach(() => {
+  for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
+});
+
+interface Harness {
+  ops: ResourceOps;
+  calls: Array<{ argv: string[]; cwd?: string }>;
+  setSpawn: (fn: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult>) => void;
+}
+
+function harness(setup?: (home: string) => void, extraDeps: Record<string, unknown> = {}): Harness {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'piwsd-ops-'));
+  homes.push(home);
+  mkdirSync(path.join(home, '.pi', 'agent'), { recursive: true });
+  writeFileSync(path.join(home, '.pi', 'agent', 'settings.json'), JSON.stringify({ packages: [] }));
+  setup?.(home);
+  const calls: Array<{ argv: string[]; cwd?: string }> = [];
+  let behavior: (argv: string[], opts?: { cwd?: string }) => SpawnResult | Promise<SpawnResult> = (argv) => {
+    // emulate `pi install`: append the source to settings.packages
+    if (argv[0] === 'install') {
+      const f = path.join(home, '.pi', 'agent', 'settings.json');
+      const s = JSON.parse(readFileSync(f, 'utf8')) as { packages: string[] };
+      s.packages.push(argv[1] ?? '');
+      writeFileSync(f, JSON.stringify(s));
+    }
+    if (argv[0] === 'mcp' && argv[1] === 'add') {
+      const f = path.join(home, '.pi', 'agent', 'mcp.json');
+      const cur = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as Record<string, unknown>) : {};
+      const servers = (cur.mcpServers ?? {}) as Record<string, unknown>;
+      servers[argv[2] ?? ''] = { url: 'https://placeholder' };
+      writeFileSync(f, JSON.stringify({ mcpServers: servers }));
+    }
+    return { code: 0, stdout: 'ok', stderr: '' };
+  };
+  const ops = new ResourceOps({
+    home,
+    agentDir: path.join(home, '.pi', 'agent'),
+    now: () => Date.now(),
+    spawnFn: async (argv, opts) => {
+      calls.push({ argv, cwd: opts?.cwd });
+      return behavior(argv, opts);
+    },
+    ...extraDeps,
+  });
+  return { ops, calls, setSpawn: (fn) => (behavior = fn) };
+}
+
+const sha = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+
+describe('ResourceOps — preview (side-effect free, redacted, backed up)', () => {
+  it('previews a package install: argv, touched files, backup of settings, expiry', async () => {
+    const h = harness();
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const before = sha(settingsPath);
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: 'npm:demo-pkg' });
+    expect(plan.command.slice(0, 2)).toEqual(['pi', 'install']);
+    expect(plan.command).toContain('npm:demo-pkg');
+    expect(plan.filesTouched).toEqual([settingsPath]);
+    expect(plan.backupId).toBeTruthy();
+    expect(plan.expiresAt).toBeGreaterThan(Date.now());
+    expect(h.calls).toHaveLength(0); // preview never spawns
+    expect(sha(settingsPath)).toBe(before); // preview never writes
+    expect(existsSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups'))).toBe(true); // backup materialized for rollback id
+  });
+
+  it('mcp-add plan MASKS secret env values in every response field', async () => {
+    const h = harness();
+    const { plan } = await h.ops.preview({
+      kind: 'mcp-add',
+      source: 'secretbox',
+      command: ['/usr/bin/box'],
+      env: { BOX_TOKEN: 'super-secret-value-42' },
+    });
+    const serialized = JSON.stringify(plan);
+    expect(serialized).not.toContain('super-secret-value-42');
+    expect(plan.commandRedacted).toBe(true);
+    expect(plan.command).toContain('--env');
+    expect(plan.command.join(' ')).toMatch(/BOX_TOKEN=\*\*\*/);
+    expect(h.calls).toHaveLength(0);
+  });
+});
+
+describe('ResourceOps — apply (live plan required, backup, redacted output, verify)', () => {
+  it('applies a plan: spawns the real argv, keeps secrets only in argv, verifies', async () => {
+    const h = harness();
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const before = sha(settingsPath);
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: 'npm:demo-pkg' });
+    const result = await h.ops.apply(plan.planId, true);
+    expect(result.ok).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(h.calls[0]?.argv).toEqual(['install', 'npm:demo-pkg']); // REAL argv for the CLI
+    expect(sha(settingsPath)).not.toBe(before);
+    expect(result.backupId).toBeTruthy();
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as { packages: string[] };
+    expect(settings.packages).toContain('npm:demo-pkg');
+  });
+
+  it('rejects unknown or expired plans fail-closed', async () => {
+    const h = harness();
+    await expect(h.ops.apply('no-such-plan', true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    const { plan } = await h.ops.preview({ kind: 'package-remove', source: 'npm:demo-pkg' });
+    await expect(h.ops.apply(plan.planId, false as unknown as true)).rejects.toBeInstanceOf(BridgeError); // belt & braces
+    await h.ops.expire(plan.planId); // test hook: force TTL
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('failed CLI run: ok=false, output redacted, settings untouched, backup usable', async () => {
+    const h = harness();
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const before = sha(settingsPath);
+    h.setSpawn(() => ({ code: 1, stdout: '', stderr: 'boom token=leaky-secret-99' }));
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: 'npm:demo-pkg' });
+    const result = await h.ops.apply(plan.planId, true);
+    expect(result.ok).toBe(false);
+    expect(result.verified).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('leaky-secret-99');
+    expect(sha(settingsPath)).toBe(before);
+    expect(result.backupId).toBeTruthy();
+  });
+
+  it('redacts known env VALUES from CLI output even when they leak into stdout', async () => {
+    const h = harness();
+    h.setSpawn(() => ({ code: 0, stdout: 'echoing BOX_TOKEN=super-secret-value-42 done', stderr: '' }));
+    const { plan } = await h.ops.preview({
+      kind: 'mcp-add',
+      source: 'box',
+      command: ['/usr/bin/box'],
+      env: { BOX_TOKEN: 'super-secret-value-42' },
+    });
+    const result = await h.ops.apply(plan.planId, true);
+    expect(result.output).not.toContain('super-secret-value-42');
+    expect(result.output).toContain('***');
+  });
+});
+
+describe('ResourceOps — rollback restores bytes', () => {
+  it('restores the pre-op settings.json exactly', async () => {
+    const h = harness();
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const before = sha(settingsPath);
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: 'npm:demo-pkg' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(sha(settingsPath)).not.toBe(before);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(rolled.restored).toEqual([settingsPath]);
+    expect(sha(settingsPath)).toBe(before);
+    await expect(h.ops.rollback('ghost', true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+});
+
+describe('ResourceOps — skill-set (documented settings edit, no CLI exists)', () => {
+  it('disables a skill via the -path exclusion, verifies, and rolls back byte-for-byte', async () => {
+    const h = harness((home) => {
+      writeFileSync(
+        path.join(home, '.pi', 'agent', 'settings.json'),
+        JSON.stringify({ skills: ['extra-skill'] }, null, 2),
+      );
+    });
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const before = sha(settingsPath);
+    const skillDir = '/home/u/.agents/skills/code-review';
+
+    const { plan } = await h.ops.preview({ kind: 'skill-set', source: skillDir, disable: true });
+    expect(plan.filesTouched).toEqual([settingsPath]);
+    expect(plan.backupId).toBeTruthy();
+    expect(h.calls).toHaveLength(0); // NO CLI spawned for settings edits
+    expect(sha(settingsPath)).toBe(before); // preview side-effect free
+
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied).toMatchObject({ ok: true, verified: true });
+    expect(h.calls).toHaveLength(0);
+    const after = JSON.parse(readFileSync(settingsPath, 'utf8')) as { skills: string[] };
+    expect(after.skills).toContain(`-${skillDir}`);
+
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(sha(settingsPath)).toBe(before);
+  });
+
+  it('re-enables by removing only the exclusion entry', async () => {
+    const h = harness((home) => {
+      writeFileSync(
+        path.join(home, '.pi', 'agent', 'settings.json'),
+        JSON.stringify({ skills: ['keep-me', '-/gone/skill'], other: 1 }, null, 2),
+      );
+    });
+    const settingsPath = path.join(h.ops.agentDir, 'settings.json');
+    const { plan } = await h.ops.preview({ kind: 'skill-set', source: '/gone/skill', disable: false });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.verified).toBe(true);
+    const after = JSON.parse(readFileSync(settingsPath, 'utf8')) as { skills: string[]; other: number };
+    expect(after.skills).toEqual(['keep-me']); // exclusion gone, others intact
+    expect(after.other).toBe(1); // unrelated keys untouched
+  });
+
+  it('project-local writes fail closed when the project is untrusted', async () => {
+    const h = harness(); // no projectPiDir configured (untrusted)
+    await expect(h.ops.preview({ kind: 'package-install', source: 'npm:x', local: true })).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+    await expect(h.ops.preview({ kind: 'skill-set', source: '/x/s', local: true })).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+  });
+});
+
+describe('ResourceOps — review round 1 fixes (BLOCKER #1, IMPORTANT #2/#3/#5, MINOR a/b)', () => {
+  it('[BLOCKER#1] stdio+env puts every --env BEFORE the `--` separator', async () => {
+    const h = harness();
+    const { plan } = await h.ops.preview({
+      kind: 'mcp-add',
+      source: 'stdio-box',
+      command: ['/usr/bin/box', '--serve'],
+      env: { BOX_TOKEN: 'env-value-secret' },
+    });
+    await h.ops.apply(plan.planId, true);
+    expect(h.calls[0]?.argv).toEqual(['mcp', 'add', 'stdio-box', '--env', 'BOX_TOKEN=env-value-secret', '--', '/usr/bin/box', '--serve']);
+    // and the display plan masks it
+    expect(plan.command.join(' ')).toMatch(/BOX_TOKEN=\*\*\*/);
+    expect(JSON.stringify(plan)).not.toContain('env-value-secret');
+  });
+
+  it('[BLOCKER#1] env with a URL endpoint is rejected (env is stdio-only)', async () => {
+    const h = harness();
+    await expect(
+      h.ops.preview({ kind: 'mcp-add', source: 'httpbox', url: 'https://x.invalid/mcp', env: { K: 'v' } }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('[IMPORTANT#5] package-update NEVER appends -l (not a documented update option)', async () => {
+    const projectPi = path.join(mkdtempSync(path.join(os.tmpdir(), 'piwsd-projpi-')), '.pi');
+    const h = harness(undefined, { projectPiDir: projectPi });
+    const { plan } = await h.ops.preview({ kind: 'package-update', source: 'git:github.com/o/r@v1', local: true });
+    await h.ops.apply(plan.planId, true);
+    expect(h.calls[0]?.argv).toEqual(['update', 'git:github.com/o/r@v1']);
+    expect(plan.command).not.toContain('-l');
+  });
+
+  it('[IMPORTANT#2] project-local sources resolve from the project .pi directory (docs/inventory parity)', async () => {
+    const projectPi = path.join(mkdtempSync(path.join(os.tmpdir(), 'piwsd-projpi-')), '.pi');
+    const h = harness(undefined, { projectPiDir: projectPi });
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: './local-tool', local: true });
+    await h.ops.apply(plan.planId, true);
+    expect(plan.command.join(' ')).toContain(path.join(projectPi, 'local-tool'));
+    expect(plan.filesTouched).toEqual([path.join(projectPi, 'settings.json')]);
+  });
+
+  it('[IMPORTANT#3] a file created between preview and apply survives rollback (no data loss)', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'late', url: 'https://late.invalid/mcp' });
+    expect(plan.backupId).toBeNull(); // file did not exist at preview time
+    // the user runs `pi mcp add` themselves in a terminal during the TTL
+    const userBytes = JSON.stringify({ mcpServers: { userbox: { type: 'http', url: 'https://user.invalid/mcp' } } }, null, 2);
+    writeFileSync(mcpPath, userBytes);
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    // the user's own file must be RESTORED, not deleted
+    expect(readFileSync(mcpPath, 'utf8')).toBe(userBytes);
+  });
+
+  it('[MINOR a] env values of ANY length are masked in display argv and output', async () => {
+    const h = harness();
+    h.setSpawn(() => ({ code: 0, stdout: 'leak q1 here', stderr: '' }));
+    const p = await h.ops.preview({ kind: 'mcp-add', source: 's2', command: ['/bin/true'], env: { SHORT: 'q1' } });
+    expect(p.plan.command.join(' ')).toMatch(/SHORT=\*\*\*/);
+    expect(JSON.stringify(p.plan)).not.toContain('q1');
+    const r = await h.ops.apply(p.plan.planId, true);
+    expect(r.output).not.toContain('q1');
+  });
+
+  it('[MINOR b] two previews in the same millisecond never overwrite each other\'s backup', async () => {
+    const h = harness(undefined, { now: () => 1_700_000_000_000 }); // identical stamps force the collision
+    const a = await h.ops.preview({ kind: 'package-remove', source: 'npm:x' });
+    const b = await h.ops.preview({ kind: 'package-remove', source: 'npm:x' });
+    expect(a.plan.backupId).not.toBeNull();
+    expect(a.plan.backupId).not.toBe(b.plan.backupId);
+  });
+});
+
+describe('ResourceOps — round 2 (N2 cwd, N3 branches, N5 sweep/cap, N6 unlink snapshot, N8 pseudo-argv)', () => {
+  it('[N2] local ops spawn the CLI with cwd = project root (backup/verify/rollback agree with the real write)', async () => {
+    const projDir = mkdtempSync(path.join(os.tmpdir(), 'piwsd-cwd-'));
+    const projectPi = path.join(projDir, '.pi');
+    const calls2: Array<{ argv: string[]; cwd?: string }> = [];
+    const home = mkdtempSync(path.join(os.tmpdir(), 'piwsd-cwdhome-'));
+    homes.push(home);
+    mkdirSync(path.join(home, '.pi', 'agent'), { recursive: true });
+    writeFileSync(path.join(home, '.pi', 'agent', 'settings.json'), JSON.stringify({ packages: [] }));
+    const ops = new ResourceOps({
+      home,
+      agentDir: path.join(home, '.pi', 'agent'),
+      projectPiDir: projectPi,
+      now: () => Date.now(),
+      spawnFn: async (argv, opts) => {
+        calls2.push({ argv, cwd: opts?.cwd });
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    });
+    const { plan } = await ops.preview({ kind: 'package-install', source: './tool', local: true });
+    expect(plan.filesTouched).toEqual([path.join(projectPi, 'settings.json')]);
+    await ops.apply(plan.planId, true);
+    expect(calls2[0]?.cwd).toBe(projDir); // process-cwd pinned to the project root
+    // user-scope ops stay cwd-independent
+    const { plan: p2 } = await ops.preview({ kind: 'package-install', source: 'npm:x' });
+    await ops.apply(p2.planId, true);
+    expect(calls2[1]?.cwd).toBeUndefined();
+  });
+
+  it('[N3a, round 7] a file DELETED after preview aborts apply — no CLI call, no blind recreation', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'keepme', url: 'https://k.invalid/mcp' });
+    expect(plan.backupId).toBeTruthy();
+    rmSync(mcpPath); // file vanishes before apply = external change we cannot snapshot
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // fail-closed (round 7 requirement): the op did NOT run
+    expect(existsSync(mcpPath)).toBe(false); // the deletion stays in force; preview again to proceed
+  });
+
+  it('[N3b, round 7] a failing backup refresh ABORTS apply and never nulls the preview-era backup', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const beforeSha = sha(mcpPath);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'eac', url: 'https://e.invalid/mcp' });
+    expect(plan.backupId).toBeTruthy();
+    const backupId = plan.backupId as string;
+    // make the REFRESH copy impossible: the backup destination area is
+    // replaced by a plain file (mkdir recursive cannot heal that)
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const moved = `${backupsDir}-moved`;
+    renameSync(backupsDir, moved);
+    writeFileSync(backupsDir, 'blocked');
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // the write never ran without a fresh snapshot
+    rmSync(backupsDir); // unblock
+    renameSync(moved, backupsDir); // restore layout
+    const kept = path.join(backupsDir, backupId.split(',')[0]);
+    expect(existsSync(kept)).toBe(true); // preview-era backup never nulled
+    expect(sha(kept)).toBe(beforeSha);
+    expect(sha(mcpPath)).toBe(beforeSha); // target file untouched
+  });
+
+  it('[N5] expired plans are swept and the applied ledger is bounded', async () => {
+    let clock = 1_700_000_000_000;
+    const h = harness(undefined, { now: () => clock, appliedCap: 2 });
+    await h.ops.preview({ kind: 'package-install', source: 'npm:a' });
+    expect(h.ops.stats().plans).toBe(1);
+    clock += 6 * 60_000; // past TTL
+    await h.ops.preview({ kind: 'package-install', source: 'npm:b' });
+    expect(h.ops.stats().plans).toBe(1); // expired plan swept (secrets released)
+    // applied ledger cap: third apply drops the oldest record
+    const { plan: p1 } = await h.ops.preview({ kind: 'package-install', source: 'npm:c' });
+    const a1 = await h.ops.apply(p1.planId, true);
+    const { plan: p2 } = await h.ops.preview({ kind: 'package-install', source: 'npm:d' });
+    await h.ops.apply(p2.planId, true);
+    const { plan: p3 } = await h.ops.preview({ kind: 'package-install', source: 'npm:e' });
+    await h.ops.apply(p3.planId, true);
+    expect(h.ops.stats().applied).toBe(2);
+    await expect(h.ops.rollback(a1.opId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('[N6] rollback unlink first PRESERVES concurrent bytes as a pre-unlink snapshot', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'race', url: 'https://r.invalid/mcp' });
+    expect(plan.backupId).toBeNull(); // absent at preview
+    const concurrent = JSON.stringify({ mcpServers: { userbox: { type: 'http', url: 'https://u.invalid/mcp' } } }, null, 2);
+    h.setSpawn((argv) => {
+      // a rival CLI creates the file DURING our apply (after the refresh check)
+      if (argv[0] === 'mcp') writeFileSync(mcpPath, concurrent);
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    await h.ops.rollback(applied.opId, true);
+    expect(existsSync(mcpPath)).toBe(false); // op-created file removed…
+    const backups = readdirSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups'));
+    const kept = backups.find((b) => b.includes('preunlink'));
+    expect(kept).toBeTruthy(); // …but the concurrent bytes are preserved losslessly
+    expect(readFileSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups', kept as string), 'utf8')).toBe(concurrent);
+  });
+
+  it('[N8] the skill-set plan command honestly states that no process is spawned', async () => {
+    const h = harness();
+    const { plan } = await h.ops.preview({ kind: 'skill-set', source: '/x/s', disable: true });
+    expect(plan.command[0]).toBe('(file edit — no process spawned)');
+    expect(plan.command.join(' ')).not.toMatch(/^pi /);
+  });
+});
+
+describe('ResourceOps — round 3 (NEW-2 sweep, NEW-3 fail-closed unlink, skill-set enable matching)', () => {
+  it('[NEW-2] expired plans with secrets are swept by stats() even with no further previews', async () => {
+    let clock = 1_700_000_000_000;
+    const h = harness(undefined, { now: () => clock });
+    await h.ops.preview({ kind: 'mcp-add', source: 'lazy', command: ['/bin/true'], env: { S: 'lingering-secret' } });
+    expect(h.ops.stats().plans).toBe(1);
+    clock += 6 * 60_000; // TTL passes; the bridge stays IDLE (no new preview)
+    const after = h.ops.stats();
+    expect(after.plans).toBe(0); // secrets released without another preview call
+  });
+
+  it('[NEW-3] rollback refuses to unlink when the preunlink snapshot cannot be taken', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'keepconcurrent', url: 'https://k.invalid/mcp' });
+    expect(plan.backupId).toBeNull();
+    const concurrent = JSON.stringify({ mcpServers: { rival: { type: 'http', url: 'https://r.invalid/mcp' } } }, null, 2);
+    h.setSpawn((argv) => {
+      if (argv[0] === 'mcp') writeFileSync(mcpPath, concurrent); // rival writes during our apply
+      return { code: 0, stdout: '', stderr: '' };
+    });
+    const applied = await h.ops.apply(plan.planId, true);
+    // BLOCK the backup area with a plain file so mkdir/copyFile must fail
+    // (deleting it would let mkdir(recursive) resurrect it — not a real failure)
+    const backupsPath = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    rmSync(backupsPath, { recursive: true, force: true });
+    writeFileSync(backupsPath, 'blocked');
+    const rolled = await h.ops.rollback(applied.opId, true);
+    // fail-closed: bytes exist but could not be preserved → DO NOT delete
+    expect(existsSync(mcpPath)).toBe(true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(concurrent);
+    expect(rolled.ok).toBe(false); // honest signal: nothing was restored
+  });
+
+  it('[skill-set] enable matches exclusion entries in ANY spelling (-~, relative)', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-skallen-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(
+      path.join(agent, 'settings.json'),
+      JSON.stringify({ skills: [`-~/.agents/skills/code-review`, 'keep'] }, null, 2),
+    );
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: false });
+    const applied = await ops.apply(plan.planId, true);
+    expect(applied).toMatchObject({ ok: true, verified: true });
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual(['keep']); // the -~ spelling is REMOVED, not just -<abs>
+  });
+});
+
+describe('ResourceOps — round 5 (P1 matcher vs includes, ENOENT pin)', () => {
+  it('[P1] disable ADDS the exclusion even when an include entry names the same skill', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-p1dis-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ skills: [`+${skillDir}`] }, null, 2));
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: true });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    // the include must NOT suppress the exclusion, and both must survive
+    expect(after.skills).toContain(`-${skillDir}`);
+    expect(after.skills).toContain(`+${skillDir}`);
+    expect(applied.verified).toBe(true); // verified only because the exclusion REALLY landed
+  });
+
+  it('[P1] enable removes ONLY the exclusion — include declarations stay', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-p1en-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(
+      path.join(agent, 'settings.json'),
+      JSON.stringify({ skills: [`+${skillDir}`, `-${skillDir}`, 'keep'] }, null, 2),
+    );
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: false });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual([`+${skillDir}`, 'keep']); // include PRESERVED, exclusion gone
+    expect(applied.verified).toBe(true);
+  });
+
+  it('[pin] rollback of a plan whose file never existed and never appeared: ok:false, no crash', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'ghost', url: 'https://g.invalid/mcp' });
+    expect(plan.backupId).toBeNull();
+    h.setSpawn(() => ({ code: 1, stdout: '', stderr: 'cli failed, file untouched' })); // no file created
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(false);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(false); // ENOENT path: nothing restored, nothing deleted, no throw
+    expect(existsSync(mcpPath)).toBe(false);
+  });
+});
+
+describe('ResourceOps — round 6 notes (NEW-3 pin, NEW-4 pins)', () => {
+  it('[NEW-3] an expired plan reports the DISTINCT "plan expired" message, not "unknown"', async () => {
+    let clock = 1_700_000_000_000;
+    const h = harness(undefined, { now: () => clock });
+    const { plan } = await h.ops.preview({ kind: 'package-install', source: 'npm:ttl' });
+    clock += 6 * 60_000;
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: expect.stringContaining('plan expired'),
+    });
+  });
+
+  it('[NEW-4a] disable never duplicates an existing exclusion written in another spelling', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-nodup-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ skills: ['-~/.agents/skills/code-review'] }, null, 2));
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: true });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual(['-~/.agents/skills/code-review']); // NO duplicate appended
+    expect(applied.verified).toBe(true);
+  });
+
+  it('[NEW-4b] a PLAIN (prefix-less) include behaves exactly like `+path`', async () => {
+    const home2 = mkdtempSync(path.join(os.tmpdir(), 'piwsd-plain-'));
+    homes.push(home2);
+    const agent = path.join(home2, '.pi', 'agent');
+    mkdirSync(agent, { recursive: true });
+    const skillDir = path.join(home2, '.agents', 'skills', 'code-review');
+    writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ skills: [skillDir, `-${skillDir}`] }, null, 2));
+    const ops = new ResourceOps({ home: home2, agentDir: agent, now: () => Date.now(), spawnFn: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    // enable removes ONLY the exclusion; the plain include survives untouched
+    const { plan } = await ops.preview({ kind: 'skill-set', source: skillDir, disable: false });
+    const applied = await ops.apply(plan.planId, true);
+    const after = JSON.parse(readFileSync(path.join(agent, 'settings.json'), 'utf8')) as { skills: string[] };
+    expect(after.skills).toEqual([skillDir]);
+    expect(applied.verified).toBe(true);
+  });
+});
+
+describe('ResourceOps — round 7 (P1: rollback must not destroy foreign writes; apply fail-closed without a fresh snapshot)', () => {
+  it('[P1-R1] rollback NEVER clobbers bytes written by another process after apply — honest conflict instead', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alpha: { url: 'https://a.invalid' } } })); // state A
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'beta', url: 'https://b.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true); // file now B (apply output)
+    // an UNRELATED process appends its own server AFTER our apply
+    const foreign = JSON.stringify({
+      mcpServers: {
+        alpha: { url: 'https://a.invalid' },
+        beta: { url: 'https://placeholder' },
+        gamma: { url: 'https://g.invalid' },
+      },
+    });
+    writeFileSync(mcpPath, foreign); // state C — foreign bytes
+    const rolled = await h.ops.rollback(applied.opId, true);
+    // the foreign bytes MUST survive in place; the rollback reports a conflict
+    expect(readFileSync(mcpPath, 'utf8')).toBe(foreign);
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    expect(rolled.restored).not.toContain(mcpPath);
+  });
+
+  it('[P1-R1b] the standard case keeps byte-exact rollback: unchanged post-apply bytes restore cleanly', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: {} });
+    writeFileSync(mcpPath, original);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'clean', url: 'https://c.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled).toMatchObject({ ok: true, conflicts: [] });
+    expect(readFileSync(mcpPath, 'utf8')).toBe(original); // byte-exact
+    expect(rolled.restored).toEqual([mcpPath]);
+  });
+
+  const blockBackups = (agentDir: string): void => {
+    // replace the backups DIRECTORY with a FILE so mkdir+copyFile must fail
+    const backupsPath = path.join(agentDir, 'pi-ws-desktop-backups');
+    rmSync(backupsPath, { recursive: true, force: true });
+    writeFileSync(backupsPath, 'blocked');
+  };
+
+  it('[P1-R2a] a FAILED refresh snapshot with a preview-era backup aborts apply — zero CLI calls, file untouched', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} })); // exists at preview (backupPath set)
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'nosnap', url: 'https://n.invalid/mcp' });
+    expect(plan.backupId).toBeTruthy();
+    // another client rewrites the file, THEN the snapshot area breaks
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alien: { url: 'https://x.invalid' } } }));
+    const alienBytes = readFileSync(mcpPath, 'utf8');
+    blockBackups(h.ops.agentDir);
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // fail-closed: the write NEVER ran
+    expect(readFileSync(mcpPath, 'utf8')).toBe(alienBytes); // alien bytes untouched
+  });
+
+  it('[P1-R2b] a file that FIRST APPEARS after preview is never overwritten when its snapshot fails', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'latep', url: 'https://l.invalid/mcp' });
+    expect(plan.backupId).toBeNull(); // absent at preview
+    const userBytes = JSON.stringify({ mcpServers: { userbox: { url: 'https://user.invalid' } } });
+    writeFileSync(mcpPath, userBytes); // the user's CLI created it during the TTL
+    blockBackups(h.ops.agentDir);
+    await expect(h.ops.apply(plan.planId, true)).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(h.calls).toHaveLength(0); // not a single CLI invocation
+    expect(readFileSync(mcpPath, 'utf8')).toBe(userBytes); // user bytes survive
+  });
+});
+
+describe('ResourceOps — round 8 (delta F1: write→anchor window + lossless overwrite)', () => {
+  it('[F1-R1] a user edit landing during a FAILED spawn is a rollback conflict — never silently reverted', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: {} });
+    writeFileSync(mcpPath, original);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'f1x', url: 'https://f.invalid/mcp' });
+    h.setSpawn((argv) => {
+      if (argv[0] === 'mcp') {
+        // the CLI fails AND the user edits the file while it runs
+        writeFileSync(
+          mcpPath,
+          JSON.stringify({ mcpServers: { userbox: { url: 'https://user.invalid' } } }),
+        );
+      }
+      return { code: 1, stdout: '', stderr: 'pi failed halfway' };
+    });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(false);
+    const userBytes = readFileSync(mcpPath, 'utf8');
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(userBytes); // user's edit survives untouched
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    expect(rolled.restored).not.toContain(mcpPath);
+  });
+
+  it('[F1-R2] rollback snapshots current bytes (.prerestore) BEFORE any overwrite — lossless by construction', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: {} });
+    writeFileSync(mcpPath, original);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'f1p', url: 'https://p.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    const beforeRestore = readFileSync(mcpPath, 'utf8'); // post-apply bytes being replaced
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(original); // byte-exact restore kept
+    const backups = readdirSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups'));
+    const pre = backups.find((b) => b.includes('prerestore'));
+    expect(pre).toBeTruthy(); // the replaced bytes are preserved losslessly
+    expect(readFileSync(path.join(h.ops.agentDir, 'pi-ws-desktop-backups', pre as string), 'utf8')).toBe(beforeRestore);
+  });
+});
+
+describe('ResourceOps — round 9 (coordinator 6292768772: N1 pre-anchor binding, N2 pin, N5 backups lifecycle)', () => {
+  it('[N1] a write landing BETWEEN the snapshot gate and the pre-anchor is a rollback conflict', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} })); // state A
+    const foreign = JSON.stringify({ mcpServers: { alien: { url: 'https://x.invalid' } } });
+    // <agentDir> = <home>/.pi/agent → home is two levels up (platform-safe)
+    const opsWithHook = new ResourceOps({
+      home: path.dirname(path.dirname(h.ops.agentDir)),
+      agentDir: h.ops.agentDir,
+      now: () => Date.now(),
+      spawnFn: async () => ({ code: 1, stdout: '', stderr: 'spawn failed' }),
+      gateHook: () => writeFileSync(mcpPath, foreign), // racer in the gate→anchor window
+    });
+    const { plan } = await opsWithHook.preview({ kind: 'mcp-add', source: 'n1x', url: 'https://n.invalid/mcp' });
+    const applied = await opsWithHook.apply(plan.planId, true);
+    expect(applied.ok).toBe(false);
+    const rolled = await opsWithHook.rollback(applied.opId, true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(foreign); // gate-time snapshot ≠ foreign write → CONFLICT, bytes kept
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+  });
+
+  it('[N2 pin] a rollback whose .prerestore snapshot fails touches NOTHING and reports ok:false + conflicts', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'n2x', url: 'https://n2.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    expect(applied.ok).toBe(true);
+    const postApply = readFileSync(mcpPath, 'utf8');
+    // BLOCK the backup area with a plain file → mkdir/prerestore must fail
+    const backupsPath = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const moved = `${backupsPath}-moved`;
+    renameSync(backupsPath, moved);
+    writeFileSync(backupsPath, 'blocked');
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(readFileSync(mcpPath, 'utf8')).toBe(postApply); // byte-for-byte untouched
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    rmSync(backupsPath);
+    renameSync(moved, backupsPath);
+  });
+
+  it('[N5] backups dir and snapshot files are owner-only where supported', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    await h.ops.preview({ kind: 'mcp-add', source: 'perm', url: 'https://perm.invalid/mcp' });
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    expect(existsSync(backupsDir)).toBe(true);
+    if (process.platform !== 'win32') {
+      expect(statSync(backupsDir).mode & 0o777).toBe(0o700); // owner-only dir
+      const files = readdirSync(backupsDir);
+      expect(files.length).toBeGreaterThan(0);
+      for (const f of files) expect(statSync(path.join(backupsDir, f)).mode & 0o777).toBe(0o600); // owner-only files
+    }
+  });
+
+  it('[N5] pruning removes ONLY old unreferenced snapshots — referenced, recent and user files stay', async () => {
+    const h = harness(undefined, { now: () => Date.now() });
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    const userSettings = path.join(h.ops.agentDir, 'settings.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }));
+    const originalSha = sha(mcpPath);
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'pr', url: 'https://pr.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const old = path.join(backupsDir, 'orphan-old.snapshot');
+    const recent = path.join(backupsDir, 'orphan-recent.snapshot');
+    writeFileSync(old, 'x');
+    writeFileSync(recent, 'y');
+    const past = new Date(Date.now() - 30 * 24 * 3600_000);
+    utimesSync(old, past, past);
+    // prune entry point: another preview triggers cleanup
+    await h.ops.preview({ kind: 'mcp-add', source: 'pr2', url: 'https://pr2.invalid/mcp' });
+    expect(existsSync(old)).toBe(false); // 30 days old + unreferenced → pruned
+    expect(existsSync(recent)).toBe(true); // recent orphan kept
+    // the referenced snapshot of the APPLIED op must survive: rollback
+    // restores from it, so a prune that ate it would have failed here
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(true);
+    // byte-exact restore proves the referenced snapshot was NOT pruned
+    expect(sha(mcpPath)).toBe(originalSha);
+    expect(existsSync(userSettings)).toBe(true); // real user files untouched
+  });
+
+  it('[N5] a CONFLICTED rollback keeps its restore point alive (record retained, backups protected)', async () => {
+    const h = harness();
+    const mcpPath = path.join(h.ops.agentDir, 'mcp.json');
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alpha: { url: 'https://a.invalid' } } }));
+    const { plan } = await h.ops.preview({ kind: 'mcp-add', source: 'conf', url: 'https://cf.invalid/mcp' });
+    const applied = await h.ops.apply(plan.planId, true);
+    writeFileSync(mcpPath, JSON.stringify({ mcpServers: { alpha: { url: 'https://a.invalid' }, gamma: { url: 'https://g.invalid' } } })); // foreign
+    const rolled = await h.ops.rollback(applied.opId, true);
+    expect(rolled.ok).toBe(false);
+    expect(rolled.conflicts).toContain(mcpPath);
+    // the op record must SURVIVE so its backup stays referenced/proprotected
+    expect(h.ops.stats().applied).toBe(1);
+    // a later prune must NOT delete anything the conflicted rollback still needs
+    const backupsDir = path.join(h.ops.agentDir, 'pi-ws-desktop-backups');
+    const afterConflict = new Set(readdirSync(backupsDir));
+    await h.ops.preview({ kind: 'mcp-add', source: 'conf2', url: 'https://c2.invalid/mcp' }); // prune entry point
+    const afterPrune = new Set(readdirSync(backupsDir)); // superset: conf2 preview adds its own snapshot
+    for (const f of afterConflict) expect(afterPrune.has(f)).toBe(true); // restore point intact, referenced → skipped
+  });
+});

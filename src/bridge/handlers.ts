@@ -14,6 +14,8 @@
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { constants as fsConstants, promises as fsp } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import { ALL_METHODS, PROTOCOL_VERSION } from '../shared/protocol';
 import { BridgeError } from '../shared/errors';
 import {
@@ -32,11 +34,27 @@ import {
   SendPromptParamsSchema,
   SubscribeParamsSchema,
 } from '../shared/m1Protocol';
+import {
+  ApplyResourceOpParamsSchema,
+  ApplyResourceOpResultSchema,
+  ListMcpServersResultSchema,
+  ListPackagesResultSchema,
+  ListSkillsResultSchema,
+  PreviewResourceOpParamsSchema,
+  PreviewResourceOpResultSchema,
+  RollbackResourceOpParamsSchema,
+  RollbackResourceOpResultSchema,
+} from '../shared/m2Protocol';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
-import { buildSessionIndex, nodeFs, resolveSessionRoots } from './sessions';
+import { buildSessionIndex, inodeMatches, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
 import { searchSessions } from './search';
 import { ChatSessionManager } from './chatSession';
+import { loadAgentConfig, type AgentConfig } from './resources/agentConfig';
+import { discoverMcp } from './resources/mcp';
+import { ResourceOps } from './resources/ops';
+import { discoverPackages } from './resources/packages';
+import { discoverSkills } from './resources/skills';
 import type { RpcProcess } from './piRpcClient';
 import type { ZodType } from 'zod';
 
@@ -132,17 +150,84 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
   const index = (): ReturnType<typeof buildSessionIndex> =>
     buildSessionIndex({ fs: nodeFs, env: ctx.env, home: ctx.home, now: now() });
 
-  /** Review round 3 (#4, defense-in-depth): session paths must stay inside the resolved session roots. */
-  const assertInsideRoots = async (file: string): Promise<void> => {
-    const { roots } = await resolveSessionRoots({ fs: nodeFs, env: ctx.env, home: ctx.home });
-    const resolved = path.posix.resolve(file);
-    const inside = roots.some((root) => {
-      // Normalize BOTH sides (review round 4): env/settings roots may carry
-      // redundant separators or dot-segments and must not reject legit files.
-      const r = path.posix.resolve(root.endsWith('/') ? root.slice(0, -1) : root);
-      return resolved === r || resolved.startsWith(`${r}/`);
+  /* --------------------------- M2 resource manager -------------------------- */
+  // Isolated resource home/cwd (tests + E2E override; production falls back
+  // to the bridge's real HOME/cwd). Read-only config loads are cached for
+  // the bridge lifetime; ops run the documented Pi CLI, never raw writes.
+  const resourceHome = ctx.env.PI_WS_DESKTOP_AGENT_HOME ?? ctx.home;
+  const resourceCwd = ctx.env.PI_WS_DESKTOP_AGENT_CWD ?? process.cwd();
+  const resourceAgentDir = path.posix.join(resourceHome, '.pi', 'agent');
+  let cfgCache: Promise<AgentConfig> | null = null;
+  const resourceCfg = (): Promise<AgentConfig> =>
+    (cfgCache ??= loadAgentConfig({ fs: nodeFs, home: resourceHome, cwd: resourceCwd }));
+  const resolveCli = async (): Promise<string> => {
+    const explicit = ctx.env.PI_WS_DESKTOP_RESOURCE_CLI ?? ctx.env.PI_WS_DESKTOP_PI;
+    if (explicit) return explicit;
+    const local = path.posix.join(resourceHome, '.local', 'bin', 'pi');
+    try {
+      await fsp.stat(local);
+      return local;
+    } catch {
+      return 'pi'; // PATH lookup (same fallback the probe uses)
+    }
+  };
+  let opsCache: ResourceOps | null = null;
+  const resourceOps = async (): Promise<ResourceOps> => {
+    if (opsCache) return opsCache;
+    const cfg = await resourceCfg();
+    opsCache = new ResourceOps({
+      home: resourceHome,
+      agentDir: resourceAgentDir,
+      projectPiDir: cfg.projectTrusted ? path.posix.join(cfg.projectRoot, '.pi') : undefined,
+      cliPath: await resolveCli(),
     });
-    if (!inside) throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+    return opsCache;
+  };
+
+  /** A component-safe containment check ("/root" must not match "/root-other"). */
+  const inside = (root: string, target: string): boolean => {
+    const relative = path.posix.relative(root, target);
+    return relative === '' || (relative !== '..' && !relative.startsWith('../') && !path.posix.isAbsolute(relative));
+  };
+
+  /**
+   * Validate the *opened inode*, not merely a pathname that might be a
+   * symlink. WSL/Linux /proc/self/fd keeps the target stable while a renderer
+   * read is in progress, even if a directory entry is retargeted afterward.
+   * Do not read bytes or start Pi until its canonical location is trusted.
+   */
+  const openInsideRoots = async (file: string): Promise<{ handle: FileHandle; canonical: string } | null> => {
+    const { roots } = await resolveSessionRoots({ fs: nodeFs, env: ctx.env, home: ctx.home });
+    const requested = path.posix.resolve(file);
+    if (!roots.some((root) => inside(path.posix.resolve(root), requested))) {
+      throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+    }
+
+    let handle: FileHandle;
+    try {
+      // NONBLOCK avoids a hang if an untrusted directory contains a FIFO.
+      handle = await fsp.open(file, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new BridgeError('SESSION_NOT_FOUND', 'Session file could not be opened');
+    }
+
+    try {
+      if (!(await handle.stat()).isFile()) {
+        throw new BridgeError('INVALID_REQUEST', 'session path is not a regular file');
+      }
+      const canonical = await fsp.realpath(`/proc/self/fd/${handle.fd}`);
+      const canonicalRoots = await Promise.all(roots.map((root) => fsp.realpath(root)));
+      if (!canonicalRoots.some((root) => inside(root, canonical))) {
+        throw new BridgeError('INVALID_REQUEST', 'file is outside the session roots');
+      }
+      return { handle, canonical };
+    } catch (error) {
+      await handle.close().catch(() => undefined); // R1d: never mask the original error
+      if (error instanceof BridgeError) throw error;
+      // Cannot prove the inode's origin: fail closed.
+      throw new BridgeError('INVALID_REQUEST', 'session path could not be verified');
+    }
   };
 
   const handlers: Record<string, Handler> = {
@@ -198,9 +283,36 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     readSession: async (params) => {
       const p = parseParams(ReadSessionParamsSchema, params, 'readSession');
-      await assertInsideRoots(p.file);
-      const result = await readSessionFile({ fs: nodeFs, ...p });
-      return assertOut(ReadSessionResultSchema, result, 'readSession');
+      const opened = await openInsideRoots(p.file);
+      if (!opened) {
+        // The pathname disappeared before it could be opened. Never retry
+        // the unchecked path: it could be retargeted to an outside file.
+        return assertOut(ReadSessionResultSchema, {
+          header: null, entries: [], leafId: null, nextCursor: null,
+          truncated: false, partialTrailing: false, diagnostics: [],
+          availability: 'unreadable' as const,
+        }, 'readSession');
+      }
+      try {
+        // All reads use a single validated descriptor. Never re-open the
+        // original user-controlled symlink between JSONL chunks.
+        const pinnedFs: FsLike = {
+          ...nodeFs,
+          async stat() {
+            const s = await opened.handle.stat();
+            return { size: s.size, mtimeMs: s.mtimeMs };
+          },
+          async readRange(_file, offset, length) {
+            const buf = Buffer.alloc(length);
+            const { bytesRead } = await opened.handle.read(buf, 0, length, offset);
+            return Buffer.from(buf.subarray(0, bytesRead));
+          },
+        };
+        const result = await readSessionFile({ fs: pinnedFs, ...p, file: opened.canonical });
+        return assertOut(ReadSessionResultSchema, result, 'readSession');
+      } finally {
+        await opened.handle.close().catch(() => undefined); // R1d: keep the original error
+      }
     },
     searchSessions: async (params) => {
       const p = parseParams(SearchParamsSchema, params, 'searchSessions');
@@ -224,9 +336,24 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     openSession: async (params) => {
       const { file } = parseParams(OpenSessionParamsSchema, params, 'openSession');
-      await assertInsideRoots(file);
-      const state = await getChat().open(file);
-      return assertOut(OpenSessionResultSchema, { state }, 'openSession');
+      const opened = await openInsideRoots(file);
+      if (!opened) throw new BridgeError('SESSION_NOT_FOUND', 'Session file not found');
+      try {
+        // Canonicalization removed the symlinks that existed AT validation;
+        // the dev/ino recheck below additionally catches a rename/symlink swap
+        // between validation and spawn (maps to SESSION_CONFLICT). Full
+        // atomicity is impossible with path-based `pi --session` — the
+        // residual microsecond TOCTOU is documented in the PR/ROADMAP risk
+        // list and requires write access to the session directory anyway.
+        if (!(await inodeMatches(opened.handle, opened.canonical))) {
+          throw new BridgeError('SESSION_CONFLICT', 'session file changed on disk before opening');
+        }
+        // Pi owns writes through official RPC, not through this handle.
+        const state = await getChat().open(opened.canonical);
+        return assertOut(OpenSessionResultSchema, { state }, 'openSession');
+      } finally {
+        await opened.handle.close().catch(() => undefined); // R1d: keep the original error
+      }
     },
     sendPrompt: async (params) => {
       const p = parseParams(SendPromptParamsSchema, params, 'sendPrompt');
@@ -238,6 +365,63 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     closeSession: async () => {
       await getChat().close();
       return assertOut(CloseSessionResultSchema, { closed: true }, 'closeSession');
+    },
+
+    /* --------------------------- M2 resource manager ------------------------ */
+    listSkills: async () => {
+      const cfg = await resourceCfg();
+      const pkgs = await discoverPackages({ fs: nodeFs, cfg });
+      const r = await discoverSkills({ fs: nodeFs, cfg, packageDirs: pkgs.packageDirs });
+      return assertOut(ListSkillsResultSchema, { skills: r.skills, diagnostics: r.diagnostics.slice(0, 50) }, 'listSkills');
+    },
+    listPackages: async () => {
+      const cfg = await resourceCfg();
+      const r = await discoverPackages({ fs: nodeFs, cfg });
+      return assertOut(
+        ListPackagesResultSchema,
+        {
+          packages: r.packages,
+          builtins: r.builtins,
+          settingsExtensions: r.settingsExtensions.slice(0, 200),
+          diagnostics: r.diagnostics.slice(0, 50),
+        },
+        'listPackages',
+      );
+    },
+    listMcpServers: async () => {
+      const cfg = await resourceCfg();
+      const r = await discoverMcp({ fs: nodeFs, cfg });
+      return assertOut(
+        ListMcpServersResultSchema,
+        { servers: r.servers, builtinEnabled: r.builtinEnabled, logDiagnostics: r.logDiagnostics, diagnostics: r.diagnostics.slice(0, 50) },
+        'listMcpServers',
+      );
+    },
+    previewResourceOp: async (params) => {
+      const p = parseParams(PreviewResourceOpParamsSchema, params, 'previewResourceOp');
+      const { plan } = await (await resourceOps()).preview(p);
+      return assertOut(PreviewResourceOpResultSchema, { plan }, 'previewResourceOp');
+    },
+    applyResourceOp: async (params) => {
+      const p = parseParams(ApplyResourceOpParamsSchema, params, 'applyResourceOp');
+      const ops = await resourceOps();
+      try {
+        return assertOut(ApplyResourceOpResultSchema, await ops.apply(p.planId, p.confirm), 'applyResourceOp');
+      } finally {
+        // Any attempt may have rewritten settings/mcp.json — drop the cached
+        // config so the next inventory read reflects the new state (the E2E
+        // write cycle caught stale `excluded` badges without this).
+        cfgCache = null;
+      }
+    },
+    rollbackResourceOp: async (params) => {
+      const p = parseParams(RollbackResourceOpParamsSchema, params, 'rollbackResourceOp');
+      const ops = await resourceOps();
+      try {
+        return assertOut(RollbackResourceOpResultSchema, await ops.rollback(p.opId, p.confirm), 'rollbackResourceOp');
+      } finally {
+        cfgCache = null; // restored bytes change the inventory too
+      }
     },
   };
 

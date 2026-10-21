@@ -19,7 +19,8 @@
  *   may be appending right now); the bridge turns it into SESSION_CONFLICT
  *   instead of risking concurrent modification.
  */
-import { promises as fsp } from 'node:fs';
+import { constants as fsConstants, promises as fsp } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import type { ProjectInfoT, SessionInfoT } from '../shared/m1Protocol';
 
@@ -44,6 +45,23 @@ export interface FsLike {
 const HEADER_MAX = 64 * 1024;
 
 /** Real fs adapter (POSIX semantics — the bridge runs inside WSL). */
+/**
+ * R1a (M2 security review): true while `p` still resolves to the SAME inode
+ * the validated handle has open (dev+ino). Catches rename/symlink swaps
+ * between validation and Pi spawn. This NARROWS the residual path-TOCTOU of
+ * `pi --session <path>` — it cannot make a path-based open atomic; the
+ * remaining microsecond window is documented as a residual risk.
+ * A path that vanished or cannot be stat'ed counts as changed (fail closed).
+ */
+export async function inodeMatches(handle: FileHandle, p: string): Promise<boolean> {
+  try {
+    const [fresh, opened] = await Promise.all([fsp.stat(p), handle.stat()]);
+    return fresh.dev === opened.dev && fresh.ino === opened.ino;
+  } catch {
+    return false;
+  }
+}
+
 export const nodeFs: FsLike = {
   async readdir(dir) {
     const items = await fsp.readdir(dir, { withFileTypes: true });
@@ -54,7 +72,9 @@ export const nodeFs: FsLike = {
     return { size: s.size, mtimeMs: s.mtimeMs };
   },
   async readHead(p, maxBytes) {
-    const fh = await fsp.open(p, 'r');
+    // O_NONBLOCK (R1c): a FIFO swapped in for this path must not hang the
+    // libuv threadpool (AGENTS §3.7 — no unbounded blocking IO).
+    const fh = await fsp.open(p, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
     try {
       const buf = Buffer.alloc(maxBytes);
       const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
@@ -64,19 +84,29 @@ export const nodeFs: FsLike = {
     }
   },
   async readTail(p, maxBytes) {
-    const s = await fsp.stat(p);
-    const offset = Math.max(0, s.size - maxBytes);
-    const fh = await fsp.open(p, 'r');
+    const fh = await fsp.open(p, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK); // R1c: no FIFO hang
     try {
-      const buf = Buffer.alloc(Math.min(maxBytes, s.size));
-      const { bytesRead } = await fh.read(buf, 0, buf.length, offset);
-      return buf.subarray(0, bytesRead).toString('utf8');
+      // Stat the opened file, not the pathname: concurrent renames should not
+      // make the tail window refer to metadata from a different inode.
+      const { size } = await fh.stat();
+      const length = Math.min(Math.max(0, maxBytes), size);
+      const offset = Math.max(0, size - length);
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await fh.read(buf, 0, length, offset);
+      // An arbitrary byte offset may start in the middle of a UTF-8 code
+      // point. Only drop incomplete LEADING continuation bytes; keep all
+      // other bytes untouched and do not alter the original session file.
+      let first = 0;
+      if (offset > 0) {
+        while (first < bytesRead && (buf[first] & 0xc0) === 0x80) first += 1;
+      }
+      return buf.subarray(first, bytesRead).toString('utf8');
     } finally {
       await fh.close();
     }
   },
   async readRange(p, offset, length) {
-    const fh = await fsp.open(p, 'r');
+    const fh = await fsp.open(p, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK); // R1c: no FIFO hang
     try {
       const buf = Buffer.alloc(length);
       const { bytesRead } = await fh.read(buf, 0, length, offset);

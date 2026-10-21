@@ -28,3 +28,14 @@ export type {
   RpcStateT,
   ChatEventT,
 } from '../shared/m1Protocol';
+
+/* M2 Pi Resource Manager — shared contract types (type-only, no zod runtime). */
+export type {
+  SkillInfoT,
+  SkillSourceT,
+  PackageInfoT,
+  BuiltinInfoT,
+  McpServerInfoT,
+  ResourceOpPlanT,
+  ResourceOpKindT,
+} from '../shared/m2Protocol';

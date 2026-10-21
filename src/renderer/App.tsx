@@ -101,7 +101,11 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         ))}
       </nav>
       {activeModuleTab ? (
-        <ModuleTabView tab={activeModuleTab} onDisable={(id) => toggleModule(id, false)} />
+        <ModuleTabView
+          key={activeModuleTab.tabKey}
+          tab={activeModuleTab}
+          onDisable={(id) => toggleModule(id, false)}
+        />
       ) : view === 'status' ? (
         <StatusPanel
           snapshot={snapshot}

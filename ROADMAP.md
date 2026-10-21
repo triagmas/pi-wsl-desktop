@@ -157,8 +157,8 @@
 
 **Issue [#14](https://github.com/triagmas/pi-wsl-desktop/issues/14)** · ветка `docs/compact-agents-project-skills-r01`. После обсуждения 2026-10-21 стартовал независимый **документационный пакет**: короткий `AGENTS.md`, четыре on-demand проектных Skills (`status`, `development`, `safety`, `review`) и согласованная политика thinking `off / low / medium / high`. **Готовность не засчитывать до проверки PR и явного решения владельца.**
 
-- [ ] Проверить правила и frontmatter четырёх Skills, ссылки, CI и фактическое обнаружение Pi в каноническом F: checkout.
-- [ ] Сверить отсутствие изменения Pi settings, subagents, сессий, продуктового кода и M3 ветки.
+- [ ] Проверить правила и frontmatter четырёх Skills, ссылки, CI и фактическое обнаружение Pi в каноническом F: checkout. — *приёмка R01: frontmatter **4/4**; Pi **1.3.0** discovery **4/4** при project trust (`--approve`), **0/4** без доверия (корректный security-gate: `.pi/skills` — защищённый ресурс, в `trust.json` решения по репозиторию нет); конфликтов имён с глобальными Skills нет; якоря исправлены и закреплены контракт-тестом `tests/unit/docsContract.test.ts` (Repository Contract режет ссылку по `#` и якоря не проверял — это маскировало дефект); CI на HEAD `d6592b2` — SUCCESS (Linux+Windows).*
+- [ ] Сверить отсутствие изменения Pi settings, subagents, сессий, продуктового кода и M3 ветки. — *подтверждено: дельта PR — только Markdown + один тест (`tests/unit/docsContract.test.ts`), в `src/` правок нет; `main` = `6107f959`, PR #11 / ветка `feat/m3-module-system-r01` = `d10a57c` (нетронуты); `settings.json` и `trust.json` byte-identical (md5+inode+mtime) после всех Pi-вызовов, новых сессий не создано (`--no-session`).*
 - [ ] Независимый review, `ACCEPT`, отдельное разрешение владельца на merge.
 - **За рамками пакета:** event-driven automation и визуальный dashboard — следующие обсуждённые этапы, ещё не реализованы.
 - **Без ложного зачёта:** реальные prompts/model calls и user `~/.pi` writes не запускались; эффективность в токенах `NOT MEASURED`.

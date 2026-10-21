@@ -119,8 +119,12 @@ describe('AGENTS.md + project Skills docs contract (Issue #14)', () => {
 
     // Nested reference files only on request; new/changed skills always re-read.
     expect(
-      hasLineWith(agents, [/reference/i, /(требован|перечит)/i]),
-      'AGENTS.md lost the rule: read reference files on demand, always re-read changed skills',
+      hasLineWith(agents, [/reference/i, /требован/i]),
+      'AGENTS.md lost the rule: read nested reference files only on demand',
+    ).toBe(true);
+    expect(
+      hasLineWith(agents, [/перечит/i, /изменённ/i]),
+      'AGENTS.md lost the rule: always re-read new or changed skills',
     ).toBe(true);
   });
 

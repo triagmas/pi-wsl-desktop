@@ -3,7 +3,7 @@
 > **Простой Windows-интерфейс для настоящего Pi, работающего внутри WSL.**  
 > Чаты, проекты, сессии, Skills, Extensions и MCP — в одном окне, без второй установки Pi и дублирования конфигурации.
 
-**Статус документа:** Product Contract v0.1 · продукт M0/M1 принят, M2 готовится; текущие отметки только в [ROADMAP.md](ROADMAP.md)  
+**Статус документа:** Product Contract v0.1 · M0/M1/M2 приняты (PR #4/#6/#8), процессный PR #15 принят; M3 в Draft (PR #11, не весь этап), M4 [запланирован](https://github.com/triagmas/pi-wsl-desktop/issues/16); фактический прогресс — в [ROADMAP.md](ROADMAP.md). Визуальный [Dashboard](https://github.com/triagmas/pi-wsl-desktop/issues/17) отложен до полного релиза 1.0 и не входит в продуктовый scope M3/M4.  
 **Платформа:** Windows 11 + WSL2 (Ubuntu — первая целевая среда)  
 **Лицензия собственного кода:** MIT  
 **Документы:** [Техническая спецификация](SPECIFICATION.md) · [Живая дорожная карта](ROADMAP.md) · [Правила Pi](AGENTS.md) · [Экономия токенов при разработке](docs/TOKEN_EFFICIENCY.md)

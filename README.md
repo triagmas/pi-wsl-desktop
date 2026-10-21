@@ -4,7 +4,7 @@
 >
 > Одно окно для проектов, чатов, сессий, Skills, Extensions и MCP. Без собственной реализации Pi, копирования сессий или второй конфигурации.
 
-**Текущий статус:** M0 принят — [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged (`1c24cf23`); M1 Sessions & Chat принят — [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) merged (`6b3b9c03`); M2 Pi Manager готовится — [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) · `v0.1` · фактический прогресс в [ROADMAP.md](ROADMAP.md).
+**Текущий статус (2026-10-22):** M0 [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4), M1 [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6), M2 [PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8) и процессный пакет компактных AGENTS + Skills [PR #15](https://github.com/triagmas/pi-wsl-desktop/pull/15) — **приняты и слиты**. M3 — только первый пакет в Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) (весь этап не принят); M4 Desktop 1.0 — [запланирован](https://github.com/triagmas/pi-wsl-desktop/issues/16). Визуальный [Dashboard](https://github.com/triagmas/pi-wsl-desktop/issues/17) — **только после релиза 1.0**. Доказательства и актуальный статус — в [ROADMAP.md](ROADMAP.md).
 
 ## Документация
 

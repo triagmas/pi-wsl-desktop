@@ -1,67 +1,78 @@
-# M2 Remaining Acceptance Gates — Implementation Plan
+# Pi Thinking Task Routing — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Preserve TDD, independent review, and owner-controlled merges.
 
-**Goal:** Close the three still-open M2 conditional gates with real, isolated Pi runtime evidence, controlled token-cost comparison, and explicitly approved thinking-setting verification.
+**Goal:** Route actual Pi development work to **off / low / medium / high** by task type. Preserve MiMo 2.6 Flash **high** for code-writing, TDD, architecture and security; save effort on deterministic and light tasks.
 
-**Architecture:** Keep the functional M3 Module System work in [Draft PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) separate. This scope is a bounded test/acceptance package: use existing WSL bridge and Pi RPC/SDK with a disposable session root, compile local private measurement records, and update the M2 ROADMAP after accepted evidence. Do not depend on proprietary model/provider identifiers in GitHub.
+**Architecture:** Explicit task classification at orchestration/dispatch boundaries, using Pi 1.3.0's *real* CLI/RPC/subagent controls rather than assuming `AGENTS.md` changes runtime settings. Keep project policy compact, and inspect requested/effective mapping without paid prompts. No new general orchestration framework.
 
-**Tech Stack:** Pi **installed version as measured** (M2 earlier found 1.3.0), WSL Ubuntu, Node.js/TypeScript, Vitest/Playwright, Electron, Pi RPC/SDK, GitHub Actions.
+**Tech Stack:** Pi CLI/RPC 1.3.0 (verify installed behavior), TypeScript, Vitest, existing process/subagent tooling, GitHub Actions.
 
-**Spec:** [Issue #12](https://github.com/triagmas/pi-wsl-desktop/issues/12), [ROADMAP M2](../../ROADMAP.md), [AGENTS.md](../../AGENTS.md), [TOKEN_EFFICIENCY](../TOKEN_EFFICIENCY.md).
+**Spec:** [Issue #12](https://github.com/triagmas/pi-wsl-desktop/issues/12), [AGENTS.md](../../../AGENTS.md), [docs/TOKEN_EFFICIENCY.md](../../TOKEN_EFFICIENCY.md).
 
-## Global Constraints
+## Global constraints
 
-- Canonical checkout **only** `F:\_hermes\CODE\pi-wsl-desktop` or WSL `/mnt/f/_hermes/CODE/pi-wsl-desktop`; preserve local edits, avoid second clone/worktrees or any C:/E: development copy.
-- Work in `test/m2-runtime-acceptance-r01`, sourced from merged M2 main SHA `6107f959`. No merge, no Draft removal before owner approval; one linked PR for Issue #12. Coordinate ROADMAP edits with concurrent M3 Draft #11.
-- No real-user Pi session mutation, no reading/copying/publishing `auth.json`, session content, private model identity or credentials. Testing uses a disposable Pi session store and tightly restricted environment.
-- **STOP-GATE 1:** Before **any** external provider/model-call, obtain explicit owner authorization with provider, count and spending cap. Never infer a budget.
-- **STOP-GATE 2:** Before touching real `~/.pi/agent/settings.json`, obtain a separate concrete approval of key/value, byte-exact private backup and rollback. No implicit provider/model switch.
-- Preserve applicable Skills, TDD RED→GREEN, full CI and native Windows+WSL smoke. Measure usage in private local outputs; public GitHub stores only sanitized aggregates and test pass/fail.
+- Only canonical worktree `F:\_hermes\CODE\pi-wsl-desktop` / `/mnt/f/_hermes/CODE/pi-wsl-desktop`; work in existing `test/m2-runtime-acceptance-r01` / [Draft PR #13](https://github.com/triagmas/pi-wsl-desktop/pull/13). Do not modify `main` or M3 PR #11.
+- No user settings/auth/session modification. No provider calls or charged benchmark without specific owner approval; last 7-call request was **NOT APPROVED**.
+- Session-level `/thinking`, CLI `--thinking`, and RPC commands may differ by version/provider. Do not conflate model metadata, requested level, effective state, model→provider mapping, cost, reasoning usage or prompt cache.
+- Do not assume `low/medium` unsupported from brief requests or cache effects. Existing `get_state` high readbacks are **observations**, requiring mapping diagnosis; never falsify tests.
+- TDD RED→GREEN, relevant Skills, full quality gates, independently reviewed code. Publish only sanitized routing metadata.
 
-## Review Focus
+## Desired routing matrix
 
-- A normal Pi process has its OS user's authority: changed `cwd` or `HOME` alone is not a sandbox. Enforce isolation or prove file permissions prevent reaching existing sessions.
-- Installed Pi may differ from current upstream docs. Use actual CLI help/settings and wire schema as authority; never guess command options.
-- Cache effects, provider retries and duplicate prompts can distort expense comparisons. Capture each separately.
-- A changed session-level `/thinking` does not prove a changed *default* for new sessions; verify both independently.
-- Cleanup may delete the last needed test/recovery artifact. Keep sample fixtures, hashes and any user config backup until rollback validated, then erase safely.
+| task_type | Work | model_role | target_thinking |
+|---|---|---|---|
+| `mechanical` | status/CI/Issue, bounded git queries, exact search, mechanical commands | PRIMARY | `off` |
+| `documentation` | short docs, reports, issue grooming, routine updates | PRIMARY | `low` |
+| `analysis` | plan/triage, noncritical bug localization, test selection | PRIMARY | `medium` |
+| `coding` | all source edits, TDD implementation, complex fixes, APIs/UI | CODING (MiMo 2.6 Flash preferred) | `high` |
+| `security` | architecture, concurrency, authentication, rollback/TOCTOU | CODING/qualified specialist | `high` |
+| `review` | independent acceptance of source-code changes | INDEPENDENT_REVIEW | `high` |
+
+When a subtask's risk increases, **escalate**; never lower `coding/security/review` to `off` for budget. Coding work may use planning (`medium`) first, but the worker that writes/reviews code receives `high`.
+
+## Review focus
+
+1. `get_state.thinkingLevel=high` after requesting low/medium could be model level-map or version/proxy behavior, **not evidence of prompt-cache-equivalent reasoning**. Investigate `get_available_thinking_levels` if supported, model definition/overrides and exact Pi 1.3.0 flags before claiming provider mapping.
+2. Two jobs in one inherited Pi process can retain the wrong level. Require an explicit level per independent job and readback where supported.
+3. A `mechanical` request unexpectedly modifies a code file. Reject/reclassify before any source write; reroute to coding/high.
+4. `review` cannot be completed by the original coder's own context. Require a genuinely independent reviewer/high.
+5. A cache hit can dominate cost measurement. Never infer cognitive equivalence or percentage savings from a short repeated prompt; collect usage passively during ordinary work, preserving cached-input statistics separately.
 
 ---
 
-### Task 1: Real Pi smoke harness (no external call until approval)
+### Task 1 — Contract and reproducible dispatch decisions
 
-**Files:** Prefer existing `scripts/m2-bridge-smoke.mjs` and `tests/integration/bridgeM1.test.ts` patterns; add a *focused new acceptance harness/test* only when necessary, not an all-purpose runner. Synthetic fixtures and metrics must not be committed.
+**Files:** change `AGENTS.md §5.1`, `docs/TOKEN_EFFICIENCY.md`; add focused route classification tests/implementation only if no existing Pi task-dispatch hook supports the requirement. Prefer an existing subagent/task hook over introducing infrastructure.
 
-- [ ] Step 1: inspect exact installed Pi version, supported `--session-dir`/RPC/SDK and provider readiness *without viewing secrets*. Create a freshly isolated test session path under the canonical F: workspace; validate no path points into real sessions. Save original real-user tree timestamps/hashes without reading session text.
-- [ ] Step 2: create focused RED safety tests for accidental real session path, absent consent and write reaching outside fixture; verify RED for deliberately invalid fixture configuration and GREEN when rejected correctly.
-- [ ] Step 3: run installed Pi RPC handshake and ordinary read-only session events (no model call). Obtain proof of synthetic session isolation; compile smoke on actual Windows+WSL.
-- [ ] Step 4: **STOP if no owner authorization for provider calls.** With a bounded permission, send one neutral, short prompt through actual Pi, verify completion events and new synthetic JSONL session write; assert original user files untouched and session written only at agreed test root.
-- [ ] Step 5: record PASS/FAIL/NOT RUN, prompt-count, anonymized usage, unexpected side effects, and provider billing status; clean temporary secrets/session data only after evidence is safely captured.
+- [ ] Write RED tests for task_types `mechanical/documentation/analysis/coding/security/review` mapping exactly to `off/low/medium/high/high/high`. Assert source-edit and security escalation cannot fall back to `off`.
+- [ ] Demonstrate RED (missing/misrouted level), then GREEN with minimal typed mapping or supported Pi extension configuration.
+- [ ] Show **how a caller passes an explicit requested level** to each task before dispatch; `AGENTS.md` alone does not switch the runtime.
+- [ ] Commit focused changes; run targeted tests.
 
-### Task 2: Controlled token-cost comparison
+### Task 2 — Installed Pi offline parity / mapping diagnosis
 
-**Files:** Follow `docs/TOKEN_EFFICIENCY.md`; add a non-secret acceptance worksheet (table or JSON fixture schema) if needed. Keep measured raw user data private.
+**Files:** preserve `tests/smoke/m2ThinkingParity.test.ts` where already useful; update comments and tests without inventing results. Do not change actual user models/settings.
 
-- [ ] Step 1: choose exactly three deterministic synthetic A/B/C tasks, success assertions and permitted thinking levels using installed Pi; preserve baseline/target task comparability.
-- [ ] Step 2: record pre-run usage and current model/effort with `/session` or equivalent **before each fresh session**.
-- [ ] Step 3: **STOP without owner-approved model call budget.** Run baseline and conservative candidate for each class (at least 6 bounded calls total if fully authorized). Do not claim savings from fewer tokens in one message if acceptance/retries increase.
-- [ ] Step 4: collect measured `input/output/cache_read/cache_write` where exposed, local reported `cost`, API count, attempts, acceptance, quality/test correctness; distinguish cache/warmup and possible subscription-versus-provider billing. Report `NOT MEASURED` fields for missing telemetry, never invent zeros.
-- [ ] Step 5: calculate cost per *accepted task*, differences and limitations; recommend per-class effort or maintain baseline if measurement does not support change.
+- [ ] Probe disposable Pi settings with requested `off, low, medium, high` separately; record requested level, Pi state readback, available levels (if RPC supports it), and whether a model-level mapping/override is present. No prompt, no external model-call.
+- [ ] Treat current test asserting `low→high` as **environment-specific observation**. Explain whether `get_state` itself clamps (this is not caused by cached answers), and **do not** generalize the observation to provider inability or routing policy. Where available inspect provider-bound payload only with an explicitly owner-approved non-secret diagnostic mechanism, not by making paid calls.
+- [ ] When the target level is unavailable or readback mismatches, return **explicit `UNSUPPORTED/MAPPING_NEEDS_REVIEW`**, never silently reroute to high while reporting success. The owner chooses a verified compatible model/mapping; no user settings modifications.
+- [ ] Confirm worker/subagent handoff records `task_type/target/effective` with no secrets; add fail-closed regression tests for mismatches.
+- [ ] Run isolated Windows+WSL fixture tests.
 
-### Task 3: Thinking-setting change with proof and rollback
+### Task 3 — Align obsolete paid benchmark harness without deleting safety work
 
-**Files:** Do not commit actual `settings.json`; implement small isolated test harness only if absent.
+**Files:** `tests/smoke/m2TokenMeasure.test.ts`, `scripts/lib/m2AcceptanceTasks.ts`, `tests/smoke/m2RuntimeAcceptance.test.ts`, `scripts/lib/acceptanceGuards.ts`, only where changes needed.
 
-- [ ] Step 1: inspect active effective `defaultThinkingLevel`, `modelThinkingLevels` and actual supported levels *privately and read-only*.
-- [ ] Step 2: in disposable Pi settings/session only, change temporary thinking level, verify readback and new-session startup, then restore it; negative test for unsupported value and concurrent settings modification.
-- [ ] Step 3: **STOP before touching real user defaults.** Present measured Task 2 comparison and proposed **exact key/value** to owner; accept explicit change approval or `NO CHANGE APPROVED`. Do not silently set `low` for security-critical work.
-- [ ] Step 4: if approved, create protected byte-exact private backup, guard against concurrency, atomically update only the approved key, start fresh installed Pi session to verify, restore on failure and verify rollback. Do not modify default provider/model or auth.
-- [ ] Step 5: record actual result (`CHANGED+VERIFIED` / `NO CHANGE APPROVED` / `BLOCKED`) and sanitized evidence; never mark a user change as done if only a synthetic test ran.
+- [ ] Keep existing isolation and paid-consent guards and reported passing tests.
+- [ ] Remove the **prescriptive** `low clamps to high, therefore only off` comment from paid runner; change it into a guarded OPTIONAL, owner-authorized measurement harness. Do not auto-run, create consent files, or request permission for 7 calls.
+- [ ] Replace any route-design implication that a 6-call A/B/C comparison is required. Genuine savings stay `NOT MEASURED` until actual data, but routing success **does not depend on paid benchmarking**.
 
-### Task 4: Full verification and GitHub handoff
+### Task 4 — Validate, update authority, independent review
 
-- [ ] Step 1: run focused TDD and real smoke, then full existing typecheck/lint/build/Vitest/E2E, hosted Linux/Windows Product CI and Repository Contract.
-- [ ] Step 2: independent fresh-context security review at exact code HEAD: verify no user-session mutation, provider budget guard, schema/API parity, settings atomic update and rollback, no private GitHub data.
-- [ ] Step 3: update ROADMAP three conditional checkboxes **individually** only for accepted completed evidence; keep the token policy line honest. Do not touch unrelated M3 completion flags. Ensure PR/Issue descriptions include actual counts, +/- and redacted results.
-- [ ] Step 4: stop, publish review verdict, changed-file list, CI links, all PASS/FAIL/SKIP/NOT RUN and final SHA. Owner separately decides merge; no automatic merge.
+- [ ] Full typecheck/lint/build/Vitest/E2E, CI Linux+Windows, native Windows+WSL synthetic smoke.
+- [ ] Independent fresh-context review of actual dispatcher (correct task→level, no leaks, no secret settings edits, unsupported-level failure behavior, cache-independent evidence).
+- [ ] Update PR #13 body, Issue #12, ROADMAP *without* prematurely checking user write/prompt or measured savings. Keep M3 PR #11 unchanged.
+- [ ] Report RED/GREEN, exact SHA, diff +/- and PASS/FAIL/SKIP/NOT RUN. No merge or Draft removal without owner approval.
+
+**Decision:** Original 7 paid calls are CANCELLED; no authorization to invoke an external model. **Outcome** is operational task routing, not an econometric study.

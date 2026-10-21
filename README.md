@@ -4,7 +4,7 @@
 >
 > Одно окно для проектов, чатов, сессий, Skills, Extensions и MCP. Без собственной реализации Pi, копирования сессий или второй конфигурации.
 
-**Текущий статус:** M0 принят — [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged (`1c24cf23`); M1 Sessions & Chat принят — [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) merged (`6b3b9c03`); M2 Pi Manager готовится — [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) · `v0.1` · фактический прогресс в [ROADMAP.md](ROADMAP.md).
+**Текущий статус:** M0 ([PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4)), M1 ([PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6)) и **M2 Pi Manager ([PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8)) приняты и слиты** (`main` `6107f959`). M3 Module System готовится — [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10); остаточные риски M2 — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9). Актуальная приёмка — [ROADMAP.md](ROADMAP.md).
 
 ## Документация
 
@@ -57,7 +57,7 @@ Windows-клиент — **интерфейс**. Исполнение Pi, Skills
 
 **Публичный GitHub:** два уровня проверки. [Repository Contract CI](.github/workflows/repository-contract.yml) — только документация и правила учёта (принят в PR #3). [Product CI](.github/workflows/product-ci.yml) — реальные `typecheck` / `lint` / Vitest (unit, contract, integration, UI) / сборка / Playwright Electron E2E на стандартных бесплатных `ubuntu-latest` и `windows-latest` без секретов. Реальный Windows+WSL smoke остаётся отдельным ручным гейтом и никогда не подменяется зелёным CI.
 
-**M0 и M1 приняты.** История CLI Pi остаётся по месту, read-only просмотр её не изменяет. Продолжение сессии через Pi RPC требует явного действия пользователя; настоящий write/model prompt в изолированной сессии ещё **NOT RUN** и требует отдельного разрешения. M2 — управление Skills, Extensions и MCP; см. [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7).
+**M0, M1 и M2 приняты.** Оригинальные Pi-сессии остаются по месту; просмотр истории read-only, Pi RPC resume только по действию пользователя. **M2** добавил менеджер Skills, Packages/Extensions, MCP и подтверждаемые операции с резервными копиями (интеграционный smoke выполнялся только на синтетических ресурсах). Реальный write/model prompt в пользовательской `~/.pi` **NOT RUN** и требует отдельного разрешения. Для M3 см. [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10), для остаточных рисков M2 — [#9](https://github.com/triagmas/pi-wsl-desktop/issues/9).
 
 ---
 

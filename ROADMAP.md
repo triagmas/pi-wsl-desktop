@@ -17,7 +17,7 @@
 | **M0 — Foundation & WSL Bridge** | ✅ Принято | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) closed · [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged 2026-10-19 (`1c24cf23`) | [ACCEPT](https://github.com/triagmas/pi-wsl-desktop/pull/4#pullrequestreview-5568765644) · merge владельца |
 | **M1 — Sessions & Chat** | ✅ Принято | [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) closed · [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) merged 2026-10-20 (`6b3b9c03`) | [ACCEPT ревью](https://github.com/triagmas/pi-wsl-desktop/pull/6#pullrequestreview-5580577901) · squash merge владельца; real write/model prompt **NOT RUN** |
 | **M2 — Pi Manager** | ✅ Принято | [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) closed · [PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8) merged 2026-10-21 (`6107f959`) | [Финальное техническое ревью](https://github.com/triagmas/pi-wsl-desktop/pull/8#pullrequestreview-5587454200) · разрешённый владельцем squash merge, GitHub CI PASS; настоящие write/model prompt **NOT RUN**, token savings **NOT MEASURED**, остаточные риски → [#9](https://github.com/triagmas/pi-wsl-desktop/issues/9) |
-| **M3 — Module System** | 🟡 Подготовка (код M3 не начат) | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · ветка `feat/m3-module-system-r01` | Манфест модулей, capability API, UI-подключение, изоляция ошибок; TDD/review впереди |
+| **M3 — Module System** | 🟡 **Код и тесты первого пакета готовы** на Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) — ожидает независимого ревью и merge-решения владельца | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · ветка `feat/m3-module-system-r01` | Манфест модулей + capability check, реестр с включение/отключением, общий контракт вкладок, изоляция ошибок, демо-модуль; Vitest 407/8, E2E 10/10 |
 | **M4 — Desktop 1.0** | ⬜ Запланирован | Будущий Issue | — |
 
 **Легенда:** ⬜ запланировано · 🟡 в работе / на ревью · ✅ принято · ⛔ заблокировано. Статус «✅ принято» требует завершённой приёмки, а не только заявления разработчика.
@@ -81,12 +81,12 @@
 
 ## 🧩 M3 — Module System
 
-**Подготовка после M2:** [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10), ветка `feat/m3-module-system-r01`. Программная реализация M3 **NOT STARTED**. [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9) хранит отдельные M2-follow-up, не считать их уже решёнными.
+**Первый продуктовый пакет реализован на Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11)** (ветка `feat/m3-module-system-r01`, старт от принятого M2 `6107f959`). [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) — источник истины; [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9) хранит отдельные M2-follow-up, не считать их решёнными. `[x]` будет выставлен после подтверждённой приёмки (AGENTS §5).
 
-- [ ] Версионированный манифест модуля и capability API.
-- [ ] Регистрация/отключение модулей UI без изменения ядра.
-- [ ] Изоляция ошибок и проверка совместимости модулей.
-- [ ] Контрактные тесты и приёмка M3.
+- [ ] Версионированный манифест модуля и capability API. — *реализовано в PR #11*: `src/shared/m3Protocol.ts` — Zod-манифест (`id`, `version`/semver, `apiVersion`, `capabilities` из списка сервисов SPEC §5, `ui`-входы, `dependencies`, `params`), fail-closed парсинг и проверка `apiVersion` отдельной стадией `compatibility`; контракт 8/8.
+- [ ] Регистрация/отключение модулей UI без изменения ядра. — *реализовано в PR #11*: реестр `src/renderer/modules/registry.ts` (`enabled|disabled|invalid|incompatible`, duplicate-id fail-closed, `moduleTabs()`-проекция), App рендерит вкладки модулей через ЕДИНЫЙ контракт `ModuleTabView` без правок ядра на модуль; раздел «Модули» с toggle; демо-модуль `demo` подтверждает полный цикл; UI 5/5, E2E 1/1.
+- [ ] Изоляция ошибок и проверка совместимости модулей. — *реализовано в PR #11*: `ModuleErrorBoundary` (ошибка отрисовки модуля → карточка + «Отключить модуль», приложение живо), битый/несовместимый манифест → честная причина в разделе «Модули», такие модули не получают вкладку и не продвигаются через toggle; unit 9/9, UI 5/5.
+- [ ] Контрактные тесты и приёмка M3. — *тесты готовы в PR #11*: контракт 8/8 + unit 9/9 + UI 5/5 + E2E m3 1/1; полный локальный стек Vitest **407 PASS / 8 SKIP**, E2E **10/10**, typecheck/lint/build 0/0/0. Приёмка (независимое ревью + merge владельца) — впереди; Windows+WSL smoke — NOT RUN.
 
 ## 🚀 M4 — Desktop 1.0
 
@@ -134,6 +134,7 @@
 
 | 2026-10-21 | ✅ M2 Pi Manager принят и слит | [PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8) · [ревью](https://github.com/triagmas/pi-wsl-desktop/pull/8#pullrequestreview-5587454200) · `main` `6107f959` · [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) closed | ✅ 40 файлов, **+5 626 / −70**; CI Linux Vitest 380 PASS/13 SKIP, Windows 265 PASS/5 SKIP, Electron E2E 9 PASS, оба CI SUCCESS. Локальные Pi-разработчика: Vitest 385/8, WSL 17/17, REAL_PI 3/3, REAL_WSL 4/4, native GUI PASS. Live write/model prompt **NOT RUN**, savings **NOT MEASURED**. Неподтверждённые/отложенные риски — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9) |
 | 2026-10-21 | M3 Module System — подготовка | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · `feat/m3-module-system-r01` | 🟡 Старт от принятого M2 `6107f959`; основная реализация, новые RED→GREEN, Windows+WSL smoke и review **не проводились** |
+| 2026-10-21 | M3 — первый продуктовый пакет: регистрация модулей | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) | 🟡 Код + тесты готовы, ожидает независимого ревью/merge: Zod-манифест + `apiVersion` compatibility-стадия (контракт **8/8**), реестр enable/disable с duplicate-id fail-closed (unit **9/9**), общий контракт вкладок + `ModuleErrorBoundary` + раздел «Модули» + демо-модуль (UI **5/5**), E2E m3 **1/1**; полный сток Vitest **407 PASS / 8 SKIP**, E2E **10/10**, typecheck/lint/build **0/0/0**. Windows+WSL smoke **NOT RUN**; savings **NOT MEASURED** |
 
 *После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 

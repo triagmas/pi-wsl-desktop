@@ -16,7 +16,7 @@
 - No `~/.pi` writes, no model prompts, no paid benchmarks, no Pi settings/session changes, no package installs, no Subagents profile changes.
 - TDD Red→Green on every task; during implementation run only affected test files; the FULL regression stack exactly once after the package is ready (re-run only after a fix that affects results).
 - Exactly ONE independent review of the finished delta; no per-task reviewers.
-- Repository is PUBLIC: no local system details, provider/model identifiers, tokens, or session content in committed files or GitHub (grep `xiaomi|mimo-v2|token-plan` must stay 0).
+- Repository is PUBLIC: no local system details, provider/model identifiers, tokens, or session content in committed files or GitHub (the repo's secret-name scan must stay 0).
 - ROADMAP.md must be synchronized in this PR (Repository Contract gate); `[x]` only after owner-level acceptance — annotated evidence + journal row now.
 - Token efficiency: affected tests during development; concise context reads; report savings `NOT MEASURED`.
 
@@ -90,7 +90,7 @@
 
 - [ ] Run the full stack once: `npm run typecheck`, `npm run lint`, `npm run build`, `npx vitest run`, `npx playwright test`. Record exact pass/fail/skip numbers.
 - [ ] ROADMAP.md: M3 checklist — annotate first three items with implemented-in-PR #11 evidence (keep `[ ]` pending owner acceptance per AGENTS §5); status row M3 → 🟡 код + тесты готовы, review; journal row with numbers.
-- [ ] `grep -riE 'xiaomi|mimo-v2|token-plan' ` over committed files → 0.
+- [ ] Verify no provider/model identifiers or secret names leak into committed files (repo secret scan → 0).
 - [ ] Commit docs, push to `feat/m3-module-system-r01`, check GitHub Actions on PR #11 (Linux/Windows), record run results.
 - [ ] Ledger + report: changed files, exact `+/-` (`git diff --stat aba63af..HEAD`).
 

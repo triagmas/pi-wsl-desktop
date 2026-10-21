@@ -9,15 +9,20 @@
  * call is made or needed: the effective level is read back via the offline
  * get_state surface (startup resolves the configured model locally).
  *
- * Measured parity on installed Pi 1.3.0 with the configured model:
- *  - the effective level is binary for this model: `off` vs `high`;
- *  - any granular level (minimal/low/medium/high/xhigh/max) reads back as
- *    `high`; an unsupported SETTINGS value falls back to `off`;
- *  - an unsupported --thinking flag value falls back to the settings
- *    default; `--thinking off` overrides the settings default;
+ * Measured on installed Pi 1.3.0 with the configured model (diagnosed,
+ * Issue #12 plan Task 2): the runtime available levels come from the model
+ * `thinkingLevelMap` (models-store.json for this provider), NOT from a Pi
+ * limitation and NOT from prompt cache:
+ *  - this model's map offers [off, high]; granular levels are null-ed there;
+ *  - RPC set_thinking_level clamps upward (low/medium -> high) — a
+ *    documented observation, reported as UNSUPPORTED by the routing gate;
+ *  - an unsupported SETTINGS value falls back to `off`; an unsupported
+ *    --thinking flag value falls back to the settings default;
  *  - settings are read at session start: a concurrent rewrite affects the
  *    NEXT session, never the running one.
- * These are pinned as parity tests, not assumed from upstream docs.
+ * A different model/map would legitimately offer low/medium — the gate
+ * derives verdicts from get_available_thinking_levels, never from a
+ * hardcoded off/high assumption.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -35,6 +40,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { clampLikePi, planThinkingAssignment } from '../../scripts/lib/taskRouting';
 import { PiRpcClient } from '../../src/bridge/piRpcClient';
 import { nodeFs, resolveSessionRoots } from '../../src/bridge/sessions';
 
@@ -70,6 +76,17 @@ function makeDisposable(overrides: Record<string, unknown> = {}): DisposableEnv 
 }
 
 async function effectiveLevel(env: DisposableEnv, extraArgs: string[] = []): Promise<string> {
+  return rpcSession(env, extraArgs, async (client) => {
+    const state = (await client.request('get_state')) as { thinkingLevel?: string };
+    return state.thinkingLevel ?? 'MISSING';
+  });
+}
+
+async function rpcSession<T>(
+  env: DisposableEnv,
+  extraArgs: string[],
+  fn: (client: PiRpcClient) => Promise<T>,
+): Promise<T> {
   const client = new PiRpcClient({
     spawn: () =>
       spawn(PI_BIN, ['--mode', 'rpc', ...extraArgs], {
@@ -86,8 +103,7 @@ async function effectiveLevel(env: DisposableEnv, extraArgs: string[] = []): Pro
   });
   try {
     client.connect();
-    const state = (await client.request('get_state')) as { thinkingLevel?: string };
-    return state.thinkingLevel ?? 'MISSING';
+    return await fn(client);
   } finally {
     await client.close();
   }
@@ -170,10 +186,45 @@ describe.skipIf(!REAL_PI)('m2 thinking parity on disposable Pi state (Issue #12)
     expect(await effectiveLevel(e, ['--thinking', 'off'])).toBe('off');
   }, 90_000);
 
-  it('measured clamp: granular levels read back as high on this model', async () => {
-    const e = env({ defaultThinkingLevel: 'low' });
+  it('mapping diagnosis: requested→effective equals Pi clamp over get_available_thinking_levels', async () => {
+    // Issue #12 plan Task 2: available levels come from the model
+    // thinkingLevelMap; the gate derives verdicts from the live RPC list,
+    // never from a hardcoded off/high assumption. Works for any model/map.
+    const e = env({ defaultThinkingLevel: 'high' });
+    const levels = await rpcSession(e, [], async (client) => {
+      const res = (await client.request('get_available_thinking_levels')) as { levels?: string[] };
+      return res.levels ?? [];
+    });
+    expect(levels.length).toBeGreaterThan(0);
+    for (const requested of ['off', 'low', 'medium', 'high'] as const) {
+      const plan = planThinkingAssignment(requested, levels as never);
+      const readback = await rpcSession(e, [], async (client) => {
+        await client.request('set_thinking_level', { level: requested });
+        const st = (await client.request('get_state')) as { thinkingLevel?: string };
+        return st.thinkingLevel ?? 'MISSING';
+      });
+      // The readback must equal Pi's documented clamp over the live list.
+      expect(readback, `requested ${requested}`).toBe(clampLikePi(requested, levels as never));
+      if (plan.status === 'ok') {
+        expect(readback, `requested ${requested} must be honored exactly`).toBe(requested);
+      } else {
+        // Fail-closed: the routing gate must NOT report success for this.
+        expect(plan.status).toBe('UNSUPPORTED');
+        if (plan.status === 'UNSUPPORTED') expect(plan.clampedTo).toBe(readback);
+      }
+    }
+    console.log(`[m2Thinking] available levels on this model/map: ${levels.join(',')}`);
+  }, 180_000);
+
+  it('a fresh session does not inherit a previous session thinking change', async () => {
+    const e = env({ defaultThinkingLevel: 'high' });
+    await rpcSession(e, [], async (client) => {
+      await client.request('set_thinking_level', { level: 'off' });
+      const st = (await client.request('get_state')) as { thinkingLevel?: string };
+      expect(st.thinkingLevel).toBe('off');
+    });
+    // New process: settings default applies again — no cross-session leak.
     expect(await effectiveLevel(e)).toBe('high');
-    expect(await effectiveLevel(e, ['--thinking', 'medium'])).toBe('high');
   }, 120_000);
 
   it('negative: unsupported settings value falls back to off', async () => {

@@ -45,10 +45,10 @@ When a subtask's risk increases, **escalate**; never lower `coding/security/revi
 
 **Files:** change `AGENTS.md §5.1`, `docs/TOKEN_EFFICIENCY.md`; add focused route classification tests/implementation only if no existing Pi task-dispatch hook supports the requirement. Prefer an existing subagent/task hook over introducing infrastructure.
 
-- [ ] Write RED tests for task_types `mechanical/documentation/analysis/coding/security/review` mapping exactly to `off/low/medium/high/high/high`. Assert source-edit and security escalation cannot fall back to `off`.
-- [ ] Demonstrate RED (missing/misrouted level), then GREEN with minimal typed mapping or supported Pi extension configuration.
-- [ ] Show **how a caller passes an explicit requested level** to each task before dispatch; `AGENTS.md` alone does not switch the runtime.
-- [ ] Commit focused changes; run targeted tests.
+- [ ] **Сначала использовать готовый Pi**: проверить доступный способ указать `--thinking` в новой задаче/сессии или указать модель и effort у установленного subagent. Привести реально работающие команды/правила смены уровня для каждого класса из матрицы.
+- [ ] **Не строить отдельный маршрутизатор и не создавать файлы кода**, если native Pi/extension уже передаёт уровень при запуске. Закрепить правило в `AGENTS.md` и процедуре постановки задачи; продемонстрировать на бесплатных offline readback-пробах.
+- [ ] **Только если кодовая интеграция действительно требуется:** написать узкие RED-тесты для соответствия `mechanical/documentation/analysis/coding/security/review` → `off/low/medium/high/high/high`, включая запрет code/security в off; добиться GREEN минимальным изменением существующего dispatch, без нового framework.
+- [ ] Задокументировать **конкретный способ** назначить уровень *до* следующей локальной Pi-задачи; отчёт о выполненном переключении не должен основываться на одной инструкции в `AGENTS.md`.
 
 ### Task 2 — Installed Pi offline parity / mapping diagnosis
 

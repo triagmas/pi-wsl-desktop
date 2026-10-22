@@ -118,4 +118,57 @@ describe('module registry', () => {
     const incompatible = registerModules([validRaw({ apiVersion: 99 })]);
     expect(moduleTabs(incompatible)).toEqual([]);
   });
+  it('blocks a module when a declared dependency is absent (fail closed)', () => {
+    const entries = registerModules([validRaw({ id: 'consumer', dependencies: ['missing'] })]);
+    expect(entries[0]!.state).toBe('blocked');
+    expect(entries[0]!.errors.join(' ')).toMatch(/missing/i);
+    expect(moduleTabs(entries)).toEqual([]);
+  });
+
+  it('resolves out-of-order valid dependencies without relying on manifest order', () => {
+    const entries = registerModules([
+      validRaw({ id: 'consumer', dependencies: ['provider'] }),
+      validRaw({ id: 'provider' }),
+    ]);
+    expect(entries.map((e) => e.state)).toEqual(['enabled', 'enabled']);
+    expect(moduleTabs(entries).map((t) => t.tabKey)).toEqual(['consumer/welcome', 'provider/welcome']);
+  });
+
+  it('blocks a dependent while its provider is disabled and restores it on re-enable', () => {
+    const entries = registerModules([
+      validRaw({ id: 'consumer', dependencies: ['provider'] }),
+      validRaw({ id: 'provider' }),
+      validRaw({ id: 'unrelated' }),
+    ]);
+    const disabled = setModuleEnabled(entries, 'provider', false);
+    expect(disabled.map((e) => e.state)).toEqual(['blocked', 'disabled', 'enabled']);
+    expect(disabled[0]!.errors.join(' ')).toMatch(/provider/i);
+    expect(moduleTabs(disabled).map((t) => t.tabKey)).toEqual(['unrelated/welcome']);
+
+    const restored = setModuleEnabled(disabled, 'provider', true);
+    expect(restored.map((e) => e.state)).toEqual(['enabled', 'enabled', 'enabled']);
+    expect(restored[0]!.errors).toEqual([]);
+  });
+
+  it('fails closed for cycles and self-dependencies without throwing', () => {
+    const entries = registerModules([
+      validRaw({ id: 'alpha', dependencies: ['beta'] }),
+      validRaw({ id: 'beta', dependencies: ['alpha'] }),
+      validRaw({ id: 'self', dependencies: ['self'] }),
+    ]);
+    expect(entries.map((e) => e.state)).toEqual(['blocked', 'blocked', 'blocked']);
+    for (const entry of entries) expect(entry.errors.join(' ')).toMatch(/cycl/i);
+    expect(moduleTabs(entries)).toEqual([]);
+  });
+
+  it('blocks a dependent of an incompatible module but preserves unrelated tabs', () => {
+    const entries = registerModules([
+      validRaw({ id: 'consumer', dependencies: ['future'] }),
+      validRaw({ id: 'future', apiVersion: 99 }),
+      validRaw({ id: 'independent' }),
+    ]);
+    expect(entries.map((e) => e.state)).toEqual(['blocked', 'incompatible', 'enabled']);
+    expect(moduleTabs(entries).map((t) => t.tabKey)).toEqual(['independent/welcome']);
+  });
+
 });

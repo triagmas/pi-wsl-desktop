@@ -1,9 +1,9 @@
 /**
  * M3 Modules view — the core-owned management surface for the registry: it
  * lists every registered entry with an honest state and reason, and toggles
- * enable/disable for valid modules. Invalid/incompatible entries are shown
- * with their errors and deliberately have no toggle (they cannot be
- * promoted — see registry.setModuleEnabled).
+ * enable/disable for valid modules, including dependency-blocked ones.
+ * Blocked modules can be explicitly disabled to prevent surprise reactivation
+ * when a provider returns. Invalid/incompatible entries have no toggle.
  */
 import type { ModuleEntry } from './modules/registry';
 
@@ -43,7 +43,7 @@ export function ModulesView({ entries, onToggle }: ModulesViewProps) {
                   <button
                     type="button"
                     data-testid={`module-toggle-${entry.id}`}
-                    aria-pressed={entry.state === 'enabled'}
+                    aria-pressed={entry.state !== 'disabled'}
                     onClick={() => onToggle(entry.id, entry.state === 'disabled')}
                   >
                     {entry.state === 'disabled' ? 'Включить' : 'Отключить'}

@@ -181,3 +181,261 @@ describe('M3 R04 bridge — listModules discovery', () => {
     }
   });
 });
+
+function statePath(home: string): string {
+  return path.join(home, '.pi-desktop', 'module-state.json');
+}
+
+async function call(
+  child: Awaited<ReturnType<typeof spawnBridge>>,
+  reader: FrameReader,
+  requestId: string,
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<{ status: string; result?: unknown; error?: string }> {
+  child.stdin.write(req(requestId, method, params) + '\n');
+  const resp = await reader.waitForResponse(requestId);
+  const frame = resp.frame as ResponseOkFrameT | ResponseErrorFrameT;
+  if (frame.type === 'response' && frame.status === 'ok') {
+    return { status: 'ok', result: frame.result };
+  }
+  return { status: 'error', error: (frame as ResponseErrorFrameT).error.code };
+}
+
+describe('M3 R04 bridge — setModuleState persistence', () => {
+  it('cases 1-2: persists the pair, then merges the next id', async () => {
+    const home = tempHome();
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const first = await call(child, reader, 's1', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(first).toEqual({ status: 'ok', result: { id: 'alpha', enabled: false } });
+      const second = await call(child, reader, 's2', 'setModuleState', { id: 'beta', enabled: true });
+      expect(second.status).toBe('ok');
+
+      const doc = JSON.parse(await (await import('node:fs/promises')).readFile(statePath(home), 'utf8'));
+      expect(doc.version).toBe(1);
+      expect(doc.modules.alpha).toEqual({ enabled: false });
+      expect(doc.modules.beta).toEqual({ enabled: true });
+
+      const listed = await call(child, reader, 's3', 'listModules');
+      expect(listed.status).toBe('ok');
+      expect(listed.result).toMatchObject({
+        state: { alpha: false, beta: true },
+        diagnostics: [],
+      });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('cases 3-4: preserves unknown top-level keys and unknown module fields', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    await (await import('node:fs/promises')).writeFile(
+      statePath(home),
+      JSON.stringify({ custom: 1, modules: { x: { enabled: true, note: 'keep' } } }),
+    );
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const saved = await call(child, reader, 's4', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(saved.status).toBe('ok');
+      const doc = JSON.parse(await (await import('node:fs/promises')).readFile(statePath(home), 'utf8'));
+      expect(doc.custom).toBe(1);
+      expect(doc.modules.x).toEqual({ enabled: true, note: 'keep' });
+      expect(doc.version).toBe(1);
+
+      const listed = await call(child, reader, 's5', 'listModules');
+      expect(listed.result).toMatchObject({ state: { x: true, alpha: false } });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 5: traversal ids are rejected before any write', async () => {
+    const home = tempHome();
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const bad = await call(child, reader, 's6', 'setModuleState', { id: '../evil', enabled: true });
+      expect(bad.error).toBe('INVALID_REQUEST');
+      const fsp = await import('node:fs/promises');
+      let exists = true;
+      try {
+        await fsp.stat(statePath(home));
+      } catch {
+        exists = false;
+      }
+      expect(exists).toBe(false);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 6: corrupt state fails closed — diagnostics on read, INVALID_REQUEST on write, bytes unchanged', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    const fsp = await import('node:fs/promises');
+    await fsp.writeFile(statePath(home), '{"version":1,"modules":{"alpha":');
+    const before = await fsp.readFile(statePath(home), 'utf8');
+
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const listed = await call(child, reader, 's7', 'listModules');
+      expect(listed.status).toBe('ok');
+      const result = listed.result as { state: Record<string, boolean>; diagnostics: string[] };
+      expect(result.state).toEqual({});
+      expect(result.diagnostics.join(' ')).toMatch(/state/i);
+
+      const written = await call(child, reader, 's8', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(written.error).toBe('INVALID_REQUEST');
+      expect(await fsp.readFile(statePath(home), 'utf8')).toBe(before);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 7: a symlinked state file is rejected and its target untouched', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    const fsp = await import('node:fs/promises');
+    const target = path.join(home, 'target-state.json');
+    await fsp.writeFile(target, JSON.stringify({ version: 1, modules: {} }));
+    await symlinkSync(target, statePath(home));
+    const before = await fsp.readFile(target, 'utf8');
+
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const written = await call(child, reader, 's9', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(written.error).toBe('INVALID_REQUEST');
+      expect(await fsp.readFile(target, 'utf8')).toBe(before);
+      const linkStat = await fsp.lstat(statePath(home));
+      expect(linkStat.isSymbolicLink()).toBe(true);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 7b: a symlinked .pi-desktop directory refuses writes', async () => {
+    const home = tempHome();
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'piwsd-r04-outside-'));
+    symlinkSync(outside, path.join(home, '.pi-desktop'));
+
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const written = await call(child, reader, 's10', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(written.error).toBe('INVALID_REQUEST');
+      const fsp = await import('node:fs/promises');
+      let leaked = true;
+      try {
+        await fsp.stat(path.join(outside, 'module-state.json'));
+      } catch {
+        leaked = false;
+      }
+      expect(leaked).toBe(false);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 8: parallel writes serialize — both ids survive', async () => {
+    const home = tempHome();
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const [a, b] = await Promise.all([
+        call(child, reader, 's11', 'setModuleState', { id: 'alpha', enabled: false }),
+        call(child, reader, 's12', 'setModuleState', { id: 'beta', enabled: true }),
+      ]);
+      expect(a.status).toBe('ok');
+      expect(b.status).toBe('ok');
+      const fsp = await import('node:fs/promises');
+      const doc = JSON.parse(await fsp.readFile(statePath(home), 'utf8'));
+      expect(doc.modules.alpha).toEqual({ enabled: false });
+      expect(doc.modules.beta).toEqual({ enabled: true });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 11: a NEW id is refused once the state holds 512 entries', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    const fsp = await import('node:fs/promises');
+    const modules: Record<string, { enabled: boolean }> = {};
+    for (let i = 0; i < 512; i += 1) modules[`m${i}`] = { enabled: true };
+    await fsp.writeFile(statePath(home), JSON.stringify({ version: 1, modules }));
+
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const refused = await call(child, reader, 's13', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(refused.error).toBe('INVALID_REQUEST');
+      // rewriting an EXISTING id at the cap stays allowed (no growth)
+      const rewrite = await call(child, reader, 's14', 'setModuleState', { id: 'm0', enabled: false });
+      expect(rewrite.status).toBe('ok');
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 13: an oversized state file is ignored on read and refused on write', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    const fsp = await import('node:fs/promises');
+    await fsp.writeFile(statePath(home), `{"version":1,"modules":{},"pad":"${'x'.repeat(300_000)}"}`);
+
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const listed = await call(child, reader, 's15', 'listModules');
+      const result = listed.result as { state: Record<string, boolean>; diagnostics: string[] };
+      expect(result.state).toEqual({});
+      expect(result.diagnostics.join(' ')).toMatch(/state/i);
+      const written = await call(child, reader, 's16', 'setModuleState', { id: 'alpha', enabled: false });
+      expect(written.error).toBe('INVALID_REQUEST');
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('case 12: a symlinked .pi-desktop disables discovery (realpath containment)', async () => {
+    const home = tempHome();
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'piwsd-r04-disc-'));
+    mkdirSync(path.join(outside, 'modules'), { recursive: true });
+    writeFileSync(path.join(outside, 'modules', 'sneaky.json'), JSON.stringify(VALID_MANIFEST));
+    symlinkSync(outside, path.join(home, '.pi-desktop'));
+
+    const child = await spawnBridge({ HOME: home });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      const listed = await call(child, reader, 's17', 'listModules');
+      const result = listed.result as { available: boolean; files: unknown[]; diagnostics: string[] };
+      expect(result.available).toBe(false);
+      expect(result.files).toEqual([]);
+      expect(result.diagnostics.join(' ')).toMatch(/escapes the home directory/);
+      expect(JSON.stringify(result)).not.toContain('sneaky');
+    } finally {
+      child.kill();
+    }
+  });
+});

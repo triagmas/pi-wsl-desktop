@@ -45,8 +45,14 @@ import {
   RollbackResourceOpParamsSchema,
   RollbackResourceOpResultSchema,
 } from '../shared/m2Protocol';
-import { ListModulesParamsSchema, ListModulesResultSchema } from '../shared/m3Ipc';
-import { discoverModules } from './modules';
+import {
+  ListModulesParamsSchema,
+  ListModulesResultSchema,
+  MAX_MODULE_DIAGNOSTICS,
+  SetModuleStateParamsSchema,
+  SetModuleStateResultSchema,
+} from '../shared/m3Ipc';
+import { discoverModules, readModuleState, writeModuleState } from './modules';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
 import { buildSessionIndex, inodeMatches, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
@@ -431,7 +437,30 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       // No caller-supplied path: params must be exactly {}. The root, size,
       // symlink and encoding guards live in discoverModules (bridge-owned).
       parseParams(ListModulesParamsSchema, params ?? {}, 'listModules');
-      return assertOut(ListModulesResultSchema, await discoverModules(ctx.home), 'listModules');
+      const discovered = await discoverModules(ctx.home);
+      const stateRead = await readModuleState(ctx.home);
+      return assertOut(
+        ListModulesResultSchema,
+        {
+          ...discovered,
+          state: stateRead.state,
+          diagnostics: [...discovered.diagnostics, ...stateRead.diagnostics]
+            .slice(0, MAX_MODULE_DIAGNOSTICS),
+        },
+        'listModules',
+      );
+    },
+
+    /* ---------------------- M3 write boundary: state ---------------------- */
+    setModuleState: async (params) => {
+      // Desktop app state only ($HOME/.pi-desktop, never ~/.pi): strict
+      // {id, enabled}; the bridge re-validates guards and writes atomically.
+      const p = parseParams(SetModuleStateParamsSchema, params, 'setModuleState');
+      return assertOut(
+        SetModuleStateResultSchema,
+        await writeModuleState(ctx.home, p.id, p.enabled),
+        'setModuleState',
+      );
     },
   };
 

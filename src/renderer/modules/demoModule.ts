@@ -10,7 +10,7 @@ export const DEMO_MODULE_MANIFEST: Record<string, unknown> = {
   id: 'demo',
   version: '1.0.0',
   apiVersion: MODULE_API_VERSION,
-  capabilities: ['runtime', 'notifications'],
+  capabilities: ['runtime', 'sessions'],
   ui: [
     {
       kind: 'tab',
@@ -26,7 +26,7 @@ export const DEMO_MODULE_MANIFEST: Record<string, unknown> = {
           entries: [
             { key: 'Манифест', value: 'demo@1.0.0' },
             { key: 'API', value: String(MODULE_API_VERSION) },
-            { key: 'Capabilities', value: 'runtime, notifications' },
+            { key: 'Capabilities', value: 'runtime, sessions' },
           ],
         },
         {

@@ -28,6 +28,14 @@ export const MODULE_CAPABILITIES = [
 ] as const;
 export type ModuleCapability = (typeof MODULE_CAPABILITIES)[number];
 
+/**
+ * Explicit whitelist of module operations (SPECIFICATION §5, PRODUCT §3.4).
+ * A module may only ask for these — a declaration outside this list is a
+ * malformed manifest, not a request the host might silently honour.
+ */
+export const MODULE_OPERATIONS = ['openTab', 'openPanel', 'refresh', 'copyText'] as const;
+export type ModuleOperation = (typeof MODULE_OPERATIONS)[number];
+
 /* ------------------------------------------------------------------ */
 /* UI blocks — a tiny declarative vocabulary, NOT a rendering framework */
 /* ------------------------------------------------------------------ */
@@ -79,6 +87,26 @@ const SemverSchema = z
   .string()
   .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
 
+/**
+ * Dependency with an optional semver constraint. The plain-string form from
+ * R01/R02 stays valid; the object form adds a range the host must check.
+ */
+const ModuleDependencySchema = z.object({
+  id: ModuleIdSchema,
+  range: z
+    .string()
+    .max(64)
+    .regex(/^(?:\*|\^?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/,
+      'range must be *, X.Y.Z or ^X.Y.Z'),
+});
+
+export const ModuleActionSchema = z.object({
+  id: ModuleIdSchema,
+  title: z.string().min(1).max(80),
+  operation: z.enum(MODULE_OPERATIONS),
+});
+export type ModuleAction = z.infer<typeof ModuleActionSchema>;
+
 export const ModuleManifestSchema = z
   .object({
     id: ModuleIdSchema,
@@ -86,7 +114,8 @@ export const ModuleManifestSchema = z
     apiVersion: z.number().int().positive(),
     capabilities: z.array(z.enum(MODULE_CAPABILITIES)).min(1),
     ui: z.array(ModuleUiEntrySchema).min(1),
-    dependencies: z.array(ModuleIdSchema).default([]),
+    actions: z.array(ModuleActionSchema).default([]),
+    dependencies: z.array(z.union([ModuleIdSchema, ModuleDependencySchema])).default([]),
     params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
   })
   .superRefine((manifest, ctx) => {
@@ -139,4 +168,27 @@ export function parseModuleManifest(raw: unknown): ManifestParseResult {
   }
 
   return { ok: true, manifest };
+}
+
+/**
+ * Minimal semver range check for module dependencies: `*`, exact `X.Y.Z`
+ * and caret `^X.Y.Z` (same major, at least the base version). Unknown or
+ * malformed inputs fail closed — a dependency the host cannot evaluate must
+ * not be treated as satisfied.
+ */
+function numericVersion(value: string): [number, number, number] | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+export function satisfiesSemverRange(version: string, range: string): boolean {
+  if (range === '*') return true;
+  const caret = range.startsWith('^');
+  const base = numericVersion(caret ? range.slice(1) : range);
+  const current = numericVersion(version);
+  if (!base || !current) return false;
+  const delta = current[0] - base[0] || current[1] - base[1] || current[2] - base[2];
+  if (!caret) return delta === 0;
+  return current[0] === base[0] && delta >= 0;
 }

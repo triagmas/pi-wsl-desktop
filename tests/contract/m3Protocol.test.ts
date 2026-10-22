@@ -120,3 +120,75 @@ describe('module manifest contract', () => {
     }
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* M3 R03 — declarative contract: actions whitelist, versioned deps    */
+/* ------------------------------------------------------------------ */
+import * as m3 from '../../src/shared/m3Protocol';
+
+describe('M3 R03 contract — actions, versioned dependencies', () => {
+  it('accepts declarative actions whose operation is on the explicit whitelist', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      actions: [
+        { id: 'go', title: 'Открыть вкладку', operation: 'openTab' },
+        { id: 'reload', title: 'Обновить', operation: 'refresh' },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.manifest.actions).toHaveLength(2);
+      expect(result.manifest.actions[0]).toMatchObject({ id: 'go', operation: 'openTab' });
+    }
+  });
+
+  it('rejects an action whose operation is NOT whitelisted (fail closed)', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      actions: [{ id: 'drop', title: 'Снести базу', operation: 'dropDatabase' }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.stage).toBe('manifest');
+      expect(result.errors.join(' ')).toMatch(/operation/i);
+    }
+  });
+
+  it('keeps the R01 string dependency form working unchanged (back-compat)', () => {
+    const result = parseModuleManifest({ ...validManifest(), dependencies: ['other'] });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.manifest.dependencies).toEqual(['other']);
+  });
+
+  it('accepts an object dependency with a semver range', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      dependencies: [{ id: 'provider', range: '^1.0.0' }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.manifest.dependencies).toEqual([{ id: 'provider', range: '^1.0.0' }]);
+  });
+
+  it('rejects an unusable dependency range', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      dependencies: [{ id: 'provider', range: 'definitely not a range' }],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.stage).toBe('manifest');
+  });
+
+  it('exposes a whitelist and a semver-range helper', () => {
+    expect(Array.isArray(m3.MODULE_OPERATIONS)).toBe(true);
+    const fn = (m3 as Record<string, unknown>).satisfiesSemverRange;
+    expect(typeof fn).toBe('function');
+    if (typeof fn === 'function') {
+      const sat = fn as (version: string, range: string) => boolean;
+      expect(sat('1.2.3', '^1.0.0')).toBe(true);
+      expect(sat('2.0.0', '^1.0.0')).toBe(false);
+      expect(sat('1.2.3', '1.2.3')).toBe(true);
+      expect(sat('1.2.4', '1.2.3')).toBe(false);
+      expect(sat('9.9.9', '*')).toBe(true);
+    }
+  });
+});

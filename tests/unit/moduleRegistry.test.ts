@@ -221,3 +221,115 @@ describe('module registry', () => {
   });
 
 });
+
+/* ------------------------------------------------------------------ */
+/* M3 R03 — capability grants, panel projection, versioned deps        */
+/* ------------------------------------------------------------------ */
+import * as m3 from '../../src/shared/m3Protocol';
+import {
+  HOST_CAPABILITIES,
+  modulePanels,
+  resolveCapabilities,
+} from '../../src/renderer/modules/registry';
+
+function moduleRaw(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    version: '1.0.0',
+    apiVersion: MODULE_API_VERSION,
+    capabilities: ['runtime'],
+    ui: [{ kind: 'tab', id: 'welcome', title: id, blocks: [{ type: 'text', value: id }] }],
+    ...overrides,
+  };
+}
+
+describe('M3 R03 registry — capability grants, panels, versioned deps', () => {
+  it('grants only capabilities the host actually offers (declaration ≠ permission)', () => {
+    expect(resolveCapabilities(['runtime', 'sessions'], ['runtime', 'sessions'])).toEqual({
+      granted: ['runtime', 'sessions'],
+      missing: [],
+    });
+    expect(resolveCapabilities(['runtime', 'notifications'], ['runtime'])).toEqual({
+      granted: ['runtime'],
+      missing: ['notifications'],
+    });
+    expect(HOST_CAPABILITIES).toEqual(['sessions', 'runtime', 'resources']);
+  });
+
+  it('fails a module closed when it declares a capability the host does not offer', () => {
+    const entries = registerModules([moduleRaw('greedy', { capabilities: ['notifications'] })], {
+      availableCapabilities: ['sessions', 'runtime', 'resources'],
+    });
+    const entry = entries[0]!;
+    expect(entry.state).toBe('incompatible');
+    expect(entry.errors.join(' ')).toMatch(/capability/i);
+    expect(entry.errors.join(' ')).toMatch(/notifications/i);
+    expect(moduleTabs(entries)).toEqual([]);
+    expect(modulePanels(entries)).toEqual([]);
+  });
+
+  it('keeps a module enabled when every declared capability is offered', () => {
+    const entries = registerModules([moduleRaw('ok', { capabilities: ['runtime', 'sessions'] })]);
+    expect(entries[0]!.state).toBe('enabled');
+    expect(moduleTabs(entries)).toHaveLength(1);
+  });
+
+  it('projects panels separately from tabs for enabled modules only', () => {
+    const entries = registerModules([
+      {
+        ...moduleRaw('sidekick'),
+        ui: [
+          { kind: 'tab', id: 'main', title: 'Main', blocks: [{ type: 'text', value: 't' }] },
+          { kind: 'panel', id: 'rail', title: 'Rail', blocks: [{ type: 'text', value: 'p' }] },
+        ],
+      },
+      {
+        ...moduleRaw('hidden'),
+        ui: [{ kind: 'panel', id: 'off', title: 'Off', blocks: [{ type: 'text', value: 'p' }] }],
+      },
+    ]);
+
+    const panels = modulePanels(entries);
+    expect(panels.map((p) => p.tabKey)).toEqual(['sidekick/rail', 'hidden/off']);
+    expect(moduleTabs(entries).map((t) => t.tabKey)).toEqual(['sidekick/main']);
+    // panels and tabs must never collide on the projection key
+    expect(modulePanels(entries).map((p) => p.tabKey)).not.toEqual(
+      expect.arrayContaining(moduleTabs(entries).map((t) => t.tabKey)),
+    );
+
+    const disabled = setModuleEnabled(entries, 'sidekick', false);
+    // the disabled module loses its panel; the unrelated enabled one keeps its own
+    expect(modulePanels(disabled).map((p) => p.tabKey)).toEqual(['hidden/off']);
+    expect(modulePanels(disabled).map((p) => p.tabKey)).not.toContain('sidekick/rail');
+  });
+
+  it('blocks a dependent whose dependency range is not satisfied by the provider', () => {
+    const entries = registerModules([
+      moduleRaw('provider', { version: '0.9.0' }),
+      moduleRaw('consumer', { dependencies: [{ id: 'provider', range: '^1.0.0' }] }),
+    ]);
+    const consumer = entries.find((e) => e.id === 'consumer')!;
+    expect(consumer.state).toBe('blocked');
+    expect(consumer.errors.join(' ')).toMatch(/\^1\.0\.0/);
+    expect(consumer.errors.join(' ')).toMatch(/0\.9\.0/);
+  });
+
+  it('does not block a dependent when the provider satisfies the range', () => {
+    const entries = registerModules([
+      moduleRaw('provider', { version: '1.4.0' }),
+      moduleRaw('consumer', { dependencies: [{ id: 'provider', range: '^1.0.0' }] }),
+    ]);
+    expect(entries.find((e) => e.id === 'consumer')!.state).toBe('enabled');
+  });
+
+  it('exposes declared actions through the entry manifest', () => {
+    const entries = registerModules([
+      moduleRaw('actor', {
+        actions: [{ id: 'reload', title: 'Обновить', operation: 'refresh' }],
+      }),
+    ]);
+    expect(entries[0]!.manifest?.actions).toHaveLength(1);
+    expect(entries[0]!.manifest?.actions[0]).toMatchObject({ id: 'reload', operation: 'refresh' });
+    expect(typeof (m3 as Record<string, unknown>).MODULE_OPERATIONS).toBe('object');
+  });
+});

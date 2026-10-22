@@ -12,7 +12,13 @@
  * - adding a module must not require patching the core: App maps over
  *   `moduleTabs()` output.
  */
-import { parseModuleManifest, type ModuleManifest, type ModuleUiEntry } from '../../shared/m3Protocol';
+import {
+  parseModuleManifest,
+  satisfiesSemverRange,
+  type ModuleCapability,
+  type ModuleManifest,
+  type ModuleUiEntry,
+} from '../../shared/m3Protocol';
 
 export type ModuleState = 'enabled' | 'disabled' | 'blocked' | 'invalid' | 'incompatible';
 
@@ -33,6 +39,47 @@ export interface ModuleTab {
   tabKey: string;
   entry: ModuleEntry;
   tab: ModuleUiEntry;
+}
+
+/**
+ * Capabilities this host build actually wires for modules (SPECIFICATION §5):
+ * runtime (Status), sessions (Sessions/Chat), resources (Resources/M2).
+ * A declaration outside this set is not a grant: `resolveCapabilities` is the
+ * only path from "declared" to "offered", so a module asking for a service
+ * the renderer does not implement fails closed instead of being trusted.
+ */
+export const HOST_CAPABILITIES: readonly ModuleCapability[] = [
+  'sessions',
+  'runtime',
+  'resources',
+];
+
+/** Declared capabilities split into granted (host offers them) and missing. */
+export function resolveCapabilities(
+  declared: readonly ModuleCapability[],
+  available: readonly ModuleCapability[],
+): { granted: ModuleCapability[]; missing: ModuleCapability[] } {
+  const offered = new Set<ModuleCapability>(available);
+  const granted: ModuleCapability[] = [];
+  const missing: ModuleCapability[] = [];
+  for (const capability of declared) {
+    (offered.has(capability) ? granted : missing).push(capability);
+  }
+  return { granted, missing };
+}
+
+interface DependencyRef {
+  id: string;
+  range: string;
+}
+
+/** Normalise the string (R01/R02) and object forms to one lookup shape. */
+function dependencyRefs(manifest: ModuleManifest): DependencyRef[] {
+  return manifest.dependencies.map((dependency) =>
+    typeof dependency === 'string'
+      ? { id: dependency, range: '*' }
+      : { id: dependency.id, range: dependency.range },
+  );
 }
 
 function entryId(raw: unknown): string {
@@ -88,27 +135,35 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
       const frame = stack[stack.length - 1]!;
       const manifest = frame.entry.manifest!;
       if (frame.next < manifest.dependencies.length) {
-        const dependency = manifest.dependencies[frame.next++]!;
-        const child = byId.get(dependency);
+        const dependency = dependencyRefs(manifest)[frame.next++]!;
+        const name = dependency.id;
+        const child = byId.get(name);
         if (!child) {
-          frame.errors.push('dependency "' + dependency + '" is missing or invalid/incompatible');
+          frame.errors.push('dependency "' + name + '" is missing or invalid/incompatible');
           continue;
         }
         if (child.state === 'disabled') {
-          frame.errors.push('dependency "' + dependency + '": module disabled');
+          frame.errors.push('dependency "' + name + '": module disabled');
           continue;
         }
-        const cycleAt = active.get(dependency);
+        if (!satisfiesSemverRange(child.manifest!.version, dependency.range)) {
+          frame.errors.push(
+            'dependency "' + name + '": requires ' + dependency.range
+              + ', found ' + child.manifest!.version,
+          );
+          continue;
+        }
+        const cycleAt = active.get(name);
         if (cycleAt !== undefined) {
           const path = stack.slice(cycleAt, cycleAt + 12)
             .map((node) => node.entry.manifest!.id).join(' -> ');
-          frame.errors.push('dependency cycle detected: ' + path + ' -> ' + dependency);
+          frame.errors.push('dependency cycle detected: ' + path + ' -> ' + name);
           continue;
         }
-        const previous = cached.get(dependency);
+        const previous = cached.get(name);
         if (previous) {
           if (!previous.ok) {
-            frame.errors.push(...previous.errors.map((err) => reason(dependency, err)));
+            frame.errors.push(...previous.errors.map((err) => reason(name, err)));
           }
           continue;
         }
@@ -139,7 +194,11 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
   });
 }
 
-export function registerModules(raws: readonly unknown[]): ModuleEntry[] {
+export function registerModules(
+  raws: readonly unknown[],
+  options: { availableCapabilities?: readonly ModuleCapability[] } = {},
+): ModuleEntry[] {
+  const available = options.availableCapabilities ?? HOST_CAPABILITIES;
   const entries: ModuleEntry[] = [];
   const seenIds = new Set<string>();
 
@@ -170,6 +229,19 @@ export function registerModules(raws: readonly unknown[]): ModuleEntry[] {
     }
 
     seenIds.add(parsed.manifest.id);
+    const { missing } = resolveCapabilities(parsed.manifest.capabilities, available);
+    if (missing.length > 0) {
+      entries.push({
+        key,
+        id: parsed.manifest.id,
+        state: 'incompatible',
+        manifest: null,
+        errors: missing.map(
+          (capability) => `capability "${capability}" is not provided by the host`,
+        ),
+      });
+      return;
+    }
     entries.push({
       key,
       id: parsed.manifest.id,
@@ -212,4 +284,17 @@ export function moduleTabs(entries: readonly ModuleEntry[]): ModuleTab[] {
     }
   }
   return tabs;
+}
+
+/** Panel projection for the renderer: enabled modules only, kind `panel`. */
+export function modulePanels(entries: readonly ModuleEntry[]): ModuleTab[] {
+  const panels: ModuleTab[] = [];
+  for (const entry of entries) {
+    if (entry.state !== 'enabled' || !entry.manifest) continue;
+    for (const panel of entry.manifest.ui) {
+      if (panel.kind !== 'panel') continue;
+      panels.push({ tabKey: `${entry.manifest.id}/${panel.id}`, entry, tab: panel });
+    }
+  }
+  return panels;
 }

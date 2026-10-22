@@ -176,7 +176,7 @@ describe('M3 module registration UI', () => {
     await user.click(screen.getByTestId('tab-modules'));
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('blocked');
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/absent/i);
-    expect(screen.queryByTestId('module-toggle-consumer')).not.toBeInTheDocument();
+    expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Отключить');
     expect(screen.queryByTestId('tab-module-consumer/welcome')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('tab-module-demo/welcome'));

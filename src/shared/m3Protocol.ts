@@ -172,71 +172,118 @@ export function parseModuleManifest(raw: unknown): ManifestParseResult {
   return { ok: true, manifest };
 }
 
-/** Numeric MAJOR.MINOR.PATCH tuple; null when the value is not a version. */
-function numericVersion(value: string): [number, number, number] | null {
-  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value);
+/** Full semver parse: MAJOR.MINOR.PATCH with optional pre-release. Core
+ * numbers are BigInt so identifiers beyond 2^53 never collapse (the R03
+ * `Number()` version compared 9007199254740993 and …92 as equal). */
+interface ParsedVersion {
+  major: bigint;
+  minor: bigint;
+  patch: bigint;
+  /** Pre-release identifiers without the leading `-`, or null for a release. */
+  pre: string[] | null;
+}
+
+const SEMVER_CORE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+
+function parseVersion(value: string): ParsedVersion | null {
+  const match = SEMVER_CORE_RE.exec(value);
   if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return {
+    major: BigInt(match[1]!),
+    minor: BigInt(match[2]!),
+    patch: BigInt(match[3]!),
+    pre: match[4] !== undefined ? match[4].split('.') : null,
+  };
 }
 
-/** Pre-release suffix including the leading `-`, or null for a release. */
-function preReleaseOf(value: string): string | null {
-  const match = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.exec(value);
-  return match?.[1] ?? null;
+/** Semver precedence for one identifier: numeric (BigInt) below alphanumeric. */
+function comparePreId(left: string, right: string): number {
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) {
+    const a = BigInt(left);
+    const b = BigInt(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  if (leftNumeric) return -1;
+  if (rightNumeric) return 1;
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Semver pre-release precedence: numeric ids compare numerically, then ASCII. */
-function comparePreRelease(left: string, right: string): number {
-  const a = left.slice(1).split('.');
-  const b = right.slice(1).split('.');
-  const length = Math.max(a.length, b.length);
+/** Pre-release precedence: a release outranks any pre-release; shorter list is lower. */
+function comparePre(left: string[] | null, right: string[] | null): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
-    const x = a[index];
-    const y = b[index];
+    const x = left[index];
+    const y = right[index];
     if (x === undefined) return -1;
     if (y === undefined) return 1;
-    const nx = /^\d+$/.test(x) ? Number(x) : null;
-    const ny = /^\d+$/.test(y) ? Number(y) : null;
-    if (nx !== null && ny !== null) {
-      if (nx !== ny) return nx - ny;
-      continue;
-    }
-    if (nx !== null) return -1;
-    if (ny !== null) return 1;
-    if (x !== y) return x < y ? -1 : 1;
+    const result = comparePreId(x, y);
+    if (result !== 0) return result;
   }
   return 0;
 }
 
+/** Total order over parsed versions (MAJOR.MINOR.PATCH, then pre-release). */
+function compareParsed(left: ParsedVersion, right: ParsedVersion): number {
+  return (left.major < right.major ? -1 : left.major > right.major ? 1 : 0)
+    || (left.minor < right.minor ? -1 : left.minor > right.minor ? 1 : 0)
+    || (left.patch < right.patch ? -1 : left.patch > right.patch ? 1 : 0)
+    || comparePre(left.pre, right.pre);
+}
+
+/** Same MAJOR.MINOR.PATCH tuple and the same pre-release identity. */
+function sameIdentity(left: ParsedVersion, right: ParsedVersion): boolean {
+  return left.major === right.major
+    && left.minor === right.minor
+    && left.patch === right.patch
+    && comparePre(left.pre, right.pre) === 0
+    && (left.pre === null) === (right.pre === null);
+}
+
 /**
- * Minimal semver range check for module dependencies: `*`, exact `X.Y.Z` and
- * caret `^X.Y.Z` (same major, at least the base). Pre-release versions keep
- * their LOWER precedence: `1.0.0-beta.1` never satisfies an exact `1.0.0`,
- * and a pre-release only matches a range whose base itself carries a
- * pre-release. Unknown or malformed inputs fail closed.
+ * Minimal semver range check for module dependencies, node-semver-aligned for
+ * the exact syntax the schema admits: `*`, `X.Y.Z[-pre]` and `^X.Y.Z[-pre]`.
+ *
+ * - exact: same MAJOR.MINOR.PATCH and the same pre-release identity
+ *   (`1.0.0-beta.1` < `1.0.0`, so a pre-release never passes an exact release);
+ * - caret: `^A.B.C` → same MAJOR when A>0; `^0.B.C` → same MAJOR+MINOR;
+ *   `^0.0.C` → exact patch (`0.3.0` does NOT pass `^0.2.3`);
+ * - prerelease versions satisfy a caret only when the base itself carries a
+ *   pre-release of the SAME MAJOR.MINOR.PATCH tuple with precedence ≤ the
+ *   version (`1.1.0-beta.1` does NOT pass `^1.0.0-beta.1`, node-semver's
+ *   prerelease-tuple rule);
+ * - all identifiers compare as BigInt — no precision loss beyond 2^53;
+ * - unknown or malformed inputs fail closed; `*` keeps its documented
+ *   any-version meaning (including pre-releases) for legacy string deps.
  */
 export function satisfiesSemverRange(version: string, range: string): boolean {
   if (range === '*') return true;
   const caret = range.startsWith('^');
-  const base = caret ? range.slice(1) : range;
-  const baseTuple = numericVersion(base);
-  const currentTuple = numericVersion(version);
-  if (!baseTuple || !currentTuple) return false;
-
-  const delta = currentTuple[0] - baseTuple[0]
-    || currentTuple[1] - baseTuple[1]
-    || currentTuple[2] - baseTuple[2];
-  const basePre = preReleaseOf(base);
-  const currentPre = preReleaseOf(version);
+  const base = parseVersion(caret ? range.slice(1) : range);
+  const current = parseVersion(version);
+  if (!base || !current) return false;
 
   if (!caret) {
-    // Exact range: same tuple AND the same pre-release identity.
-    return delta === 0 && currentPre === basePre;
+    return sameIdentity(base, current);
   }
-  if (currentTuple[0] !== baseTuple[0]) return false;
-  if (currentPre && !basePre) return false;
-  if (currentPre && basePre) {
-    return delta > 0 || (delta === 0 && comparePreRelease(currentPre, basePre) >= 0);
+
+  if (base.major > 0n) {
+    if (current.major !== base.major) return false;
+  } else if (base.minor > 0n) {
+    if (current.major !== 0n || current.minor !== base.minor) return false;
+  } else if (current.major !== 0n || current.minor !== 0n || current.patch !== base.patch) {
+    return false;
   }
-  return delta >= 0;
+
+  if (current.pre !== null) {
+    if (base.pre === null) return false;
+    if (current.major !== base.major
+      || current.minor !== base.minor
+      || current.patch !== base.patch) return false;
+  }
+  return compareParsed(current, base) >= 0;
 }

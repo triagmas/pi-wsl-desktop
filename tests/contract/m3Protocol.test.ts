@@ -226,3 +226,41 @@ describe('M3 R03 contract — pre-release range resolution', () => {
     expect(sat('1.0.0-beta.1', '1.0.0-beta.1')).toBe(true);
   });
 });
+
+describe('M3 R04 — semver range correctness (P2)', () => {
+  const sat = (m3 as Record<string, unknown>).satisfiesSemverRange as (
+    version: string,
+    range: string,
+  ) => boolean;
+
+  it('bounds caret ranges for 0.x versions (node-semver ^0.y.z semantics)', () => {
+    expect(sat('0.3.0', '^0.2.3')).toBe(false);
+    expect(sat('0.2.9', '^0.2.3')).toBe(true);
+    expect(sat('0.0.4', '^0.0.3')).toBe(false);
+    expect(sat('0.0.3', '^0.0.3')).toBe(true);
+  });
+
+  it('applies the prerelease-tuple rule to caret ranges', () => {
+    // node-semver: a prerelease may only satisfy a comparator whose
+    // major.minor.patch tuple matches its own — 1.1.0-beta.1 must NOT pass
+    // ^1.0.0-beta.1, but a newer pre-release of 1.0.0 does.
+    expect(sat('1.1.0-beta.1', '^1.0.0-beta.1')).toBe(false);
+    expect(sat('1.0.0-beta.2', '^1.0.0-beta.1')).toBe(true);
+    expect(sat('1.0.0', '^1.0.0-beta.1')).toBe(true);
+  });
+
+  it('compares numeric identifiers beyond 2^53 without precision loss', () => {
+    // exact: identity must differ (Number() collapses both to 9007199254740992)
+    expect(sat('9007199254740993.0.0', '9007199254740992.0.0')).toBe(false);
+    expect(sat('9007199254740992.0.0', '9007199254740993.0.0')).toBe(false);
+    expect(sat('9007199254740993.0.0', '9007199254740993.0.0')).toBe(true);
+    // caret: node-semver bounds — a differing MAJOR is outside `^base`,
+    // while a differing MINOR within the same MAJOR must compare exactly.
+    expect(sat('9007199254740993.0.0', '^9007199254740992.0.0')).toBe(false);
+    expect(sat('9007199254740992.9007199254740993.0', '^9007199254740992.9007199254740992.0')).toBe(true);
+    expect(sat('9007199254740992.9007199254740992.0', '^9007199254740992.9007199254740993.0')).toBe(false);
+    // pre-release numeric ids compare numerically, not as rounded doubles
+    expect(sat('1.0.0-9007199254740993', '1.0.0-9007199254740992')).toBe(false);
+    expect(sat('1.0.0-9007199254740993', '^1.0.0-9007199254740992')).toBe(true);
+  });
+});

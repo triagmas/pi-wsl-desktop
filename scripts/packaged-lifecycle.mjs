@@ -9,7 +9,7 @@
  * Usage: node scripts/packaged-lifecycle.mjs [releaseDir]   (default: release)
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { repoRootFrom } from './lib/releasePaths.mjs';
 
@@ -49,6 +49,10 @@ const sentinelsIntact = () =>
 const run = (file, args) =>
   new Promise((resolve) => {
     const p = spawn(file, args, { stdio: 'ignore', windowsHide: true });
+    p.on('error', (err) => {
+      clearTimeout(t);
+      resolve({ ok: false, detail: `spawn error: ${err.message}` });
+    });
     const t = setTimeout(() => {
       p.kill();
       resolve({ ok: false, detail: 'timeout after 180s' });
@@ -58,6 +62,14 @@ const run = (file, args) =>
       resolve({ ok: code === 0, detail: `exit ${code}` });
     });
   });
+
+const listDir = (d) => {
+  try {
+    return readdirSync(d).join(', ');
+  } catch (e) {
+    return `<unreadable: ${e.code}>`;
+  }
+};
 
 const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
@@ -73,6 +85,12 @@ const assert = (name, ok, detail) => {
 placeSentinels();
 const install1 = await run(installer, ['/S']);
 assert('silent install succeeds', install1.ok, install1.detail);
+if (!existsSync(appExe)) {
+  // diagnostics: where did the installer actually put the app?
+  console.log(`diagnostic: LOCALAPPDATA=${process.env.LOCALAPPDATA}`);
+  console.log(`diagnostic: Programs dir contains: ${listDir(path.dirname(installDir))}`);
+  console.log(`diagnostic: installDir contains: ${listDir(installDir)}`);
+}
 assert('app exe installed in fixed per-user dir', existsSync(appExe), installDir);
 assert('uninstaller present', existsSync(uninstaller));
 assert('sentinels survive install', sentinelsIntact());

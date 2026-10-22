@@ -657,4 +657,95 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     ).toHaveLength(1);
   });
 
+
+  it('re-discovery after a same-distro reconnect re-gates toggles (review N1)', async () => {
+    let current: RendererSnapshot = { ...READY, phase: 'ready' };
+    const subs: Array<(s: RendererSnapshot) => void> = [];
+    const emit = (s: RendererSnapshot) => {
+      current = s;
+      for (const cb of subs) cb(s);
+    };
+    let loads = 0;
+    let resolveSecond!: (v: unknown) => void;
+    const request = vi.fn((method: string) => {
+      if (method === 'listModules') {
+        loads += 1;
+        if (loads >= 2) {
+          return new Promise((res) => {
+            resolveSecond = res;
+          });
+        }
+        return Promise.resolve(payload([]));
+      }
+      return Promise.resolve({});
+    });
+    const api: DesktopApi = {
+      request: request as DesktopApi['request'],
+      getStatus: async () => current,
+      retry: vi.fn(async () => current),
+      listDistros: async () => ['Ubuntu'],
+      selectDistro: vi.fn(async () => current),
+      onStateChange: (cb) => {
+        subs.push(cb);
+        return () => undefined;
+      },
+      onChatEvent: () => () => undefined,
+    };
+    const user = userEvent.setup();
+    render(<App api={api} />);
+    await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
+
+    // reconnect of the SAME distro: main/state.ts resets attempt to 0 on
+    // READY, so the previous key string repeats — the generation must not.
+    emit({ ...current, phase: 'connecting', attempt: 1 });
+    emit({ ...current, phase: 'ready', attempt: 0 });
+
+    await waitFor(() => expect(loads).toBe(2));
+    expect(screen.getByTestId('modules-view')).toHaveAttribute('data-loading', 'true');
+    expect(screen.getByTestId('module-toggle-demo')).toBeDisabled();
+
+    resolveSecond(payload([]));
+    await waitFor(() => expect(screen.getByTestId('module-toggle-demo')).toBeEnabled());
+  });
+
+  it('a failed discovery after switching distro drops the previous registry (review N2)', async () => {
+    let mode: 'ok' | 'fail' = 'ok';
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') {
+        if (mode === 'fail') throw new Error('WSL gone');
+        return payload([{ file: 'ext.json', status: 'ok', raw: EXT_MANIFEST }]);
+      }
+      return {};
+    });
+    const withTwoDistros: RendererSnapshot = { ...READY, distros: ['Ubuntu', 'Ubuntu中文'] };
+    const api: DesktopApi = {
+      ...makeApi(),
+      request: request as DesktopApi['request'],
+      getStatus: async () => withTwoDistros,
+      listDistros: async () => ['Ubuntu', 'Ubuntu中文'],
+      selectDistro: vi.fn(
+        async (d: string): Promise<RendererSnapshot> => ({ ...withTwoDistros, phase: 'ready', distro: d }),
+      ),
+    };
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    expect(await screen.findByTestId('tab-module-ext1/welcome')).toBeInTheDocument();
+
+    // switch distro (B) whose discovery FAILS: the previous environment's
+    // registry must not stay on screen — toggles would persist into B.
+    mode = 'fail';
+    const select = await screen.findByRole('combobox');
+    await user.selectOptions(select, 'Ubuntu中文');
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
+    await waitFor(() => expect(screen.getByTestId('modules-diagnostics')).toHaveTextContent('WSL gone'));
+    // the previous environment's external registry is gone; demo-only remains
+    expect(screen.queryByTestId('module-row-state-module-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('module-row-state-module-0')).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-module-ext1/welcome')).not.toBeInTheDocument();
+  });
+
 });

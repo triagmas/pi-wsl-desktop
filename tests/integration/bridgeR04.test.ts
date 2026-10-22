@@ -8,6 +8,7 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, w
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
 import type { ResponseErrorFrameT, ResponseOkFrameT } from '../../src/shared/protocol';
 import { PROTOCOL_VERSION } from '../../src/shared/protocol';
 import { ListModulesResultSchema, MAX_MODULE_FILE_BYTES } from '../../src/shared/m3Ipc';
@@ -25,6 +26,20 @@ function req(requestId: string, method: string, params?: Record<string, unknown>
     ...(params ? { params } : {}),
   });
 }
+
+
+// Review N3: make the state-tmp suffix deterministic so a symlink can be
+// planted at the ACTUAL name the bridge will use — this is what proves the
+// exclusive create (`flag: 'wx'`), not just the random-name scheme. Other
+// sizes keep the real implementation.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return {
+    ...actual,
+    randomBytes: (size: number) =>
+      size === 6 ? Buffer.alloc(6, 0xab) : actual.randomBytes(size),
+  };
+});
 
 function tempHome(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'piwsd-r04-home-'));
@@ -553,6 +568,30 @@ describe('M3 R04 hardening — discovery path/size rules (direct)', () => {
     }
     expect(readFileSync(victim, 'utf8')).toBe('PRECIOUS');
     rmSync(path.join(dir, 'module-state.json.tmp-1-1'), { force: true });
+  });
+
+  it('case 15b: a planted tmp symlink at the ACTUAL tmp name fails the write closed (review N3)', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'module-state.json');
+    const victim = path.join(home, 'victim.txt');
+    writeFileSync(victim, 'PRECIOUS');
+
+    const now = 1_700_000_000_000;
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      // deterministic randomBytes(6) → 0xabababababab (see vi.mock above):
+      // this IS the exact tmp path the bridge will try to create.
+      const actualTmp = path.join(dir, `.state-tmp-${process.pid}-${now}-abababababab`);
+      symlinkSync(victim, actualTmp);
+      await expect(writeModuleState(home, 'alpha', false)).rejects.toThrow(/write failed|EEXIST/i);
+    } finally {
+      spy.mockRestore();
+    }
+    // fail-closed: the symlinked target was never opened and nothing persisted
+    expect(readFileSync(victim, 'utf8')).toBe('PRECIOUS');
+    expect(existsSync(file)).toBe(false);
   });
 
   it.runIf(process.platform !== 'win32')(

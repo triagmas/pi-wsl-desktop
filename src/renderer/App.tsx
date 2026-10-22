@@ -34,7 +34,7 @@ type View = 'status' | 'sessions' | 'resources' | 'modules' | `module:${string}`
 
 export function App({ api, moduleDefinitions }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
-  const { snapshot, requestError, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
+  const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
   const [view, setView] = useState<View>('status');
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
@@ -50,12 +50,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * are cancelled by the effect cleanup). 'error' still runs the request so
    * the failure surfaces as visible diagnostics instead of a silent spinner.
    */
+  // `connectionSeq` is monotonic across reconnects (review N1): attempt alone
+  // resets to 0 on every READY and would let the key repeat.
   const readyKey = !effectiveApi
     ? 'no-api'
     : snapshot.phase === 'ready' && snapshot.distro !== null
-      ? `ready:${snapshot.distro}:${snapshot.attempt}`
+      ? `ready:${snapshot.distro}:${snapshot.attempt}:${connectionSeq}`
       : snapshot.phase === 'error'
-        ? `error:${snapshot.attempt}`
+        ? `error:${snapshot.attempt}:${connectionSeq}`
         : 'wait';
   /** Review #6: toggles stay disabled until discovery settles (no lost toggles).
    * Derived (no sync setState in the effect): loading = the connection key we
@@ -91,6 +93,11 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         const parsed = ListModulesResultSchema.safeParse(response);
         if (!parsed.success) {
           problems.push('listModules: bridge вернул некорректный ответ (внешние модули пропущены)');
+          if (!cancelled) {
+            // N2: invalid payload counts as failure for registry isolation too.
+            setModuleEntries(registerModules([DEMO_MODULE_MANIFEST]));
+            confirmedRef.current = new Map<string, boolean>([[String(DEMO_MODULE_MANIFEST.id), true]]);
+          }
         } else {
           const result = parsed.data;
           const raws: unknown[] = [DEMO_MODULE_MANIFEST];
@@ -121,6 +128,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         }
       } catch (error) {
         problems.push(`listModules: ${error instanceof Error ? error.message : String(error)}`);
+        if (!cancelled) {
+          // Review N2: a failed discovery must never leave the PREVIOUS
+          // environment's registry on screen — its toggles would persist into
+          // the new environment. Fall back to the built-in demo only.
+          setModuleEntries(registerModules([DEMO_MODULE_MANIFEST]));
+          confirmedRef.current = new Map<string, boolean>([[String(DEMO_MODULE_MANIFEST.id), true]]);
+        }
       }
       if (!cancelled) {
         setLoadDiagnostics(problems.slice(0, 64));

@@ -29,6 +29,13 @@ export const MAX_MODULE_FILE_BYTES = 65_536;
 export const MAX_MODULE_FILES = 64;
 /** Hard cap on bridge-level diagnostics returned in one result. */
 export const MAX_MODULE_DIAGNOSTICS = 64;
+
+/**
+ * Serialized response budget for one listModules frame: 64 × 64KiB would
+ * encode to ~4MiB against MAX_FRAME_BYTES (1MiB) and kill the bridge — the
+ * bridge must fail closed instead (review P1, R04).
+ */
+export const MAX_RESULT_BUDGET_BYTES = 786_432; // 768 KiB
 /** Hard byte cap for the persisted state file. */
 export const MAX_STATE_FILE_BYTES = 262_144;
 /** Hard cap on persisted module-state entries. */

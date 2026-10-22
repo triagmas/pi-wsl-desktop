@@ -22,6 +22,7 @@
  * - `state` is embedded here (Task 6 replaces the `{}` placeholder with the
  *   persisted enable/disable map read from the app-owned state file).
  */
+import { randomBytes } from 'node:crypto';
 import { constants as fsConstants, promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { BridgeError } from '../shared/errors';
@@ -38,8 +39,7 @@ import {
   STATE_FILE_VERSION,
   type ListModulesResult,
   type ModuleFileEntry,
-  type SetModuleStateResult,
-} from '../shared/m3Ipc';
+  type SetModuleStateResult, MAX_RESULT_BUDGET_BYTES } from '../shared/m3Ipc';
 
 /** Absolute modules root for a given home (bridge-owned, no caller input). */
 export function modulesRoot(home: string): string {
@@ -89,7 +89,10 @@ async function readManifestFile(root: string, name: string): Promise<ModuleFileE
 
   let handle;
   try {
-    handle = await fsp.open(full, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    handle = await fsp.open(
+      full,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+    );
   } catch (error) {
     return errEntry(name, `unreadable: ${fsErrorText(error)}`);
   }
@@ -161,6 +164,29 @@ export async function discoverModules(home: string): Promise<ListModulesResult> 
     return empty(false);
   }
 
+  // Component pinning (review P1): containment alone still allows a symlinked
+  // root/.pi-desktop pointing at ANOTHER directory inside home (e.g. a symlink
+  // to `~/.pi/agent` would ship auth.json as a "manifest"). Every component
+  // that must exist has to be a REAL directory; all later operations then use
+  // that proven path. (Parent retarget by a writer of $HOME between this check
+  // and open remains a disclosed same-user residual — see ROADMAP R04.)
+  for (const [label, component] of [
+    ['app state directory', path.join(home, '.pi-desktop')],
+    ['modules root', root],
+  ] as const) {
+    try {
+      const st = await fsp.lstat(component);
+      if (!st.isDirectory() || st.isSymbolicLink()) {
+        addDiagnostic(`${label} is not a real directory (symlink); discovery disabled`);
+        return empty(false);
+      }
+    } catch (error) {
+      if ((error as { code?: unknown }).code === 'ENOENT') continue; // fresh install paths
+      addDiagnostic(`${label} unreadable: ${fsErrorText(error)}`);
+      return empty(false);
+    }
+  }
+
   let names: string[];
   try {
     names = (await fsp.readdir(root)).filter((name) => MODULE_FILE_NAME_RE.test(name)).sort();
@@ -177,9 +203,24 @@ export async function discoverModules(home: string): Promise<ListModulesResult> 
     names = names.slice(0, MAX_MODULE_FILES);
   }
 
+  // Response budget (review P1): 64 × 64KiB would encode to ~4MiB against a
+  // 1MiB transport frame — the encode would kill the bridge instead of
+  // failing closed. Total payload bytes are capped with an honest diagnostic.
   const files: ModuleFileEntry[] = [];
+  let usedBytes = 0;
+  let omitted = 0;
   for (const name of names) {
-    files.push(await readManifestFile(root, name));
+    const entry = await readManifestFile(root, name);
+    const size = Buffer.byteLength(JSON.stringify(entry), 'utf8') + 32;
+    if (usedBytes + size > MAX_RESULT_BUDGET_BYTES) {
+      omitted += 1;
+      continue;
+    }
+    usedBytes += size;
+    files.push(entry);
+  }
+  if (omitted > 0) {
+    addDiagnostic(`manifest response budget exceeded; ${omitted} file(s) omitted`);
   }
 
   return { available: true, files, diagnostics, state: {} };
@@ -263,7 +304,10 @@ async function inspectState(home: string): Promise<StateInspection> {
 
   let handle;
   try {
-    handle = await fsp.open(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    handle = await fsp.open(
+      file,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+    );
   } catch (error) {
     return { state: {}, base: null, problem: `module state unreadable: ${fsErrorText(error)}` };
   }
@@ -289,7 +333,7 @@ async function inspectState(home: string): Promise<StateInspection> {
     }
     const doc = parsed as Record<string, unknown>;
     if (doc.version !== undefined && doc.version !== STATE_FILE_VERSION) {
-      return { state: {}, base: null, problem: `unsupported module state version: ${String(doc.version).slice(0, 40)}` };
+      return { state: {}, base: null, problem: 'module state has an unsupported version (state ignored)' };
     }
     const rawModules = doc.modules ?? {};
     if (rawModules === null || typeof rawModules !== 'object' || Array.isArray(rawModules)) {
@@ -298,11 +342,11 @@ async function inspectState(home: string): Promise<StateInspection> {
     const state: Record<string, boolean> = {};
     for (const [id, value] of Object.entries(rawModules as Record<string, unknown>)) {
       if (!ModuleIdSchema.safeParse(id).success) {
-        return { state: {}, base: null, problem: `module state contains an invalid id (${id.slice(0, 40)})` };
+        return { state: {}, base: null, problem: 'module state contains an invalid module id (state ignored)' };
       }
       if (value === null || typeof value !== 'object'
         || typeof (value as { enabled?: unknown }).enabled !== 'boolean') {
-        return { state: {}, base: null, problem: `module state entry "${id}" is malformed` };
+        return { state: {}, base: null, problem: 'module state entry is malformed (state ignored)' };
       }
       state[id] = (value as { enabled: boolean }).enabled;
     }
@@ -388,9 +432,15 @@ async function performStateWrite(
   } catch (error) {
     throw new BridgeError('UNKNOWN', `setModuleState: cannot create app state directory (${fsErrorText(error)})`);
   }
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  // Exclusive random tmp (review P1): 'wx' refuses to open ANY existing path
+  // component (a planted symlink is never followed, the target never
+  // truncated), and the random suffix removes the predictable name.
+  const tmp = path.join(
+    dir,
+    `.state-tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`,
+  );
   try {
-    await fsp.writeFile(tmp, payload, { mode: 0o600 });
+    await fsp.writeFile(tmp, payload, { mode: 0o600, flag: 'wx' });
     await fsp.rename(tmp, file);
   } catch (error) {
     await fsp.rm(tmp, { force: true }).catch(() => undefined);

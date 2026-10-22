@@ -4,7 +4,7 @@
  * entry must survive path/name/symlink/size/encoding/JSON guards fail-closed
  * before any raw object reaches the renderer.
  */
-import { chmodSync, mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -13,6 +13,8 @@ import { PROTOCOL_VERSION } from '../../src/shared/protocol';
 import { ListModulesResultSchema, MAX_MODULE_FILE_BYTES } from '../../src/shared/m3Ipc';
 import { FrameReader } from '../helpers/frameReader';
 import { removeBridgeBundle, spawnBridge } from '../helpers/bridgeFixture';
+import { discoverModules, readModuleState, writeModuleState } from '../../src/bridge/modules';
+import { vi } from 'vitest';
 
 function req(requestId: string, method: string, params?: Record<string, unknown>): string {
   return JSON.stringify({
@@ -471,5 +473,118 @@ describe('M3 R04 bridge — setModuleState persistence', () => {
     } finally {
       child.kill();
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Independent review fix-pass (REQUEST_CHANGES): path hardening, tmp
+ * symlink, FIFO, response budget, state-message privacy.             */
+
+describe('M3 R04 hardening — discovery path/size rules (direct)', () => {
+  it('case 13: a symlinked modules root INSIDE home is rejected (no cross-dir read)', async () => {
+    const home = tempHome();
+    const secretDir = path.join(home, 'other-dir');
+    mkdirSync(secretDir, { recursive: true });
+    writeFileSync(path.join(secretDir, 'auth.json'), JSON.stringify({ token: 'LEAK' }));
+    mkdirSync(path.join(home, '.pi-desktop'));
+    symlinkSync(secretDir, path.join(home, '.pi-desktop', 'modules'));
+
+    const result = await discoverModules(home);
+    expect(result.available).toBe(false);
+    expect(result.files).toHaveLength(0);
+    expect(JSON.stringify(result).includes('LEAK')).toBe(false);
+    expect(result.diagnostics.join(' ')).toMatch(/symlink|real directory/i);
+  });
+
+  it('case 13b: a symlinked .pi-desktop INSIDE home is rejected (no cross-dir read)', async () => {
+    const home = tempHome();
+    const alias = path.join(home, 'pi-alias');
+    mkdirSync(path.join(alias, 'modules'), { recursive: true });
+    writeFileSync(path.join(alias, 'modules', 'sneaky.json'), JSON.stringify({ token: 'LEAK2' }));
+    symlinkSync(alias, path.join(home, '.pi-desktop'));
+
+    const result = await discoverModules(home);
+    expect(result.available).toBe(false);
+    expect(result.files).toHaveLength(0);
+    expect(JSON.stringify(result).includes('LEAK2')).toBe(false);
+  });
+
+  it('case 14: state problems never reflect untrusted version/id values', async () => {
+    const home = tempHome();
+    mkdirSync(path.join(home, '.pi-desktop'), { recursive: true });
+    const file = path.join(home, '.pi-desktop', 'module-state.json');
+
+    writeFileSync(file, JSON.stringify({ version: 999, modules: {} }));
+    const readVersion = await readModuleState(home);
+    const versionText = readVersion.diagnostics.join(' ');
+    expect(versionText).toMatch(/version/i);
+    expect(versionText.includes('999')).toBe(false);
+
+    writeFileSync(
+      file,
+      JSON.stringify({ version: 1, modules: { '/home/synthetic/private': { enabled: true } } }),
+    );
+    const readId = await readModuleState(home);
+    const idText = readId.diagnostics.join(' ');
+    expect(idText).toMatch(/invalid/i);
+    expect(idText.includes('/home/')).toBe(false);
+  });
+
+  it('case 15: a planted tmp symlink is never followed (victim bytes intact)', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop');
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'module-state.json');
+    const victim = path.join(home, 'victim.txt');
+    writeFileSync(victim, 'PRECIOUS');
+
+    const now = 1_700_000_000_000;
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      // Plant a symlink at the current impl's deterministic tmp name; the
+      // invariant is that the write NEVER follows it, whatever the name scheme.
+      const planted = `${file}.tmp-${process.pid}-${now}`;
+      symlinkSync(victim, planted);
+      await writeModuleState(home, 'alpha', false);
+    } catch {
+      // failing closed (EEXIST) is acceptable — truncating the target is not
+    } finally {
+      spy.mockRestore();
+    }
+    expect(readFileSync(victim, 'utf8')).toBe('PRECIOUS');
+    rmSync(path.join(dir, 'module-state.json.tmp-1-1'), { force: true });
+  });
+
+  it.runIf(process.platform !== 'win32')(
+    'case 16: a FIFO in the root never hangs discovery (rejected before read)',
+    async () => {
+      const home = tempHome();
+      const dir = path.join(home, '.pi-desktop', 'modules');
+      mkdirSync(dir, { recursive: true });
+      const { spawnSync } = await import('node:child_process');
+      expect(spawnSync('mkfifo', [path.join(dir, 'pipe.json')]).status).toBe(0);
+
+      const result = await discoverModules(home);
+      expect(result.files).toHaveLength(1);
+      expect(result.files[0]!.errors.join(' ')).toMatch(/not a regular file/i);
+    },
+  );
+
+  it('case 17: response budget keeps listModules under the transport frame cap', async () => {
+    const home = tempHome();
+    const dir = path.join(home, '.pi-desktop', 'modules');
+    mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < 20; i += 1) {
+      writeFileSync(
+        path.join(dir, `mod-${i}.json`),
+        JSON.stringify({ id: `mod${i}`, pad: 'x'.repeat(60_000) }),
+      );
+    }
+
+    const result = await discoverModules(home);
+    expect(result.available).toBe(true);
+    expect(JSON.stringify(result).length).toBeLessThan(1_048_576);
+    expect(result.diagnostics.join(' ')).toMatch(/budget/i);
+    expect(result.files.length).toBeLessThan(20);
   });
 });

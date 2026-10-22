@@ -315,3 +315,21 @@ describe('M3 R04 — manifest collection caps (oversized input)', () => {
     if (!tooMany.ok) expect(tooMany.errors.join(' ')).toMatch(/params/);
   });
 });
+
+describe('M3 R04 fix-pass — bounded capabilities collection (review #8)', () => {
+  it('rejects a capability declaration beyond the collection cap (64)', () => {
+    const manifest = {
+      ...validManifest(),
+      capabilities: Array(65).fill('runtime'),
+    };
+    expect(m3.parseModuleManifest(manifest).ok).toBe(false);
+  });
+
+  it('accepts exactly the cap amount', () => {
+    const manifest = {
+      ...validManifest(),
+      capabilities: Array(64).fill('runtime'),
+    };
+    expect(m3.parseModuleManifest(manifest).ok).toBe(true);
+  });
+});

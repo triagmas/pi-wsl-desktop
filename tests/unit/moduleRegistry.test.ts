@@ -404,3 +404,23 @@ describe('M3 R04 — ALL diagnostics are bounded (P2: direct causes included)', 
     expect(entry.errors[entry.errors.length - 1]).toMatch(/further dependency diagnostics truncated/);
   });
 });
+
+describe('module registry — review #8: bounded/deduped capability diagnostics', () => {
+  it('dedupes repeated missing capabilities and bounds the error list', () => {
+    const entries = registerModules([
+      validRaw({ id: 'noisy', capabilities: Array(40).fill('notifications') }),
+    ]);
+    const entry = entries[0]!;
+    expect(entry.state).toBe('incompatible');
+    // dedupe: 40 identical declarations produce ONE missing-capability message
+    const notif = entry.errors.filter((e) => e.includes('notifications'));
+    expect(notif).toHaveLength(1);
+    // bounded: even many UNIQUE failures stay within cap + truncation marker
+    expect(entry.errors.length).toBeLessThanOrEqual(33);
+  });
+
+  // NOTE: unique missing capabilities cannot exceed MODULE_CAPABILITIES (5
+  // enum values), so the truncation marker is unreachable via capabilities —
+  // pushBounded is still applied as defense-in-depth; the reachable defect
+  // was the duplicate-declaration case above (40 messages → 1).
+});

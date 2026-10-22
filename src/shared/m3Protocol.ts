@@ -125,7 +125,7 @@ export const ModuleManifestSchema = z
     id: ModuleIdSchema,
     version: SemverSchema,
     apiVersion: z.number().int().positive(),
-    capabilities: z.array(z.enum(MODULE_CAPABILITIES)).min(1),
+    capabilities: z.array(z.enum(MODULE_CAPABILITIES)).min(1).max(64),
     ui: z.array(ModuleUiEntrySchema).min(1).max(MAX_UI_ENTRIES),
     actions: z.array(ModuleActionSchema).max(MAX_ACTIONS).default([]),
     dependencies: z.array(z.union([ModuleIdSchema, ModuleDependencySchema])).max(MAX_DEPENDENCIES).default([]),

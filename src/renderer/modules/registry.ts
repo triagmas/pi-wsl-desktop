@@ -264,14 +264,20 @@ export function registerModules(
     seenIds.add(parsed.manifest.id);
     const { missing } = resolveCapabilities(parsed.manifest.capabilities, available);
     if (missing.length > 0) {
+      // Review #8: dedupe repeated declarations (40 × "notifications" → one
+      // message) and bound the list like every other diagnostic channel.
+      const uniqueMissing = [...new Set(missing)];
+      const errors: string[] = [];
+      pushBounded(
+        errors,
+        uniqueMissing.map((capability) => `capability "${capability}" is not provided by the host`),
+      );
       entries.push({
         key,
         id: parsed.manifest.id,
         state: 'incompatible',
         manifest: null,
-        errors: missing.map(
-          (capability) => `capability "${capability}" is not provided by the host`,
-        ),
+        errors,
       });
       return;
     }

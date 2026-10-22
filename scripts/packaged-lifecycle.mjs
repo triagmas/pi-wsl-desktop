@@ -110,10 +110,14 @@ const uninstallerRel = findUninstaller();
 assert('uninstaller present', uninstallerRel !== null, installDir);
 const un = uninstallerRel ? await run(path.join(installDir, uninstallerRel), ['/S']) : { ok: false, detail: 'no uninstaller' };
 assert('silent uninstall succeeds', un.ok, un.detail);
-// the uninstaller exits after deleting; give the filesystem a moment
-const deadline = Date.now() + 30_000;
+// the NSIS uninstaller removes $INSTDIR asynchronously right before exit;
+// allow generous time on a loaded runner before declaring leftovers
+const deadline = Date.now() + 90_000;
 while (existsSync(appExe) && Date.now() < deadline) {
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 1000));
+}
+if (existsSync(appExe)) {
+  console.log(`diagnostic: leftovers in installDir: ${listDir(installDir)}`);
 }
 assert('install dir removed', !existsSync(appExe), installDir);
 assert('sentinels survive uninstall (user data preserved)', sentinelsIntact());

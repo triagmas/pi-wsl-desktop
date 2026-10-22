@@ -80,7 +80,7 @@ export const ModuleUiEntrySchema = z.object({
 export type ModuleUiEntry = z.infer<typeof ModuleUiEntrySchema>;
 
 /** Strict slug for the module id — also the registry key. */
-const ModuleIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
+export const ModuleIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/);
 
 /** Minimal semver: MAJOR.MINOR.PATCH with optional pre-release. */
 const SemverSchema = z

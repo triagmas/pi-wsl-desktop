@@ -13,7 +13,7 @@
  */
 import { parseModuleManifest, type ModuleManifest, type ModuleUiEntry } from '../../shared/m3Protocol';
 
-export type ModuleState = 'enabled' | 'disabled' | 'invalid' | 'incompatible';
+export type ModuleState = 'enabled' | 'disabled' | 'blocked' | 'invalid' | 'incompatible';
 
 export interface ModuleEntry {
   /** Stable per-registration key (survives duplicate ids). */
@@ -40,6 +40,73 @@ function entryId(raw: unknown): string {
     if (typeof id === 'string' && id.length > 0) return id;
   }
   return 'unknown';
+}
+
+/**
+ * Recompute dependency availability from the whole registry. Dependencies
+ * are declarative: they never load arbitrary code or grant capabilities.
+ * A dependent may contribute UI only when every declared provider exists,
+ * is compatible and is enabled. Disabled entries represent explicit user
+ * intent; a blocked entry automatically recovers when its providers return.
+ *
+ * Lookups are order independent. DFS detects cycles rather than admitting
+ * an unreachable dependency graph. This function only operates on manifests
+ * already accepted by parseModuleManifest (no file IO / Pi mutations).
+ */
+function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
+  const validById = new Map<string, ModuleEntry>();
+  for (const entry of entries) {
+    if (entry.manifest && entry.state !== 'invalid' && entry.state !== 'incompatible') {
+      validById.set(entry.manifest.id, entry);
+    }
+  }
+
+  type Resolution = { ok: boolean; errors: string[] };
+  const resolved = new Map<string, Resolution>();
+
+  const resolve = (entry: ModuleEntry, stack: readonly string[]): Resolution => {
+    const manifest = entry.manifest!;
+    if (stack.includes(manifest.id)) {
+      return {
+        ok: false,
+        errors: [`dependency cycle detected: ${[...stack, manifest.id].join(' -> ')}`],
+      };
+    }
+    if (entry.state === 'disabled') {
+      return { ok: false, errors: [`module "${manifest.id}" is disabled`] };
+    }
+
+    const cached = resolved.get(manifest.id);
+    if (cached) return cached;
+
+    const errors: string[] = [];
+    for (const dependency of manifest.dependencies) {
+      const required = validById.get(dependency);
+      if (!required) {
+        errors.push(`dependency "${dependency}" is missing or invalid/incompatible`);
+        continue;
+      }
+      const result = resolve(required, [...stack, manifest.id]);
+      if (!result.ok) {
+        errors.push(...result.errors.map((error) => `dependency "${dependency}": ${error}`));
+      }
+    }
+
+    const outcome = { ok: errors.length === 0, errors };
+    resolved.set(manifest.id, outcome);
+    return outcome;
+  };
+
+  return entries.map((entry) => {
+    if (!entry.manifest || entry.state === 'invalid' || entry.state === 'incompatible') {
+      return entry;
+    }
+    if (entry.state === 'disabled') return entry;
+    const resolution = resolve(entry, []);
+    return resolution.ok
+      ? { ...entry, state: 'enabled', errors: [] }
+      : { ...entry, state: 'blocked', errors: resolution.errors };
+  });
 }
 
 export function registerModules(raws: readonly unknown[]): ModuleEntry[] {
@@ -82,7 +149,7 @@ export function registerModules(raws: readonly unknown[]): ModuleEntry[] {
     });
   });
 
-  return entries;
+  return reconcileDependencies(entries);
 }
 
 /**
@@ -95,12 +162,13 @@ export function setModuleEnabled(
   id: string,
   enabled: boolean,
 ): ModuleEntry[] {
-  return entries.map((entry) => {
+  const toggled = entries.map((entry) => {
     if (entry.manifest?.id !== id) return entry;
-    if (entry.state !== 'enabled' && entry.state !== 'disabled') return entry;
+    if (entry.state !== 'enabled' && entry.state !== 'disabled' && entry.state !== 'blocked') return entry;
     const next: ModuleState = enabled ? 'enabled' : 'disabled';
     return next === entry.state ? entry : { ...entry, state: next };
   });
+  return reconcileDependencies(toggled);
 }
 
 /** Tab projection for the renderer: enabled modules only. */

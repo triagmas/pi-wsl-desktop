@@ -144,10 +144,10 @@
 ### R01 — Windows Installer & Release Packaging ([Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16), ветка `feat/m4-release-packaging-r01`)
 
 - [x] Выбор минимального packaging-механизма с обоснованием: `electron-builder@26.15.3` (exact), NSIS x64, unsigned, per-user — обоснование и жизненный цикл: [docs/release/m4-r01-packaging.md](docs/release/m4-r01-packaging.md).
-- [x] Release-контракт (TDD): версия `1.0.0-rc.1`, `deleteAppDataOnUninstall:false`, без custom NSIS, `publish:never`, без differential packages, bridge как реальный файл в `resources/` (WSL не читает asar) — `tests/unit/releaseContract.test.ts`, `src/main/paths.ts`.
-- [x] Лицензии: MIT + `THIRD_PARTY_NOTICES.md` (контракт покрытия production deps).
-- [x] Локальная сборка win-unpacked: содержимое проверено `scripts/verify-release.mjs` (8/8 PASS); NSIS-финализация на Linux требует wine — локально NOT RUN, инсталлятор собирается и проверяется в Windows CI.
-- [x] CI: Windows job собирает инсталлятор, верифицирует содержимое, гоняет packaged smoke (boot без dev-сервера, fail-closed `WSL_UNAVAILABLE` без WSL), выгружает артефакт на 14 дней; Linux job без изменений.
+- [x] Release-контракт (TDD): версия `1.0.0-rc.1`, one-click per-user без elevation и выбора каталога (`oneClick:true` + `perMachine:false`), `deleteAppDataOnUninstall:false`, без custom NSIS (`script`/`include`/`installer.nsi|nsh`), `publish:never`, без differential packages, bridge как реальный файл в `resources/` (WSL не читает asar), полные MIT-тексты лицензий в asar — `tests/unit/releaseContract.test.ts`, `src/main/paths.ts`.
+- [x] Лицензии: MIT + `THIRD_PARTY_NOTICES.md` с полными дословными LICENSE react/react-dom/zod и контрактом сверки с `node_modules`.
+- [x] Локальная сборка win-unpacked: содержимое проверено `scripts/verify-release.mjs` (10/10 PASS, включая LICENSE/NOTICES в asar); NSIS-финализация на Linux требует wine — локально NOT RUN, инсталлятор собирается и проверяется в Windows CI.
+- [x] CI: Windows job собирает инсталлятор, верифицирует содержимое, гоняет packaged smoke (boot без dev-сервера, fail-closed `WSL_UNAVAILABLE` без WSL) и синтетический lifecycle install→upgrade→uninstall с sentinel-файлами пользовательских данных (`scripts/packaged-lifecycle.mjs`), выгружает артефакт на 14 дней; Linux job без изменений.
 - [ ] Реальная установка/обновление/удаление в рабочем Windows-профиле и запуск установленного приложения с реальным WSL+Pi — **NOT RUN (требуется прямое разрешение владельца)** — обязательный гейт до объявления 1.0.0.
 - [ ] Финальная приёмка M4, release notes и объявление 1.0.0 — после всех R-задач M4 и независимого review.
 

@@ -81,15 +81,21 @@ describe('M4 R01 — electron-builder configuration contract', () => {
   });
 
   it('install/update/uninstall must preserve user data and the machine', () => {
-    // per-user install: no elevation, no machine-wide changes
+    // oneClick=true + perMachine=false is the only combination that is
+    // ALWAYS per-user with NO elevation and NO install-mode page (the
+    // assisted installer would offer a per-machine mode; the directory is
+    // fixed, so the uninstaller's RMDir /r can never reach user projects)
+    expect(build.nsis?.oneClick).toBe(true);
     expect(build.nsis?.perMachine).toBe(false);
-    expect(build.nsis?.oneClick).toBe(false);
-    expect(build.nsis?.allowToChangeInstallationDirectory).toBe(true);
+    expect(build.nsis?.allowToChangeInstallationDirectory).toBeUndefined();
     // THE data guarantee: uninstalling never deletes the user profile
     expect(build.nsis?.deleteAppDataOnUninstall).toBe(false);
-    // no custom NSIS hooks — nothing may run arbitrary install-time scripts
-    expect(build.nsis?.customScript).toBeUndefined();
+    // no custom NSIS hooks — nothing may run arbitrary install-time scripts;
+    // electron-builder also auto-loads build/installer.nsi|nsh when present
+    expect(build.nsis?.script).toBeUndefined();
     expect(build.nsis?.include).toBeUndefined();
+    expect(existsSync(path.join(root, 'build', 'installer.nsi'))).toBe(false);
+    expect(existsSync(path.join(root, 'build', 'installer.nsh'))).toBe(false);
   });
 
   it('produces a versioned, predictably named installer artifact', () => {

@@ -7,21 +7,26 @@
  * CI runner. It uses the app's own env-gated smoke-report sink, the same
  * mechanism the existing manual Windows smoke uses.
  *
- * Usage: node scripts/packaged-smoke.mjs [releaseDir]   (default: release)
+ * A snapshot only counts if it was written by THIS process (pid match)
+ * while the process was alive; a crash or early exit between polls fails
+ * the smoke instead of being mistaken for success.
+ *
+ * Usage: node scripts/packaged-smoke.mjs [winUnpackedDir]   (default: release/win-unpacked)
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { repoRootFrom } from './lib/releasePaths.mjs';
 
 if (process.platform !== 'win32') {
   console.error('packaged-smoke: Windows only — NOT RUN on this host');
   process.exit(2);
 }
 
-const root = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')).replace(/\/scripts$/, '');
-const dir = path.resolve(process.argv[2] ?? path.join(root, 'release'));
-const exe = path.join(dir, 'win-unpacked', 'Pi WSL Desktop.exe');
+const root = repoRootFrom(import.meta.url);
+const dir = path.resolve(process.argv[2] ?? path.join(root, 'release', 'win-unpacked'));
+const exe = path.join(dir, 'Pi WSL Desktop.exe');
 if (!existsSync(exe)) {
   console.error(`packaged-smoke: ${exe} missing — run electron-builder first`);
   process.exit(1);
@@ -36,25 +41,44 @@ const child = spawn(exe, [], {
     ...process.env,
     PI_WS_DESKTOP_SMOKE_REPORT: sink,
     PI_WS_DESKTOP_WSL_PATH: bogusWsl,
-    // Prove there is no dev server: point nothing at localhost anywhere.
   },
   stdio: 'ignore',
 });
 
 const started = Date.now();
+let exited = null;
 let snapshots = [];
-const finish = (code, detail) => {
-  try {
+child.on('exit', (code, signal) => {
+  exited = { code, signal };
+});
+
+const cleanup = async () => {
+  if (exited === null) {
     child.kill();
-  } catch {
-    /* already gone */
+    await new Promise((resolve) => {
+      const t = setTimeout(resolve, 10_000);
+      child.once('close', () => {
+        clearTimeout(t);
+        resolve(undefined);
+      });
+    });
   }
   rmSync(tmp, { recursive: true, force: true });
+};
+
+const finish = async (code, detail) => {
+  await cleanup();
   console.log(`${code === 0 ? 'ok  ' : 'FAIL'} packaged smoke — ${detail}`);
   process.exit(code);
 };
 
 const timer = setInterval(() => {
+  // a crash before the terminal snapshot is a FAILURE, not a pass
+  if (exited !== null) {
+    clearInterval(timer);
+    void finish(1, `app exited early (code=${exited.code} signal=${exited.signal}) before a terminal snapshot`);
+    return;
+  }
   if (existsSync(sink)) {
     snapshots = readFileSync(sink, 'utf8')
       .split('\n')
@@ -67,19 +91,20 @@ const timer = setInterval(() => {
         }
       })
       .filter(Boolean);
-    const terminal = snapshots.find((s) => s.phase === 'error');
+    // snapshots must come from THIS process and be observed while alive
+    const terminal = snapshots.find((s) => s.phase === 'error' && s.pid === child.pid);
     if (terminal) {
       clearInterval(timer);
-      if (terminal.code === 'WSL_UNAVAILABLE' && terminal.pid > 0) {
-        finish(0, `packaged app booted from installed files, reached bridge, failed closed: ${terminal.code} (attempt ${terminal.attempt})`);
+      if (terminal.code === 'WSL_UNAVAILABLE') {
+        void finish(0, `packaged app booted from installed files, reached bridge, failed closed: ${terminal.code} (attempt ${terminal.attempt})`);
       } else {
-        finish(1, `unexpected terminal snapshot: ${JSON.stringify(terminal)}`);
+        void finish(1, `unexpected terminal snapshot: ${JSON.stringify(terminal)}`);
       }
       return;
     }
   }
   if (Date.now() - started > 120_000) {
     clearInterval(timer);
-    finish(1, `no terminal snapshot within 120s; snapshots=${snapshots.length}`);
+    void finish(1, `no terminal snapshot within 120s; snapshots=${snapshots.length}`);
   }
 }, 500);

@@ -8,7 +8,7 @@ and lists exactly what was and was NOT verified.
 
 | Option | Verdict |
 |---|---|
-| **electron-builder + NSIS** (chosen) | De-facto standard, unsigned NSIS supported out of the box on standard runners and cross-builds from Linux (with wine for resource editing); declarative config auditable by unit tests; per-user install without elevation. |
+| **electron-builder + NSIS** (chosen) | De-facto standard, unsigned NSIS supported out of the box on standard runners and cross-builds from Linux (with wine for resource editing); declarative config auditable by unit tests; per-user install without elevation (the assisted installer would offer a per-machine mode — rejected). |
 | electron-forge | No first-party NSIS maker; Squirrel.Windows implies an auto-update model and .NET tooling — violates "no auto-update / no servers" for R01. |
 | Hand-written NSIS + @electron/packager | Maximal manual surface for exactly the guarantees R01 must not get wrong (data preservation, upgrades); rejected as the non-minimal path. |
 | Plain zip | Not an installer (fails Issue #16's install lifecycle requirement). |
@@ -43,25 +43,28 @@ no network updates; the file is inert. Disclosed here for the security review.
 
 ## Lifecycle & data guarantees (Issue #16)
 
-- **Install** (per-user, `perMachine: false`, no elevation): default
-  `%LOCALAPPDATA%\Programs\Pi WSL Desktop`; shortcuts in the user profile.
-  User data lives in `%APPDATA%\pi-wsl-desktop` (Electron `userData`) —
-  outside the install dir by construction. Settings
-  (`settings.json`, `module-state.json` under the user's `%APPDATA%`/HOME
-  equivalents) are never written by the installer.
+- **Install** (one-click, `oneClick: true` + `perMachine: false`): always
+  per-user, NO elevation, NO install-mode page and NO directory choice —
+  the install dir is fixed to `%LOCALAPPDATA%\Programs\Pi WSL Desktop`, so
+  the uninstaller's recursive delete can never reach an arbitrary user
+  directory. User data lives in `%APPDATA%\pi-wsl-desktop` (Electron
+  `userData`) — outside the install dir by construction. Settings
+  (`settings.json`, `module-state.json`) are never written by the installer.
 - **Update**: run the new installer over the old one (same `appId`
-  `io.pi-desktop.wsl`); NSIS replaces files, keeps `userData`. `userData`
-  location is not versioned into the install dir, so downgrade = install the
-  older artifact (rollback = keep the previous `PiWSLDesktop-<v>-setup.exe`;
-  release artifacts are retained 14 days on CI and must be archived by the
-  owner for rollback).
-- **Uninstall** (Add/Remove Programs): removes program files and shortcuts
-  only. `deleteAppDataOnUninstall: false` — user data survives. The
-  uninstaller has no access to WSL, `~/.pi`, `%USERPROFILE%\.pi`, or user
-  projects and cannot touch them.
-- **Install failure**: NSIS transactional file replacement; a failed run
-  leaves the previous installation functional (rollback = reinstall the
-  archived previous artifact). No data is involved in the install dir.
+  `io.pi-desktop.wsl`); files are replaced, `userData` is not versioned into
+  the install dir. No automatic transactional rollback is claimed: if a
+  partial update breaks the installation, recovery is reinstalling the
+  archived previous `PiWSLDesktop-<v>-setup.exe` (CI retains artifacts 14
+  days; the owner must archive artifacts for rollback). Downgrade = install
+  the older artifact the same way.
+- **Uninstall** (Add/Remove Programs): removes the program directory and
+  shortcuts only. `deleteAppDataOnUninstall: false` — user data survives;
+  WSL, `~/.pi` and user projects are outside the uninstaller's reach (fixed
+  install dir + no custom NSIS scripts).
+- **Verified synthetically in CI** (`scripts/packaged-lifecycle.mjs`):
+  silent install → re-install (upgrade) → silent uninstall against the
+  real NSIS artifacts, with sentinel files outside the install dir proving
+  user-data preservation on every step.
 - Never performed by any shipped component: `wsl --unregister`,
   `wsl --shutdown`, killing processes, writes into the user's Pi home.
 
@@ -82,7 +85,8 @@ no network updates; the file is inert. Disclosed here for the security review.
 |---|---|---|
 | Release contract unit tests (10) + notices (3) + paths (2) | local + CI Linux/Windows | PASS |
 | Full local Vitest (unit/contract/integration/ui) | local WSL | see final report |
-| Installer build + contents (`verify-release.mjs`) | local: win-unpacked 8/8 PASS (installer step needs wine on Linux — documented); CI Windows: full | CI authoritative |
+| Installer build + contents (`verify-release.mjs`) | local: win-unpacked 10/10 PASS (installer step needs wine on Linux — documented); CI Windows: full | CI authoritative |
+| Synthetic lifecycle: install → upgrade → uninstall with sentinel user-data files | CI Windows runner (`scripts/packaged-lifecycle.mjs`) | CI authoritative |
 | Packaged smoke (boots from installed files, no dev server, fails closed `WSL_UNAVAILABLE` without WSL) | CI Windows runner | CI authoritative |
 | Electron Playwright E2E, Repository Contract, Linux no-regressions | CI Linux | required PASS |
 | Real install/update/uninstall in the working Windows profile, real WSL+Pi from the installed app | manual | **NOT RUN (owner consent required)** — mandatory gate before declaring 1.0.0 |

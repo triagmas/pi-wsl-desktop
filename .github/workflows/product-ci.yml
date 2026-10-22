@@ -104,6 +104,12 @@ jobs:
       - name: Packaged smoke (no dev server, fail-closed without WSL)
         run: node scripts/packaged-smoke.mjs
 
+      # Synthetic install → upgrade → uninstall against the real NSIS
+      # artifacts with sentinel files proving user data outside the fixed
+      # per-user install dir is never touched. Throwaway runner profile.
+      - name: Synthetic lifecycle (install, upgrade, uninstall, sentinels)
+        run: node scripts/packaged-lifecycle.mjs
+
       - name: Upload Windows installer artifact (14-day retention)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

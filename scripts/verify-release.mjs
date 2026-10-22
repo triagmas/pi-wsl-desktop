@@ -10,8 +10,9 @@
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { normalizeAsarPath, repoRootFrom } from './lib/releasePaths.mjs';
 
-const root = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')).replace(/\/scripts$/, '');
+const root = repoRootFrom(import.meta.url);
 const dir = path.resolve(process.argv[2] ?? path.join(root, 'release'));
 const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const exe = path.join(dir, 'win-unpacked', 'Pi WSL Desktop.exe');
@@ -38,7 +39,8 @@ if (existsSync(asar)) {
   const require = createRequire(path.join(root, 'package.json'));
   try {
     const { listPackage } = require('@electron/asar');
-    const files = listPackage(asar);
+    // asar listings use the PLATFORM separator — normalize before asserting
+    const files = listPackage(asar).map(normalizeAsarPath);
     check('asar bundles dist/main/index.cjs', files.includes('/dist/main/index.cjs'));
     check('asar bundles dist/preload/index.cjs', files.includes('/dist/preload/index.cjs'));
     check('asar bundles dist/renderer/index.html', files.includes('/dist/renderer/index.html'));

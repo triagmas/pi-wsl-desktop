@@ -97,6 +97,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             // N2: invalid payload counts as failure for registry isolation too.
             setModuleEntries(registerModules([DEMO_MODULE_MANIFEST]));
             confirmedRef.current = new Map<string, boolean>([[String(DEMO_MODULE_MANIFEST.id), true]]);
+            // review #3 P2: an open module tab vanished with the registry —
+            // never leave an orphaned view with no active nav destination.
+            setView((current) => (current.startsWith('module:') ? 'modules' : current));
           }
         } else {
           const result = parsed.data;
@@ -134,6 +137,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           // the new environment. Fall back to the built-in demo only.
           setModuleEntries(registerModules([DEMO_MODULE_MANIFEST]));
           confirmedRef.current = new Map<string, boolean>([[String(DEMO_MODULE_MANIFEST.id), true]]);
+          // review #3 P2: an open module tab vanished with the registry —
+          // never leave an orphaned view with no active nav destination.
+          setView((current) => (current.startsWith('module:') ? 'modules' : current));
         }
       }
       if (!cancelled) {

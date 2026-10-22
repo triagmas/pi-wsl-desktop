@@ -748,4 +748,51 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     expect(screen.queryByTestId('tab-module-ext1/welcome')).not.toBeInTheDocument();
   });
 
+  it('falls back to the Modules view when a failed re-discovery drops the open module tab (review #3 P2)', async () => {
+    let mode: 'ok' | 'fail' = 'ok';
+    let loads = 0;
+    const request = vi.fn((method: string) => {
+      if (method === 'listModules') {
+        loads += 1;
+        if (mode === 'fail') return Promise.reject(new Error('WSL gone'));
+        return Promise.resolve(payload([{ file: 'ext.json', status: 'ok', raw: EXT_MANIFEST }]));
+      }
+      return Promise.resolve({});
+    });
+    let current: RendererSnapshot = { ...READY, phase: 'ready' };
+    const subs: Array<(s: RendererSnapshot) => void> = [];
+    const api: DesktopApi = {
+      request: request as DesktopApi['request'],
+      getStatus: async () => current,
+      retry: vi.fn(async () => current),
+      listDistros: async () => ['Ubuntu'],
+      selectDistro: vi.fn(async () => current),
+      onStateChange: (cb) => {
+        subs.push(cb);
+        return () => undefined;
+      },
+      onChatEvent: () => () => undefined,
+    };
+    const user = userEvent.setup();
+    render(<App api={api} />);
+
+    // open the external module's tab
+    await user.click(await screen.findByTestId('tab-module-ext1/welcome'));
+    expect(loads).toBe(1);
+
+    // reconnect whose discovery fails: the open tab disappears with the
+    // registry — the view must fall back to an ACTIVE nav destination
+    mode = 'fail';
+    current = { ...current, phase: 'connecting', attempt: 1 };
+    for (const cb of subs) cb(current);
+    current = { ...current, phase: 'ready', attempt: 0 };
+    for (const cb of subs) cb(current);
+
+    await waitFor(() => expect(screen.getByTestId('modules-diagnostics')).toHaveTextContent('WSL gone'));
+    expect(screen.queryByTestId('module-tab-ext1')).not.toBeInTheDocument();
+    // review #3 P2: no orphaned view — the Modules nav button is active again
+    expect(screen.getByTestId('tab-modules')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('modules-heading')).toBeInTheDocument();
+  });
+
 });

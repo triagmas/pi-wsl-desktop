@@ -42,6 +42,8 @@ if (existsSync(asar)) {
     check('asar bundles dist/main/index.cjs', files.includes('/dist/main/index.cjs'));
     check('asar bundles dist/preload/index.cjs', files.includes('/dist/preload/index.cjs'));
     check('asar bundles dist/renderer/index.html', files.includes('/dist/renderer/index.html'));
+    check('asar ships LICENSE (MIT redistribution)', files.includes('/LICENSE'));
+    check('asar ships THIRD_PARTY_NOTICES.md', files.includes('/THIRD_PARTY_NOTICES.md'));
     check(
       'asar contains NO raw node_modules',
       !files.some((f) => f.startsWith('/node_modules/')),

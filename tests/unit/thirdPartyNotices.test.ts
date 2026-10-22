@@ -19,5 +19,16 @@ describe('third-party notices', () => {
       expect(notices).toContain(name);
       expect(notices).toContain(range);
     });
+
+    // MIT redistribution requires the copyright + permission notice itself,
+    // not just a table row — the shipped text must match the installed
+    // package's LICENSE verbatim (at least its copyright line).
+    it(`carries the full MIT license text of ${name}`, () => {
+      const license = readFileSync(path.join(root, 'node_modules', name, 'LICENSE'), 'utf8');
+      const copyright = license.split('\n').find((l) => l.startsWith('Copyright'))!;
+      expect(copyright.length).toBeGreaterThan(0);
+      expect(notices).toContain(copyright);
+      expect(notices).toContain('Permission is hereby granted, free of charge');
+    });
   }
 });

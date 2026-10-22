@@ -51,6 +51,11 @@ describe('M4 R01 — electron-builder configuration contract', () => {
     expect(build.asar).toBe(true);
   });
 
+  it('ships license texts with the app (MIT redistribution requires them)', () => {
+    expect(build.files).toContain('LICENSE');
+    expect(build.files).toContain('THIRD_PARTY_NOTICES.md');
+  });
+
   it('packages only the built dist (no node_modules, no sources, no fixtures)', () => {
     expect(build.files).toContain('dist/**/*');
     expect(build.files).toContain('package.json');

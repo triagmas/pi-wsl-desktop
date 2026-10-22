@@ -5,7 +5,7 @@
 
 [📘 Продукт](PRODUCT.md) · [🛠️ Спецификация](SPECIFICATION.md) · [🤖 Правила для Pi](AGENTS.md) · [🎯 Roadmap Issue #1](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
-**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap, M0, M1 и **M2 приняты и слиты**; M3 Module System — подготовка ([Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10)); отложенные security/operational hardening — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9). **Разработка:** крупными тематическими пакетами и PR.
+**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap и **M0–M3 приняты и слиты**; M3 [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) закрыт, [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) squash-merged в `main` (`bb0e966`); **M4 — подготовка релиза** ([Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16)). Отложенные security/operational риски — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9). **Разработка:** крупными тематическими пакетами и PR.
 
 ---
 
@@ -17,8 +17,8 @@
 | **M0 — Foundation & WSL Bridge** | ✅ Принято | [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) closed · [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4) merged 2026-10-19 (`1c24cf23`) | [ACCEPT](https://github.com/triagmas/pi-wsl-desktop/pull/4#pullrequestreview-5568765644) · merge владельца |
 | **M1 — Sessions & Chat** | ✅ Принято | [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) closed · [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) merged 2026-10-20 (`6b3b9c03`) | [ACCEPT ревью](https://github.com/triagmas/pi-wsl-desktop/pull/6#pullrequestreview-5580577901) · squash merge владельца; real write/model prompt **NOT RUN** |
 | **M2 — Pi Manager** | ✅ Принято | [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) closed · [PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8) merged 2026-10-21 (`6107f959`) | [Финальное техническое ревью](https://github.com/triagmas/pi-wsl-desktop/pull/8#pullrequestreview-5587454200) · разрешённый владельцем squash merge, GitHub CI PASS; настоящие write/model prompt **NOT RUN**, token savings **NOT MEASURED**, остаточные риски → [#9](https://github.com/triagmas/pi-wsl-desktop/issues/9) |
-| **M3 — Module System** | 🟡 **Код, тесты, ревью и Windows+WSL smoke готовы** на Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) — ожидает только merge-решения владельца | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · ветка `feat/m3-module-system-r01` | Манфест модулей + capability check, реестр с включение/отключением, общий контракт вкладок, изоляция ошибок, демо-модуль; Vitest 410/8, E2E 10/10, Windows+WSL smoke PASS |
-| **M4 — Desktop 1.0** | ⬜ Запланирован | Будущий Issue | — |
+| **M3 — Module System** | ✅ **Принято и слито** | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) closed · [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) squash merged 2026-10-22 (`bb0e966`) | 32 файла, **+5101 / −37**; Product CI Linux 506 PASS / 15 SKIP + E2E 10/10, Windows 338 PASS / 5 SKIP; Repository Contract SUCCESS; real WSL + Windows GUI smoke PASS; residuals документированы |
+| **M4 — Desktop 1.0** | 🟡 **Подготовка (реализация не начата)** | [Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) OPEN | Установщик/обновление/удаление, Windows+WSL регрессии, security/privacy, лицензии и release artifacts; решение о релизе — отдельно |
 
 **Легенда:** ⬜ запланировано · 🟡 в работе / на ревью · ✅ принято · ⛔ заблокировано. Статус «✅ принято» требует завершённой приёмки, а не только заявления разработчика.
 
@@ -81,12 +81,12 @@
 
 ## 🧩 M3 — Module System
 
-**Первый продуктовый пакет реализован на Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11)** (ветка `feat/m3-module-system-r01`, старт от принятого M2 `6107f959`). [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) — источник истины; [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9) хранит отдельные M2-follow-up, не считать их решёнными. `[x]` будет выставлен после подтверждённой приёмки (AGENTS §5).
+**M3 R01–R04 принят и слит**: [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) → `main` `bb0e966` (squash), [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) closed. Начальная ветка `feat/m3-module-system-r01` стартовала от M2; все финальные evidence и ограничения — в чекпойнте ниже. Исторические промежуточные заголовки «в работе/не принято» ниже описывают состояние **на момент итераций**, а не текущее состояние M3. [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9) сохраняет отдельные M2-резидуалы.
 
-- [ ] Версионированный манифест модуля и capability API. — *реализовано в PR #11*: `src/shared/m3Protocol.ts` — Zod-манифест (`id`, `version`/semver, `apiVersion`, `capabilities` из списка сервисов SPEC §5, `ui`-входы, `dependencies`, `params`), fail-closed парсинг и проверка `apiVersion` отдельной стадией `compatibility`; контракт 8/8.
-- [ ] Регистрация/отключение модулей UI без изменения ядра. — *реализовано в PR #11*: реестр `src/renderer/modules/registry.ts` (`enabled|disabled|invalid|incompatible`, duplicate-id fail-closed, `moduleTabs()`-проекция), App рендерит вкладки модулей через ЕДИНЫЙ контракт `ModuleTabView` без правок ядра на модуль; раздел «Модули» с toggle; демо-модуль `demo` подтверждает полный цикл; UI 5/5, E2E 1/1.
-- [ ] Изоляция ошибок и проверка совместимости модулей. — *реализовано в PR #11*: `ModuleErrorBoundary` (ошибка отрисовки модуля → карточка + «Отключить модуль», приложение живо), битый/несовместимый манифест → честная причина в разделе «Модули», такие модули не получают вкладку и не продвигаются через toggle; unit 9/9, UI 5/5.
-- [ ] Контрактные тесты и приёмка M3. — *тесты готовы в PR #11*: контракт 9/9 + unit 10/10 + UI 6/6 + E2E m3 1/1; полный локальный стек Vitest **410 PASS / 8 SKIP**, E2E **10/10**, typecheck/lint/build 0/0/0. **Windows+WSL smoke — PASS**: WSL-side 4/4, M2 bridge 17/17 (synthetic session, byte-exact no-mutation), Windows GUI native-Electron PASS (decoy-survival ✓). Независимое ревью — `OK with notes` (P1+P2 закрыты). Осталась merge-authorization владельца — впереди.
+- [x] Версионированный манифест модуля и capability API. — *реализовано в PR #11*: `src/shared/m3Protocol.ts` — Zod-манифест (`id`, `version`/semver, `apiVersion`, `capabilities` из списка сервисов SPEC §5, `ui`-входы, `dependencies`, `params`), fail-closed парсинг и проверка `apiVersion` отдельной стадией `compatibility`; контракт 8/8.
+- [x] Регистрация/отключение модулей UI без изменения ядра. — *реализовано в PR #11*: реестр `src/renderer/modules/registry.ts` (`enabled|disabled|invalid|incompatible`, duplicate-id fail-closed, `moduleTabs()`-проекция), App рендерит вкладки модулей через ЕДИНЫЙ контракт `ModuleTabView` без правок ядра на модуль; раздел «Модули» с toggle; демо-модуль `demo` подтверждает полный цикл; UI 5/5, E2E 1/1.
+- [x] Изоляция ошибок и проверка совместимости модулей. — *реализовано в PR #11*: `ModuleErrorBoundary` (ошибка отрисовки модуля → карточка + «Отключить модуль», приложение живо), битый/несовместимый манифест → честная причина в разделе «Модули», такие модули не получают вкладку и не продвигаются через toggle; unit 9/9, UI 5/5.
+- [x] Контрактные тесты и приёмка M3. — *тесты готовы в PR #11*: контракт 9/9 + unit 10/10 + UI 6/6 + E2E m3 1/1; полный локальный стек Vitest **410 PASS / 8 SKIP**, E2E **10/10**, typecheck/lint/build 0/0/0. **Windows+WSL smoke — PASS**: WSL-side 4/4, M2 bridge 17/17 (synthetic session, byte-exact no-mutation), Windows GUI native-Electron PASS (decoy-survival ✓). Независимое ревью — `OK with notes` (P1+P2 закрыты). Осталась merge-authorization владельца — впереди.
 
 ### M3 R02 — fail-closed dependencies (в работе, НЕ ПРИНЯТО)
 
@@ -114,7 +114,7 @@
 
 Проверки fix-pass: **Vitest 452 PASS / 8 SKIP (460, 47 файлов)** — `moduleRegistry` **26**, `m3Protocol` **18**, `m3Modules` **15**, `m3ModulePanel` **2**, `m3ModuleBoundarySwitch` **1**; typecheck/lint/build **0/0/0**; CI **SUCCESS** на `b83f1c9`; **delta-review фиксов → ACCEPT (с 2×P2)**; **Windows+WSL smoke → PASS** (REAL WSL 4/4, M2 bridge 17/17, Windows GUI PASS). **Merge verdict остаётся BLOCK до прямого разрешения владельца.**
 
-### M3 R04 — внешнее declarative discovery + persistence enable/disable (реализация и review-цепочка завершены; merge — по решению владельца)
+### M3 R04 — внешнее declarative discovery + persistence enable/disable (ПРИНЯТО, PR #11 слит)
 
 **Issue [#10](https://github.com/triagmas/pi-wsl-desktop/issues/10)** · [Draft PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) · план `docs/superpowers/plans/2026-10-22-m3-r04-external-discovery-persistence.md`. Реализация на той же ветке от `6e5b97d5`; оба P2 R03 закрыты ДО подключения внешнего ввода (см. выше).
 
@@ -139,7 +139,18 @@
 - **Budget omission** — файлы сверх 768KiB сериализованного ответа пропускаются с диагностикой omitted (не ошибка) — `listModules` остаётся в пределах 1MiB-фрейма.
 - **Гейт toggle при отсутствии соединения** — при `connecting` гейт включён автоматически (производный `modulesLoading`); при `error`-фазе гейт снимается после settle — диагностики видимы, но каждый toggle всё равно пытается persist и при отклонённом соединении падает с видимой ошибкой и откатом (молчаливой локальной записи нет).
 
+### M3 — итоговое принятие и squash merge (2026-10-22)
+
+- **Authority:** owner разрешил **только** squash merge [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) на HEAD `341870cdfc0d94ea156db3db4ff1c7db2b828231`; GitHub подтвердил `merged:true`, squash commit **`bb0e966120ad84396cdd3947e878b8fc061de6d2`**, base `7f1f63d8` (прямой родитель), force-push / второй merge main не выполнялись. [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) закрыт как `completed`.
+- **Фактическая дельта слияния** (`7f1f63d8...bb0e966`): **32 файла, +5101 / −37 строк, один squash-коммит**. Отличие от промежуточного PR-снимка `+5098/−37` — +3 документационные строки перед окончательным merge.
+- **Acceptance на продуктовом HEAD `bf45bf3`:** локально Vitest **511 PASS / 10 SKIP**, typecheck/lint/build PASS; CI Linux **506 PASS / 15 SKIP**, Electron E2E **10/10**, Windows **338 PASS / 5 SKIP**, Repository Contract SUCCESS. Последний docs-only HEAD `341870c` также прошёл оба workflow. REAL WSL smoke **5 PASS / 5 skipped**, M2 bridge **17/17**, native Windows GUI smoke PASS (Pi 1.4.0).
+- **Scope:** fail-closed manifests/dependencies/capability grants; isolated tab/panel actions, external declarative discovery без JS, защищённое хранение enable/disable в `$HOME/.pi-desktop/module-state.json`. Два P2 R03 устранены до внешнего ввода.
+- **Residuals:** parent-retarget TOCTOU (same-user), FIFO race window, tmp EEXIST, budget omission; подробности в R04 выше. Исторические RED R02 NOT VERIFIED; локальный Electron E2E NOT RUN из-за Windows Node shim (hosted Linux E2E PASS); real user data write/model prompt NOT RUN без разрешения; экономия токенов NOT MEASURED. Не представлять их пройденными.
+- **Следующее:** [M4 #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) — подготовка Desktop 1.0; новый продуктовый PR и его merge/release требуют независимых gate и отдельного согласия владельца. Dashboard [#17](https://github.com/triagmas/pi-wsl-desktop/issues/17) только после принятого 1.0.
+
 ## 🚀 M4 — Desktop 1.0
+
+**Статус:** подготовка, код M4 ещё не изменён. [Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) — authority. Перед релизом отдельно проверяются установщик и обновление без потери существующих WSL/Pi данных, безопасность IPC/процессов, лицензии и артефакты; real user writes и платные prompts остаются NOT RUN без разрешения.
 
 - [ ] Установка, обновление и удаление Windows-приложения без потери Pi-сессий.
 - [ ] Регрессионная матрица Windows+WSL: повторное подключение, воспроизводимость, безопасность.
@@ -152,6 +163,7 @@
 
 | Дата | Задача / этап | Подтверждение | Итог |
 |:--|:--|:--|:--|
+| 2026-10-22 | ✅ M3 Module System — принято и слито | [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) · [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) closed · squash `bb0e966` | ✅ **32 файла, +5101/−37**; Product CI/Repository Contract SUCCESS, real Windows+WSL smoke PASS; residuals + NOT RUN раскрыты; M4 [#16](https://github.com/triagmas/pi-wsl-desktop/issues/16) в подготовке |
 | 2026-10-19 | Инициализация GitHub и настройка защиты `main` | [Репозиторий](https://github.com/triagmas/pi-wsl-desktop), [Ruleset](https://github.com/triagmas/pi-wsl-desktop/rules/25366026) | ✅ Организационные задачи выполнены |
 | 2026-10-19 | Bootstrap-контракты приняты | [PR #3](https://github.com/triagmas/pi-wsl-desktop/pull/3) merged, `877a573` | ✅ Документы и Repository Contract CI приняты merge владельца |
 | 2026-10-19 | M0 реализация предъявлена на ревью | [PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4), [Issue #2](https://github.com/triagmas/pi-wsl-desktop/issues/2) | 🟡 Vitest 118 PASS / 5 SKIP · E2E 2/2 PASS · WSL smoke 4/4 PASS · Windows GUI smoke PASS · ожидается `ACCEPT` |

@@ -58,7 +58,6 @@ export const ModuleFileSchema = z.object({
 });
 
 export const ListModulesResultSchema = z.object({
-  root: z.string().min(1).max(4096),
   available: z.boolean(),
   files: z.array(ModuleFileSchema).max(MAX_MODULE_FILES),
   diagnostics: z.array(z.string().min(1).max(600)).max(MAX_MODULE_DIAGNOSTICS),

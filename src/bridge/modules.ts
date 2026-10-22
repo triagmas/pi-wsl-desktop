@@ -50,9 +50,27 @@ function errEntry(file: string, message: string): ModuleFileEntry {
   return { file, status: 'error', errors: [message.slice(0, 600)] };
 }
 
-function errorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.slice(0, 300);
+/**
+ * FS error text for the bridge→renderer boundary: stable code + hint, NEVER
+ * the raw `error.message` (Node embeds absolute paths in EACCES/ENOENT text —
+ * caught by the R04 REAL smoke as a home-path leak).
+ */
+function fsErrorText(error: unknown): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? 'EUNKNOWN')
+      : 'EUNKNOWN';
+  const hints: Record<string, string> = {
+    EACCES: 'permission denied',
+    EPERM: 'permission denied',
+    ENOENT: 'not found',
+    ELOOP: 'symlink loop',
+    EMFILE: 'too many file descriptors',
+    ENFILE: 'system file table full',
+    EISDIR: 'is a directory',
+  };
+  const hint = hints[code];
+  return hint ? `${code}: ${hint}` : code;
 }
 
 async function readManifestFile(root: string, name: string): Promise<ModuleFileEntry> {
@@ -61,7 +79,7 @@ async function readManifestFile(root: string, name: string): Promise<ModuleFileE
   try {
     initial = await fsp.lstat(full);
   } catch (error) {
-    return errEntry(name, `unreadable: ${errorMessage(error)}`);
+    return errEntry(name, `unreadable: ${fsErrorText(error)}`);
   }
   if (initial.isSymbolicLink()) return errEntry(name, 'symlink rejected (not a regular file)');
   if (!initial.isFile()) return errEntry(name, 'not a regular file');
@@ -73,7 +91,7 @@ async function readManifestFile(root: string, name: string): Promise<ModuleFileE
   try {
     handle = await fsp.open(full, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   } catch (error) {
-    return errEntry(name, `unreadable: ${errorMessage(error)}`);
+    return errEntry(name, `unreadable: ${fsErrorText(error)}`);
   }
   try {
     // Re-check on the pinned descriptor: the size/type guards above observed a
@@ -119,7 +137,6 @@ export async function discoverModules(home: string): Promise<ListModulesResult> 
     if (diagnostics.length < MAX_MODULE_DIAGNOSTICS) diagnostics.push(message.slice(0, 600));
   };
   const empty = (available: boolean): ListModulesResult => ({
-    root,
     available,
     files: [],
     diagnostics,
@@ -148,7 +165,7 @@ export async function discoverModules(home: string): Promise<ListModulesResult> 
   try {
     names = (await fsp.readdir(root)).filter((name) => MODULE_FILE_NAME_RE.test(name)).sort();
   } catch (error) {
-    addDiagnostic(`modules root unreadable: ${errorMessage(error)}`);
+    addDiagnostic(`modules root unreadable: ${fsErrorText(error)}`);
     return empty(false);
   }
 
@@ -165,7 +182,7 @@ export async function discoverModules(home: string): Promise<ListModulesResult> 
     files.push(await readManifestFile(root, name));
   }
 
-  return { root, available: true, files, diagnostics, state: {} };
+  return { available: true, files, diagnostics, state: {} };
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,7 +265,7 @@ async function inspectState(home: string): Promise<StateInspection> {
   try {
     handle = await fsp.open(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   } catch (error) {
-    return { state: {}, base: null, problem: `module state unreadable: ${errorMessage(error)}` };
+    return { state: {}, base: null, problem: `module state unreadable: ${fsErrorText(error)}` };
   }
   try {
     const buffer = await readPinned(handle);
@@ -369,7 +386,7 @@ async function performStateWrite(
   try {
     await fsp.mkdir(dir, { recursive: true, mode: 0o700 });
   } catch (error) {
-    throw new BridgeError('UNKNOWN', `setModuleState: cannot create app state directory (${errorMessage(error)})`);
+    throw new BridgeError('UNKNOWN', `setModuleState: cannot create app state directory (${fsErrorText(error)})`);
   }
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
   try {
@@ -377,7 +394,7 @@ async function performStateWrite(
     await fsp.rename(tmp, file);
   } catch (error) {
     await fsp.rm(tmp, { force: true }).catch(() => undefined);
-    throw new BridgeError('UNKNOWN', `setModuleState: write failed (${errorMessage(error)})`);
+    throw new BridgeError('UNKNOWN', `setModuleState: write failed (${fsErrorText(error)})`);
   }
   return { id, enabled };
 }

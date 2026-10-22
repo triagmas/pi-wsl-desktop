@@ -48,7 +48,8 @@ afterAll(async () => {
 
 describe('M3 R04 bridge — listModules discovery', () => {
   it('case 1: empty home yields an unavailable silent root, no diagnostics', async () => {
-    const child = await spawnBridge({ HOME: tempHome() });
+    const home = tempHome();
+    const child = await spawnBridge({ HOME: home });
     const reader = new FrameReader(child.stdout);
     try {
       await reader.waitForEvent('ready');
@@ -59,11 +60,44 @@ describe('M3 R04 bridge — listModules discovery', () => {
       const parsed = ListModulesResultSchema.safeParse(data);
       expect(parsed.success).toBe(true);
       expect(data).toMatchObject({ available: false, files: [], diagnostics: [], state: {} });
-      expect((data as { root: string }).root.endsWith('.pi-desktop/modules')).toBe(true);
+      // Privacy (REAL smoke caught it): no absolute home path may cross the
+      // bridge→renderer boundary — the bridge-owned location is proven by the
+      // manifest fixtures below, not by shipping the path itself.
+      expect(JSON.stringify(data).includes(home)).toBe(false);
     } finally {
       child.kill();
     }
   });
+
+  // chmod has no deny-semantics on Windows — the case asserts POSIX EACCES
+  // behavior and is honestly reported as skipped there (CI Linux covers it).
+  it.runIf(process.platform !== 'win32')(
+    'case 11: an unreadable root reports a path-free diagnostic (privacy)',
+    async () => {
+      const home = tempHome();
+      const root = path.join(home, '.pi-desktop', 'modules');
+      mkdirSync(root, { recursive: true });
+      chmodSync(root, 0o000);
+      const child = await spawnBridge({ HOME: home });
+      const reader = new FrameReader(child.stdout);
+      try {
+        await reader.waitForEvent('ready');
+        child.stdin.write(req('d11', 'listModules') + '\n');
+        const resp = await reader.waitForResponse('d11');
+        const data = (resp.frame as ResponseOkFrameT).result as {
+          diagnostics: string[];
+          available: boolean;
+        };
+        expect(data.available).toBe(false);
+        expect(data.diagnostics.join(' ')).toMatch(/unreadable/i);
+        // RED: raw EACCES text carries the absolute path — must be sanitized.
+        expect(JSON.stringify(data).includes(home)).toBe(false);
+      } finally {
+        child.kill();
+        chmodSync(root, 0o755);
+      }
+    },
+  );
 
   it('case 10: listModules rejects any caller-supplied params', async () => {
     const child = await spawnBridge({ HOME: tempHome() });

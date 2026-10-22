@@ -23,7 +23,6 @@ import {
 } from '../../src/shared/m3Ipc';
 
 interface ResultPayload {
-  root: string;
   available: boolean;
   files: Array<{ file: string; status: string; raw?: unknown; errors: string[] }>;
   diagnostics: string[];
@@ -32,7 +31,6 @@ interface ResultPayload {
 
 function validResult(): ResultPayload {
   return {
-    root: '/home/u/.pi-desktop/modules',
     available: true,
     files: [
       { file: 'alpha.json', status: 'ok', raw: { id: 'alpha' }, errors: [] },

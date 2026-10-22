@@ -6,6 +6,8 @@
  */
 import { expect, test, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const repoRoot = path.join(__dirname, '..');
@@ -17,6 +19,10 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   const env = Object.fromEntries(
     Object.entries({
       ...process.env,
+      // R04: isolate module-state persistence — the bridge writes
+      // $HOME/.pi-desktop/module-state.json on toggle; a throwaway HOME keeps
+      // the real one clean and makes the E2E run independent of leftovers.
+      HOME: mkdtempSync(path.join(os.tmpdir(), 'piwsd-e2e-home-')),
       PI_WS_DESKTOP_WSL_PATH: fakeWsl,
       PI_WS_DESKTOP_PI: fakePi,
       PI_WS_DESKTOP_TIMEOUT_MS: '8000',

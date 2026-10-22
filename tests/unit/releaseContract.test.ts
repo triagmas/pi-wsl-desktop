@@ -83,15 +83,20 @@ describe('M4 R01 — electron-builder configuration contract', () => {
   it('install/update/uninstall must preserve user data and the machine', () => {
     // oneClick=true + perMachine=false is the only combination that is
     // ALWAYS per-user with NO elevation and NO install-mode page (the
-    // assisted installer would offer a per-machine mode; the directory is
-    // fixed, so the uninstaller's RMDir /r can never reach user projects)
+    // assisted installer would offer a per-machine mode). Standard UI
+    // installs are directory-fixed; the explicit NSIS /D= CLI override
+    // remains a disclosed platform residual — see
+    // docs/release/m4-r01-packaging.md (Lifecycle & data guarantees) and
+    // Issue #16
     expect(build.nsis?.oneClick).toBe(true);
     expect(build.nsis?.perMachine).toBe(false);
     expect(build.nsis?.allowToChangeInstallationDirectory).toBeUndefined();
     // no auto-launch after install: a running app would pin files in the
     // install dir (breaking uninstall) and surprise the user
     expect(build.nsis?.runAfterFinish).toBe(false);
-    // THE data guarantee: uninstalling never deletes the user profile
+    // Standard-scenario data guarantee (CI sentinel test): uninstalling
+    // never deletes the user profile; the /D= CLI residual is disclosed,
+    // not covered by this contract
     expect(build.nsis?.deleteAppDataOnUninstall).toBe(false);
     // no custom NSIS hooks — nothing may run arbitrary install-time scripts;
     // electron-builder also auto-loads build/installer.nsi|nsh when present

@@ -2,19 +2,29 @@
 /**
  * M4 R01 synthetic lifecycle test (Windows only): silent install → upgrade
  * (re-install) → uninstall against the REAL NSIS artifacts, with sentinel
- * files proving that neither step touches user data outside the fixed
- * per-user install directory. Runs on the CI runner's throwaway profile;
- * it never points at a real user's Pi home or WSL state.
+ * files INSIDE the app's actual userData directory proving that neither step
+ * touches user data outside the fixed per-user install directory.
  *
- * Usage: node scripts/packaged-lifecycle.mjs [releaseDir]   (default: release)
+ * SAFETY: fail-closed — refuses to run unless PI_WS_DESKTOP_LIFECYCLE_ALLOW=1
+ * (set only on the throwaway CI runner profile). It creates exactly two
+ * sentinel files and removes exactly those; the userData directory itself is
+ * never recursively deleted. Never run against a profile holding real data.
+ *
+ * Usage: PI_WS_DESKTOP_LIFECYCLE_ALLOW=1 node scripts/packaged-lifecycle.mjs [releaseDir]
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { repoRootFrom } from './lib/releasePaths.mjs';
 
 if (process.platform !== 'win32') {
   console.error('packaged-lifecycle: Windows only — NOT RUN on this host');
+  process.exit(2);
+}
+if (process.env.PI_WS_DESKTOP_LIFECYCLE_ALLOW !== '1') {
+  console.error(
+    'packaged-lifecycle: NOT RUN — set PI_WS_DESKTOP_LIFECYCLE_ALLOW=1 only on a throwaway CI profile (it writes into the real %APPDATA% userData of this profile)',
+  );
   process.exit(2);
 }
 
@@ -36,20 +46,43 @@ const appExe = path.join(installDir, `${pkg.build.productName}.exe`);
 const findUninstaller = () =>
   readdirSync(installDir).find((f) => f.startsWith('Uninstall')) ?? null;
 
-// Sentinels live OUTSIDE the install dir; neither upgrade nor uninstall
-// may remove them. userData-equivalent and a fake "user project".
-const sentinelRoot = path.join(process.env.APPDATA, 'pi-wsl-desktop-lifecycle-sentinel');
-const sentinelUserData = path.join(sentinelRoot, 'module-state.json');
-const sentinelProject = path.join(sentinelRoot, 'user-project', 'notes.txt');
+// Sentinels live INSIDE the app's actual userData directory (%APPDATA%\<name>
+// — Electron derives it from package.json "name") because that is the path
+// the product promises to preserve. Byte-for-byte comparison, exact-file
+// cleanup: the directory is never recursively removed.
+const userDataDir = path.join(process.env.APPDATA, pkg.name);
+const sentinelFile = path.join(userDataDir, 'lifecycle-sentinel.json');
+const sentinelNestedDir = path.join(userDataDir, 'lifecycle-sentinel-dir');
+const sentinelNested = path.join(sentinelNestedDir, 'notes.txt');
+const SENTINEL_BYTES = '{"sentinel":"user-data-must-survive-byte-identical"}';
+const NESTED_BYTES = 'user project file — must survive install/update/uninstall';
+
 const placeSentinels = () => {
-  rmSync(sentinelRoot, { recursive: true, force: true });
-  mkdirSync(path.dirname(sentinelUserData), { recursive: true });
-  mkdirSync(path.dirname(sentinelProject), { recursive: true });
-  writeFileSync(sentinelUserData, '{"sentinel":"user-data-must-survive"}', 'utf8');
-  writeFileSync(sentinelProject, 'user project file — must survive install/update/uninstall', 'utf8');
+  mkdirSync(userDataDir, { recursive: true });
+  mkdirSync(sentinelNestedDir, { recursive: true });
+  writeFileSync(sentinelFile, SENTINEL_BYTES, 'utf8');
+  writeFileSync(sentinelNested, NESTED_BYTES, 'utf8');
 };
-const sentinelsIntact = () =>
-  existsSync(sentinelUserData) && existsSync(sentinelProject);
+const sentinelsIntact = () => {
+  try {
+    return (
+      readFileSync(sentinelFile, 'utf8') === SENTINEL_BYTES &&
+      readFileSync(sentinelNested, 'utf8') === NESTED_BYTES
+    );
+  } catch {
+    return false;
+  }
+};
+const cleanupSentinels = () => {
+  // exact files only — never rmSync(userDataDir)
+  try {
+    if (existsSync(sentinelNested)) unlinkSync(sentinelNested);
+    if (existsSync(sentinelNestedDir)) rmSync(sentinelNestedDir, { recursive: false });
+    if (existsSync(sentinelFile)) unlinkSync(sentinelFile);
+  } catch {
+    // best-effort; CI profile is disposable
+  }
+};
 
 const run = (file, args) =>
   new Promise((resolve) => {
@@ -86,46 +119,46 @@ const assert = (name, ok, detail) => {
   if (!check(name, ok, detail)) failed += 1;
 };
 
-// 1. Install (silent, per-user, no elevation)
+// 1. Install (silent, per-user, no elevation, no auto-launch)
 placeSentinels();
 const install1 = await run(installer, ['/S']);
 assert('silent install succeeds', install1.ok, install1.detail);
 if (!existsSync(appExe)) {
-  // diagnostics: where did the installer actually put the app?
-  console.log(`diagnostic: LOCALAPPDATA=${process.env.LOCALAPPDATA}`);
   console.log(`diagnostic: Programs dir contains: ${listDir(path.dirname(installDir))}`);
   console.log(`diagnostic: installDir contains: ${listDir(installDir)}`);
 }
 assert('app exe installed in fixed per-user dir', existsSync(appExe), installDir);
-assert('sentinels survive install', sentinelsIntact());
+assert('sentinels byte-identical after install', sentinelsIntact());
 
 // 2. Upgrade: run the same installer again over the existing installation
 const upgrade = await run(installer, ['/S']);
 assert('re-install (upgrade path) succeeds', upgrade.ok, upgrade.detail);
 assert('app exe still present after upgrade', existsSync(appExe));
-assert('sentinels survive upgrade', sentinelsIntact());
+assert('sentinels byte-identical after upgrade', sentinelsIntact());
 
 // 3. Uninstall (silent). runAfterFinish:false (contract-tested) guarantees
 // no instance of the app was auto-launched, so nothing pins the exe.
 const uninstallerRel = findUninstaller();
 assert('uninstaller present', uninstallerRel !== null, installDir);
-const un = uninstallerRel ? await run(path.join(installDir, uninstallerRel), ['/S']) : { ok: false, detail: 'no uninstaller' };
+const un = uninstallerRel
+  ? await run(path.join(installDir, uninstallerRel), ['/S'])
+  : { ok: false, detail: 'no uninstaller' };
 assert('silent uninstall succeeds', un.ok, un.detail);
-// the NSIS uninstaller removes $INSTDIR asynchronously right before exit;
+// THE dir-level assertion: the whole install dir must go (not just the exe);
 // allow generous time on a loaded runner before declaring leftovers
 const deadline = Date.now() + 90_000;
-while (existsSync(appExe) && Date.now() < deadline) {
+while (existsSync(installDir) && Date.now() < deadline) {
   await new Promise((r) => setTimeout(r, 1000));
 }
-if (existsSync(appExe)) {
+if (existsSync(installDir)) {
   console.log(`diagnostic: leftovers in installDir: ${listDir(installDir)}`);
 }
-assert('install dir removed', !existsSync(appExe), installDir);
-assert('sentinels survive uninstall (user data preserved)', sentinelsIntact());
+assert('install dir removed', !existsSync(installDir), installDir);
+assert('sentinels byte-identical after uninstall (user data preserved)', sentinelsIntact());
 
-rmSync(sentinelRoot, { recursive: true, force: true });
+cleanupSentinels();
 if (failed > 0) {
   console.error(`packaged-lifecycle: ${failed} FAILED`);
   process.exit(1);
 }
-console.log('packaged-lifecycle: install → upgrade → uninstall — user data preserved throughout');
+console.log('packaged-lifecycle: install → upgrade → uninstall — real userData sentinels byte-identical throughout');

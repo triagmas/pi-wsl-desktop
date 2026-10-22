@@ -77,8 +77,13 @@ no network updates; the file is inert. Disclosed here for the security review.
   silent install → re-install (upgrade) → silent uninstall against the
   real NSIS artifacts, with sentinel files outside the install dir proving
   user-data preservation on every step.
-- Never performed by any shipped component: `wsl --unregister`,
-  `wsl --shutdown`, killing processes, writes into the user's Pi home.
+- Never performed by our application code: `wsl --unregister`,
+  `wsl --shutdown`, stopping WSL/Pi/distro processes, writes into the
+  user's Pi home. The standard NSIS installer/uninstaller (upstream
+  electron-builder templates) may stop the running desktop app itself
+  during update/uninstall using its upstream detection — it makes no
+  strict file-ownership guarantees, and this release does not patch the
+  upstream template; it never targets third-party processes by design.
 
 ## Versioning & reproducibility
 

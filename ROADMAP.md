@@ -88,6 +88,16 @@
 - [ ] Изоляция ошибок и проверка совместимости модулей. — *реализовано в PR #11*: `ModuleErrorBoundary` (ошибка отрисовки модуля → карточка + «Отключить модуль», приложение живо), битый/несовместимый манифест → честная причина в разделе «Модули», такие модули не получают вкладку и не продвигаются через toggle; unit 9/9, UI 5/5.
 - [ ] Контрактные тесты и приёмка M3. — *тесты готовы в PR #11*: контракт 9/9 + unit 10/10 + UI 6/6 + E2E m3 1/1; полный локальный стек Vitest **410 PASS / 8 SKIP**, E2E **10/10**, typecheck/lint/build 0/0/0. **Windows+WSL smoke — PASS**: WSL-side 4/4, M2 bridge 17/17 (synthetic session, byte-exact no-mutation), Windows GUI native-Electron PASS (decoy-survival ✓). Независимое ревью — `OK with notes` (P1+P2 закрыты). Осталась merge-authorization владельца — впереди.
 
+### M3 R02 — fail-closed dependencies (в работе, НЕ ПРИНЯТО)
+
+[Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · [Draft PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11). Декларация `manifest.dependencies` ранее не влияла на UI: модуль с отсутствующей/отключённой зависимостью всё равно получал вкладку. На ветке M3 добавлена проверка графа без вызовов Pi, внешнего JS или изменения пользовательской конфигурации.
+
+- [ ] Unit **5 новых кейсов**: отсутствующая зависимость, порядок регистрации, disable→block→reenable, циклическая/самозависимость, несовместимая зависимость. Тесты опубликованы до реализации; **фактический RED прогон не подтверждён, GREEN CI пока NOT RUN**.
+- [ ] UI **2 новых кейса**: отображение `blocked`/причины и скрытие/восстановление вкладок при toggle провайдера; `blocked` не должен получать toggle как доступный модуль.
+- [ ] Отдельная UI-регрессия на исправленный в первом M3 пакете `ModuleErrorBoundary` при смене вкладки (должна показываться исправная вкладка после сбоя другой).
+- [ ] GitHub CI на **финальном HEAD R02**, независимый review и native Windows+WSL smoke после новых изменений: **NOT RUN**. M3 и его первая реализация остаются в Draft, merge не разрешён.
+- Отдельный следующий scope M3: внешние декларативные манифесты, renderer panels/actions, проверка прав/capabilities, контракт сохранения toggle, финальный M3 acceptance. Ни один из них пока не считается выполненным.
+
 ## 🚀 M4 — Desktop 1.0
 
 - [ ] Установка, обновление и удаление Windows-приложения без потери Pi-сессий.
@@ -138,7 +148,7 @@
 | 2026-10-21 | Delta-review M3-пакета: **OK with notes** → закрыто | Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) · ревьюер (builtin reviewer, `high`) | 🟢 **0 Critical / 1 Important / 7 Minor**, вердикт «OK with notes — close the one plan-mandated test pin». Все пять Review Focus поведений подтверждены. **P1 (важное) закрыто + повторный полный стек**: pin изоляции всех форм битого манифеста вперемешку с валидным (registry 10/10, UI 6/6). **P2 (re-grade → закрыто)**: дыра fail-closed — дублирующиеся `ui[].id` валидировались `ok:true` и давали недостижимую вторую вкладку → `superRefine` отклоняет (contract 9/9, RED→GREEN). **P2 M1 закрыт**: причина `incompatible` теперь assert-ится в UI. Итог после fix-pass: Vitest **410 PASS / 8 SKIP**, E2E **10/10**, tc/lint/build **0/0/0**. **Отложенные Minors (report-only):** M3 persistence enable/disable через restart (→ follow-up Issue, расширяет IPC за scope), M4 `kind:'panel'` принимается, но не рендерится (нетreachable сегодня), M5 локальный путь в плане (следует конвенции AGENTS), M7 англ. enum-значения в русском UI (косметика) |
 | 2026-10-21 | M3 — обязательный Windows+WSL smoke: **PASS** (закрыт `NOT RUN`) | Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) | 🟢 Все три реальных read-only гейта зелёные на `e456fe7`: **WSL-side smoke 4/4** (`REAL_WSL=1`, реальный wsl.exe UTF-16 + Ubuntu + node + Pi probe, ассерт no-mutation настроек), **M2 bridge smoke 17/17** (реальный bridge-bundle в WSL, временный синтетический session root, byte-exact sha256/mtime, read-only Pi: только `pi --version/--help`), **Windows GUI smoke PASS** (нативный Windows Electron → реальный wsl.exe/Ubuntu/Pi 1.3.0, ownership-cleanup: свой app остановлен, foreign electron.exe decoy выжил). Renderer-only дельта M3 не регресснула реальный Bridge/Connection слой. Итог M3: **код+тесты+ревью+smoke готовы**, осталась только merge-authorization владельца |
 
-*После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
+| 2026-10-22 | M3 R02 — dependency graph / UI regression (незавершено) | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) · Draft [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) | 🟡 Тесты 5 unit + 2 UI + boundary regression добавлены, fail-closed registry для отсутствующих/отключённых/циклических зависимостей реализован; **RED/GREEN CI и реальный smoke на новом HEAD NOT RUN**, независимый review NOT RUN. Не считать ACCEPT |\n\n*После первого merge добавлять новые строки: дата, задача, ссылка на merged PR, итог / доказательство тестов. Не переносить незавершённые задачи сюда.*
 
 ## 🔁 Обязательный порядок обновления ROADMAP
 

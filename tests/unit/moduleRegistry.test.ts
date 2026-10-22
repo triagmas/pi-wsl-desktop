@@ -378,3 +378,29 @@ describe('M3 R03 registry — pathological fan-in graphs stay fail-closed', () =
     expect(max).toBeLessThan(100);
   });
 });
+
+describe('M3 R04 — ALL diagnostics are bounded (P2: direct causes included)', () => {
+  it('bounds direct dependency diagnostics when 40 declared providers are missing', () => {
+    const raw = validRaw({
+      id: 'wide',
+      dependencies: Array.from({ length: 40 }, (_, i) => ({ id: `dep-${i}`, range: '*' })),
+    });
+    const entries = registerModules([raw]);
+    const entry = entries[0]!;
+    expect(entry.state).toBe('blocked');
+    expect(entry.errors.length).toBeLessThanOrEqual(33);
+    expect(entry.errors[0]).toContain('dep-0');
+    expect(entry.errors[entry.errors.length - 1]).toMatch(/further dependency diagnostics truncated/);
+  });
+
+  it('bounds parse diagnostics for a manifest with dozens of invalid ui entries', () => {
+    const raw = validRaw({
+      ui: Array.from({ length: 40 }, () => ({ kind: 'tab', id: 'BAD_!', title: '', blocks: [] })),
+    });
+    const entries = registerModules([raw]);
+    const entry = entries[0]!;
+    expect(entry.state).toBe('invalid');
+    expect(entry.errors.length).toBeLessThanOrEqual(33);
+    expect(entry.errors[entry.errors.length - 1]).toMatch(/further dependency diagnostics truncated/);
+  });
+});

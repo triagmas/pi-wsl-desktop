@@ -83,12 +83,13 @@ function dependencyRefs(manifest: ModuleManifest): DependencyRef[] {
 }
 
 /**
- * Hard cap on diagnostics carried by one entry. Downstream causes are copied
- * into every ancestor, so on a wide fan-in graph the count would otherwise
- * double per level — `push(...hugeArray)` then exceeds the JS argument limit
- * and `registerModules` throws, breaking its "never throws" contract. The cap
- * bounds both memory and spread size; the reason string is already capped at
- * 512 chars, which limits WIDTH, not COUNT.
+ * Hard cap on diagnostics carried by one entry. BOTH direct causes (one per
+ * declared dependency) and propagated causes (copied into every ancestor) go
+ * through this helper: on wide graphs the count would otherwise grow linearly
+ * per entry and, for propagated fan-in, double per level — `push(...hugeArray)`
+ * then exceeds the JS argument limit and `registerModules` throws, breaking its
+ * "never throws" contract. The cap bounds both memory and spread size; the
+ * reason string is already capped at 512 chars, which limits WIDTH, not COUNT.
  */
 const MAX_DIAGNOSTICS = 32;
 const TRUNCATION_MARKER = '… further dependency diagnostics truncated';
@@ -160,25 +161,25 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
         const name = dependency.id;
         const child = byId.get(name);
         if (!child) {
-          frame.errors.push('dependency "' + name + '" is missing or invalid/incompatible');
+          pushBounded(frame.errors, ['dependency "' + name + '" is missing or invalid/incompatible']);
           continue;
         }
         if (child.state === 'disabled') {
-          frame.errors.push('dependency "' + name + '": module disabled');
+          pushBounded(frame.errors, ['dependency "' + name + '": module disabled']);
           continue;
         }
         if (!satisfiesSemverRange(child.manifest!.version, dependency.range)) {
-          frame.errors.push(
+          pushBounded(frame.errors, [
             'dependency "' + name + '": requires ' + dependency.range
               + ', found ' + child.manifest!.version,
-          );
+          ]);
           continue;
         }
         const cycleAt = active.get(name);
         if (cycleAt !== undefined) {
           const path = stack.slice(cycleAt, cycleAt + 12)
             .map((node) => node.entry.manifest!.id).join(' -> ');
-          frame.errors.push('dependency cycle detected: ' + path + ' -> ' + name);
+          pushBounded(frame.errors, ['dependency cycle detected: ' + path + ' -> ' + name]);
           continue;
         }
         const previous = cached.get(name);
@@ -234,12 +235,17 @@ export function registerModules(
     const parsed = parseModuleManifest(raw);
 
     if (!parsed.ok) {
+      // Parse diagnostics are bounded by the same cap: a schema-invalid
+      // manifest can carry hundreds of issues (R04 external raws), and every
+      // entry must honour the same "never explodes" budget.
+      const errors: string[] = [];
+      pushBounded(errors, parsed.errors);
       entries.push({
         key,
         id: entryId(raw),
         state: parsed.stage === 'compatibility' ? 'incompatible' : 'invalid',
         manifest: null,
-        errors: parsed.errors,
+        errors,
       });
       return;
     }

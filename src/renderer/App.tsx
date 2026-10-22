@@ -5,10 +5,17 @@ import { StatusPanel } from './StatusPanel';
 import { SessionsView } from './SessionsView';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
-import { ModuleTabView } from './ModuleTabView';
+import { ModuleBlocks, ModuleTabView } from './ModuleTabView';
+import type { ModuleAction } from '../shared/m3Protocol';
 import { useConnection } from './useConnection';
 import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
-import { moduleTabs, registerModules, setModuleEnabled, type ModuleEntry } from './modules/registry';
+import {
+  modulePanels,
+  moduleTabs,
+  registerModules,
+  setModuleEnabled,
+  type ModuleEntry,
+} from './modules/registry';
 
 export interface AppProps {
   /** Injectable for tests; by default the preload contextBridge API is used. */
@@ -43,8 +50,54 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   };
 
   const tabs = moduleTabs(moduleEntries);
+  const panels = modulePanels(moduleEntries);
+  const [actionError, setActionError] = useState<string | null>(null);
   const activeModuleTab =
     view.startsWith('module:') ? tabs.find((t) => t.tabKey === view.slice('module:'.length)) : undefined;
+
+  /**
+   * Declarative action dispatcher. The manifest schema only admits operations
+   * from MODULE_OPERATIONS, and every failure below becomes visible state
+   * instead of a thrown error that would take the surface down.
+   */
+  const runModuleAction = (action: ModuleAction) => {
+    switch (action.operation) {
+      case 'openTab': {
+        const exact = action.target && tabs.some((t) => t.tabKey === action.target)
+          ? action.target
+          : tabs.find((t) => t.entry.id === (action.target ?? ''))?.tabKey
+            ?? tabs.find((t) => t.entry.id === activeModuleTab?.entry.id)?.tabKey;
+        if (exact) {
+          setActionError(null);
+          setView(`module:${exact}`);
+        } else {
+          setActionError(`Действие «${action.id}»: вкладка назначения не найдена`);
+        }
+        return;
+      }
+      case 'openPanel':
+        setActionError(null);
+        setView('modules');
+        return;
+      case 'refresh':
+        setActionError(null);
+        void refreshRuntime();
+        return;
+      case 'copyText': {
+        const write = navigator.clipboard?.writeText(action.target ?? action.title);
+        if (write) {
+          void write
+            .then(() => setActionError(null))
+            .catch(() => setActionError(`Действие «${action.id}»: буфер обмена недоступен`));
+        } else {
+          setActionError(`Действие «${action.id}»: буфер обмена недоступен`);
+        }
+        return;
+      }
+      default:
+        setActionError(`Действие «${action.id}»: операция не поддерживается`);
+    }
+  };
 
   return (
     <main data-testid="app-root" className="app">
@@ -100,11 +153,26 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           </button>
         ))}
       </nav>
+      {panels.length > 0 && (
+        <section className="module-panels" aria-label="Панели модулей">
+          {panels.map(({ tabKey, tab }) => (
+            <aside
+              key={tabKey}
+              className="module-panel"
+              data-testid={`module-panel-${tabKey}`}
+            >
+              <h3 className="module-panel-title">{tab.title}</h3>
+              <ModuleBlocks blocks={tab.blocks} />
+            </aside>
+          ))}
+        </section>
+      )}
       {activeModuleTab ? (
         <ModuleTabView
           key={activeModuleTab.tabKey}
           tab={activeModuleTab}
           onDisable={(id) => toggleModule(id, false)}
+          onAction={runModuleAction}
         />
       ) : view === 'status' ? (
         <StatusPanel
@@ -124,6 +192,11 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           entries={moduleEntries}
           onToggle={(id, enabled) => toggleModule(id, enabled)}
         />
+      )}
+      {actionError && (
+        <p className="request-error" role="alert" data-testid="module-action-error">
+          {actionError}
+        </p>
       )}
     </main>
   );

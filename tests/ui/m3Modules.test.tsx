@@ -230,3 +230,115 @@ describe('M3 module registration UI', () => {
   });
 
 });
+
+/* ------------------------------------------------------------------ */
+/* M3 R03 UI — panels, actions, capability grants                       */
+/* ------------------------------------------------------------------ */
+describe('M3 R03 UI — panels, actions and capability grants', () => {
+  const textBlock = { type: 'text', value: 'контент модуля' };
+
+  it('renders a declared panel for an enabled module without adding a nav tab', async () => {
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          {
+            id: 'sidekick',
+            version: '1.0.0',
+            apiVersion: 1,
+            capabilities: ['runtime'],
+            ui: [
+              { kind: 'tab', id: 'main', title: 'Sidekick', blocks: [textBlock] },
+              { kind: 'panel', id: 'rail', title: 'Rail', blocks: [textBlock] },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('module-panel-sidekick/rail')).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-module-sidekick/rail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tab-module-sidekick/main')).toBeInTheDocument();
+  });
+
+  it('drops the panel of a module the owner disables', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          {
+            id: 'sidekick',
+            version: '1.0.0',
+            apiVersion: 1,
+            capabilities: ['runtime'],
+            ui: [{ kind: 'panel', id: 'rail', title: 'Rail', blocks: [textBlock] }],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('module-panel-sidekick/rail')).toBeInTheDocument();
+    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('module-toggle-sidekick'));
+    expect(screen.queryByTestId('module-panel-sidekick/rail')).not.toBeInTheDocument();
+  });
+
+  it('renders declared actions as buttons and handles a click without throwing', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          {
+            id: 'actor',
+            version: '1.0.0',
+            apiVersion: 1,
+            capabilities: ['runtime'],
+            ui: [{ kind: 'tab', id: 'main', title: 'Actor', blocks: [textBlock] }],
+            actions: [
+              { id: 'reload', title: 'Обновить', operation: 'refresh' },
+              { id: 'go', title: 'Открыть вкладку', operation: 'openTab', target: 'actor/main' },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByTestId('tab-module-actor/main'));
+    expect(screen.getByTestId('module-action-actor/reload')).toBeInTheDocument();
+    expect(screen.getByTestId('module-action-actor/go')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('module-action-actor/reload'));
+    await user.click(screen.getByTestId('module-action-actor/go'));
+    // a handled action must never surface an error state or crash the app
+    expect(screen.queryByTestId('module-action-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('app-root')).toBeInTheDocument();
+  });
+
+  it('gives a module asking for an unoffered capability neither a tab nor a panel', async () => {
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          {
+            id: 'greedy',
+            version: '1.0.0',
+            apiVersion: 1,
+            capabilities: ['notifications'],
+            ui: [
+              { kind: 'tab', id: 'main', title: 'Greedy', blocks: [textBlock] },
+              { kind: 'panel', id: 'rail', title: 'Rail', blocks: [textBlock] },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByTestId('tab-module-greedy/main')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('module-panel-greedy/rail')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByTestId('tab-modules'));
+    expect(screen.getByTestId('module-errors-module-0')).toHaveTextContent(/not provided by the host/i);
+  });
+});

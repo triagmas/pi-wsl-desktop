@@ -192,3 +192,23 @@ describe('M3 R03 contract — actions, versioned dependencies', () => {
     }
   });
 });
+
+describe('M3 R03 contract — action target', () => {
+  it('accepts an optional target for operations that need one', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      actions: [{ id: 'go', title: 'Открыть', operation: 'openTab', target: 'demo/welcome' }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.manifest.actions[0]).toMatchObject({ target: 'demo/welcome' });
+  });
+
+  it('accepts an action without a target (target is optional)', () => {
+    const result = parseModuleManifest({
+      ...validManifest(),
+      actions: [{ id: 'reload', title: 'Обновить', operation: 'refresh' }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.manifest.actions[0]).not.toHaveProperty('target');
+  });
+});

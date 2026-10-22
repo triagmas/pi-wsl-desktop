@@ -6,13 +6,20 @@
  * degrades to a warning, it does not throw.
  */
 import { ModuleErrorBoundary } from './ModuleErrorBoundary';
-import type { ModuleBlock } from '../shared/m3Protocol';
+import type { ModuleAction, ModuleBlock } from '../shared/m3Protocol';
 import type { ModuleTab } from './modules/registry';
 
 export interface ModuleTabViewProps {
   tab: ModuleTab;
   /** Escape hatch wired to the registry (disable this module). */
   onDisable: (moduleId: string) => void;
+  /** Optional declarative-action sink; operations outside the whitelist never reach it. */
+  onAction?: (action: ModuleAction) => void;
+}
+
+/** The shared block renderer used by module tabs AND module panels. */
+export function ModuleBlocks({ blocks }: { blocks: readonly ModuleBlock[] }) {
+  return <>{blocks.map((block, index) => renderBlock(block, index))}</>;
 }
 
 function renderBlock(block: ModuleBlock, index: number) {
@@ -53,9 +60,10 @@ function renderBlock(block: ModuleBlock, index: number) {
   }
 }
 
-export function ModuleTabView({ tab, onDisable }: ModuleTabViewProps) {
+export function ModuleTabView({ tab, onDisable, onAction }: ModuleTabViewProps) {
   const { entry } = tab;
   const moduleId = entry.id;
+  const actions = entry.manifest?.actions ?? [];
   return (
     <ModuleErrorBoundary moduleId={moduleId} onDisable={() => onDisable(moduleId)}>
       <section className="panel module-panel" data-testid={`module-tab-${moduleId}`}>
@@ -66,6 +74,20 @@ export function ModuleTabView({ tab, onDisable }: ModuleTabViewProps) {
           </span>
         </header>
         {tab.tab.blocks.map((block, index) => renderBlock(block, index))}
+        {actions.length > 0 && (
+          <div className="module-actions" role="group" aria-label="Действия модуля">
+            {actions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                data-testid={`module-action-${moduleId}/${action.id}`}
+                onClick={() => onAction?.(action)}
+              >
+                {action.title}
+              </button>
+            ))}
+          </div>
+        )}
       </section>
     </ModuleErrorBoundary>
   );

@@ -104,6 +104,8 @@ export const ModuleActionSchema = z.object({
   id: ModuleIdSchema,
   title: z.string().min(1).max(80),
   operation: z.enum(MODULE_OPERATIONS),
+  /** Optional destination/payload for `openTab`, `openPanel`, `copyText`. */
+  target: z.string().min(1).max(128).optional(),
 });
 export type ModuleAction = z.infer<typeof ModuleActionSchema>;
 

@@ -45,7 +45,8 @@ no network updates; the file is inert. Disclosed here for the security review.
 
 - **Install** (one-click, `oneClick: true` + `perMachine: false`): always
   per-user, NO elevation, NO install-mode page and NO directory choice —
-  the install dir is fixed to `%LOCALAPPDATA%\Programs\Pi WSL Desktop`, so
+  the install dir is fixed to `%LOCALAPPDATA%\Programs\pi-wsl-desktop`
+  (package name; exe `Pi WSL Desktop.exe`), so
   the uninstaller's recursive delete can never reach an arbitrary user
   directory. User data lives in `%APPDATA%\pi-wsl-desktop` (Electron
   `userData`) — outside the install dir by construction. Settings

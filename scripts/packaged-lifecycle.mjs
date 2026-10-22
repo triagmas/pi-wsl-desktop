@@ -19,7 +19,8 @@ if (process.platform !== 'win32') {
 }
 
 const root = repoRootFrom(import.meta.url);
-const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+const version = pkg.version;
 const dir = path.resolve(process.argv[2] ?? path.join(root, 'release'));
 const installer = path.join(dir, `PiWSLDesktop-${version}-setup.exe`);
 if (!existsSync(installer)) {
@@ -27,9 +28,13 @@ if (!existsSync(installer)) {
   process.exit(1);
 }
 
-const installDir = path.join(process.env.LOCALAPPDATA, 'Programs', 'Pi WSL Desktop');
-const appExe = path.join(installDir, 'Pi WSL Desktop.exe');
-const uninstaller = path.join(installDir, 'Uninstall Pi WSL Desktop.exe');
+// electron-builder's one-click NSIS target installs into
+// %LOCALAPPDATA%\Programs\<package name> with <productName>.exe — both are
+// taken from package.json so the test cannot drift from the config.
+const installDir = path.join(process.env.LOCALAPPDATA, 'Programs', pkg.name);
+const appExe = path.join(installDir, `${pkg.build.productName}.exe`);
+const findUninstaller = () =>
+  readdirSync(installDir).find((f) => f.startsWith('Uninstall')) ?? null;
 
 // Sentinels live OUTSIDE the install dir; neither upgrade nor uninstall
 // may remove them. userData-equivalent and a fake "user project".
@@ -92,7 +97,6 @@ if (!existsSync(appExe)) {
   console.log(`diagnostic: installDir contains: ${listDir(installDir)}`);
 }
 assert('app exe installed in fixed per-user dir', existsSync(appExe), installDir);
-assert('uninstaller present', existsSync(uninstaller));
 assert('sentinels survive install', sentinelsIntact());
 
 // 2. Upgrade: run the same installer again over the existing installation
@@ -102,7 +106,9 @@ assert('app exe still present after upgrade', existsSync(appExe));
 assert('sentinels survive upgrade', sentinelsIntact());
 
 // 3. Uninstall (silent)
-const un = await run(uninstaller, ['/S']);
+const uninstallerRel = findUninstaller();
+assert('uninstaller present', uninstallerRel !== null, installDir);
+const un = uninstallerRel ? await run(path.join(installDir, uninstallerRel), ['/S']) : { ok: false, detail: 'no uninstaller' };
 assert('silent uninstall succeeds', un.ok, un.detail);
 // the uninstaller exits after deleting; give the filesystem a moment
 const deadline = Date.now() + 30_000;

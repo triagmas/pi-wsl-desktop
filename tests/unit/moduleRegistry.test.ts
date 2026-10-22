@@ -191,4 +191,33 @@ describe('module registry', () => {
     expect(optedIn[0]!.state).toBe('enabled');
   });
 
+  it('resolves a 4000-module dependency chain without stack overflow', () => {
+    const raws = Array.from({ length: 4000 }, (_, index) =>
+      validRaw({
+        id: `m${index}`,
+        dependencies: index < 3999 ? [`m${index + 1}`] : [],
+      }),
+    );
+    const entries = registerModules(raws);
+    expect(entries).toHaveLength(4000);
+    expect(entries.every((entry) => entry.state === 'enabled')).toBe(true);
+    expect(moduleTabs(entries)).toHaveLength(4000);
+  });
+
+  it('fails closed on a very deep cycle without crashing the registry or sibling tabs', () => {
+    const count = 2000;
+    const raws = Array.from({ length: count }, (_, index) =>
+      validRaw({
+        id: `cycle-${index}`,
+        dependencies: [`cycle-${(index + 1) % count}`],
+      }),
+    );
+    raws.push(validRaw({ id: 'safe' }));
+    const entries = registerModules(raws);
+    expect(entries).toHaveLength(count + 1);
+    expect(entries.slice(0, count).every((entry) => entry.state === 'blocked')).toBe(true);
+    expect(entries[0]!.errors.join(' ')).toMatch(/cycle/i);
+    expect(moduleTabs(entries).map((tab) => tab.tabKey)).toEqual(['safe/welcome']);
+  });
+
 });

@@ -7,7 +7,8 @@
  *   with an honest state (`enabled | disabled | invalid | incompatible`);
  * - a duplicate id fails the LATER registration closed, the first stands;
  * - only `enabled` entries project tabs — invalid/incompatible modules can
- *   never put UI on screen, and `setModuleEnabled` cannot promote them;
+ *   never put UI on screen, and dependency-blocked modules fail closed;
+ * - no file IO, imports of external module code or capability elevation;
  * - adding a module must not require patching the core: App maps over
  *   `moduleTabs()` output.
  */
@@ -23,7 +24,7 @@ export interface ModuleEntry {
   state: ModuleState;
   /** Typed manifest when parsing succeeded; null for `invalid`. */
   manifest: ModuleManifest | null;
-  /** Human-readable reasons for invalid/incompatible; empty otherwise. */
+  /** Human-readable reasons for invalid/incompatible/blocked; empty otherwise. */
   errors: string[];
 }
 
@@ -97,7 +98,7 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
     return outcome;
   };
 
-  return entries.map((entry) => {
+  return entries.map((entry): ModuleEntry => {
     if (!entry.manifest || entry.state === 'invalid' || entry.state === 'incompatible') {
       return entry;
     }
@@ -153,9 +154,9 @@ export function registerModules(raws: readonly unknown[]): ModuleEntry[] {
 }
 
 /**
- * Toggle a module by id. Only `enabled|disabled` entries move; `invalid` and
- * `incompatible` entries are not promotable — the app must surface the reason
- * instead of silently activating a broken module.
+ * Toggle a module by id. Valid entries may also be temporarily blocked by
+ * dependencies; invalid/incompatible entries are never promotable. Every
+ * toggle re-evaluates the whole dependency graph to hide blocked tabs.
  */
 export function setModuleEnabled(
   entries: readonly ModuleEntry[],

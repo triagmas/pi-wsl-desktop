@@ -333,3 +333,48 @@ describe('M3 R03 registry — capability grants, panels, versioned deps', () => 
     expect(typeof (m3 as Record<string, unknown>).MODULE_OPERATIONS).toBe('object');
   });
 });
+
+describe('M3 R03 registry — pathological fan-in graphs stay fail-closed', () => {
+  it('never throws on a wide fan-in dependency DAG and keeps diagnostics bounded', () => {
+    const levels = 20;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const raws: unknown[] = [];
+    for (let level = 0; level < levels; level += 1) {
+      for (const prefix of ['na', 'nb']) {
+        const id = `${prefix}${pad(level)}`;
+        raws.push({
+          id,
+          version: '1.0.0',
+          apiVersion: MODULE_API_VERSION,
+          capabilities: ['runtime'],
+          ui: [{ kind: 'tab', id: 'w', title: id, blocks: [{ type: 'text', value: id }] }],
+          dependencies:
+            level === levels - 1
+              ? ['missing']
+              : [`na${pad(level + 1)}`, `nb${pad(level + 1)}`],
+        });
+      }
+    }
+    raws.push({
+      id: 'safe',
+      version: '1.0.0',
+      apiVersion: MODULE_API_VERSION,
+      capabilities: ['runtime'],
+      ui: [{ kind: 'tab', id: 'w', title: 'safe', blocks: [{ type: 'text', value: 'ok' }] }],
+    });
+
+    let entries: ReturnType<typeof registerModules> | undefined;
+    expect(() => {
+      entries = registerModules(raws);
+    }).not.toThrow();
+
+    const result = entries!;
+    // fail closed: the broken graph is blocked, the independent module survives
+    expect(result.find((entry) => entry.id === 'safe')!.state).toBe('enabled');
+    expect(moduleTabs(result).map((t) => t.tabKey)).toEqual(['safe/w']);
+    expect(result.find((entry) => entry.id === 'na00')!.state).toBe('blocked');
+    // diagnostics must stay bounded — no exponential duplication per level
+    const max = Math.max(...result.map((entry) => entry.errors.length));
+    expect(max).toBeLessThan(100);
+  });
+});

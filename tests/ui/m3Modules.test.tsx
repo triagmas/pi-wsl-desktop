@@ -342,3 +342,53 @@ describe('M3 R03 UI — panels, actions and capability grants', () => {
     expect(screen.getByTestId('module-errors-module-0')).toHaveTextContent(/not provided by the host/i);
   });
 });
+
+describe('M3 R03 fix — action reachability and visible failure', () => {
+  it('exposes the declared actions of a module that has a panel but no tab', () => {
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          {
+            id: 'railmod',
+            version: '1.0.0',
+            apiVersion: 1,
+            capabilities: ['runtime'],
+            ui: [
+              { kind: 'panel', id: 'only', title: 'Only panel', blocks: [{ type: 'text', value: 'p' }] },
+            ],
+            actions: [{ id: 'reload', title: 'Обновить', operation: 'refresh' }],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('module-panel-railmod/only')).toBeInTheDocument();
+    expect(screen.getByTestId('module-action-railmod/reload')).toBeInTheDocument();
+  });
+
+  it('fails visibly when an action targets a tab that does not exist', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          {
+            id: 'actor',
+            version: '1.0.0',
+            apiVersion: 1,
+            capabilities: ['runtime'],
+            ui: [{ kind: 'tab', id: 'main', title: 'Actor', blocks: [{ type: 'text', value: 'a' }] }],
+            actions: [
+              { id: 'bad', title: 'Битая цель', operation: 'openTab', target: 'missing/nope' },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByTestId('tab-module-actor/main'));
+    await user.click(screen.getByTestId('module-action-actor/bad'));
+    expect(screen.getByTestId('module-action-error')).toBeInTheDocument();
+  });
+});

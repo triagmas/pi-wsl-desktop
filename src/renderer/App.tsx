@@ -5,7 +5,8 @@ import { StatusPanel } from './StatusPanel';
 import { SessionsView } from './SessionsView';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
-import { ModuleBlocks, ModuleTabView } from './ModuleTabView';
+import { ModulePanel } from './ModulePanel';
+import { ModuleTabView } from './ModuleTabView';
 import type { ModuleAction } from '../shared/m3Protocol';
 import { useConnection } from './useConnection';
 import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
@@ -59,20 +60,31 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * Declarative action dispatcher. The manifest schema only admits operations
    * from MODULE_OPERATIONS, and every failure below becomes visible state
    * instead of a thrown error that would take the surface down.
+   * An EXPLICIT target that cannot be resolved fails closed — it must never
+   * silently degrade into "success".
    */
-  const runModuleAction = (action: ModuleAction) => {
+  const runModuleAction = (moduleId: string, action: ModuleAction) => {
     switch (action.operation) {
       case 'openTab': {
-        const exact = action.target && tabs.some((t) => t.tabKey === action.target)
-          ? action.target
-          : tabs.find((t) => t.entry.id === (action.target ?? ''))?.tabKey
-            ?? tabs.find((t) => t.entry.id === activeModuleTab?.entry.id)?.tabKey;
-        if (exact) {
+        if (action.target) {
+          const resolved =
+            tabs.find((t) => t.tabKey === action.target) ??
+            tabs.find((t) => t.entry.id === action.target);
+          if (!resolved) {
+            setActionError(`Действие «${action.id}»: вкладка «${action.target}» не найдена`);
+            return;
+          }
           setActionError(null);
-          setView(`module:${exact}`);
-        } else {
-          setActionError(`Действие «${action.id}»: вкладка назначения не найдена`);
+          setView(`module:${resolved.tabKey}`);
+          return;
         }
+        const own = tabs.find((t) => t.entry.id === moduleId);
+        if (!own) {
+          setActionError(`Действие «${action.id}»: у модуля «${moduleId}» нет вкладки`);
+          return;
+        }
+        setActionError(null);
+        setView(`module:${own.tabKey}`);
         return;
       }
       case 'openPanel':
@@ -155,16 +167,23 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       </nav>
       {panels.length > 0 && (
         <section className="module-panels" aria-label="Панели модулей">
-          {panels.map(({ tabKey, tab }) => (
-            <aside
-              key={tabKey}
-              className="module-panel"
-              data-testid={`module-panel-${tabKey}`}
-            >
-              <h3 className="module-panel-title">{tab.title}</h3>
-              <ModuleBlocks blocks={tab.blocks} />
-            </aside>
-          ))}
+          {panels.map((panel, index) => {
+            const manifest = panel.entry.manifest;
+            const ownsNoTab = !!manifest && !manifest.ui.some((ui) => ui.kind === 'tab');
+            const firstSurfaceOfModule =
+              panels.findIndex((other) => other.entry.key === panel.entry.key) === index;
+            return (
+              <ModulePanel
+                key={panel.tabKey}
+                panel={panel}
+                actions={
+                  ownsNoTab && firstSurfaceOfModule ? (manifest?.actions ?? []) : undefined
+                }
+                onAction={(action) => runModuleAction(panel.entry.id, action)}
+                onDisable={() => toggleModule(panel.entry.id, false)}
+              />
+            );
+          })}
         </section>
       )}
       {activeModuleTab ? (
@@ -172,7 +191,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           key={activeModuleTab.tabKey}
           tab={activeModuleTab}
           onDisable={(id) => toggleModule(id, false)}
-          onAction={runModuleAction}
+          onAction={(action) => runModuleAction(activeModuleTab.entry.id, action)}
         />
       ) : view === 'status' ? (
         <StatusPanel

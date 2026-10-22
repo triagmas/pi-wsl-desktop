@@ -172,25 +172,71 @@ export function parseModuleManifest(raw: unknown): ManifestParseResult {
   return { ok: true, manifest };
 }
 
-/**
- * Minimal semver range check for module dependencies: `*`, exact `X.Y.Z`
- * and caret `^X.Y.Z` (same major, at least the base version). Unknown or
- * malformed inputs fail closed — a dependency the host cannot evaluate must
- * not be treated as satisfied.
- */
+/** Numeric MAJOR.MINOR.PATCH tuple; null when the value is not a version. */
 function numericVersion(value: string): [number, number, number] | null {
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value);
   if (!match) return null;
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+/** Pre-release suffix including the leading `-`, or null for a release. */
+function preReleaseOf(value: string): string | null {
+  const match = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.exec(value);
+  return match?.[1] ?? null;
+}
+
+/** Semver pre-release precedence: numeric ids compare numerically, then ASCII. */
+function comparePreRelease(left: string, right: string): number {
+  const a = left.slice(1).split('.');
+  const b = right.slice(1).split('.');
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const x = a[index];
+    const y = b[index];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const nx = /^\d+$/.test(x) ? Number(x) : null;
+    const ny = /^\d+$/.test(y) ? Number(y) : null;
+    if (nx !== null && ny !== null) {
+      if (nx !== ny) return nx - ny;
+      continue;
+    }
+    if (nx !== null) return -1;
+    if (ny !== null) return 1;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Minimal semver range check for module dependencies: `*`, exact `X.Y.Z` and
+ * caret `^X.Y.Z` (same major, at least the base). Pre-release versions keep
+ * their LOWER precedence: `1.0.0-beta.1` never satisfies an exact `1.0.0`,
+ * and a pre-release only matches a range whose base itself carries a
+ * pre-release. Unknown or malformed inputs fail closed.
+ */
 export function satisfiesSemverRange(version: string, range: string): boolean {
   if (range === '*') return true;
   const caret = range.startsWith('^');
-  const base = numericVersion(caret ? range.slice(1) : range);
-  const current = numericVersion(version);
-  if (!base || !current) return false;
-  const delta = current[0] - base[0] || current[1] - base[1] || current[2] - base[2];
-  if (!caret) return delta === 0;
-  return current[0] === base[0] && delta >= 0;
+  const base = caret ? range.slice(1) : range;
+  const baseTuple = numericVersion(base);
+  const currentTuple = numericVersion(version);
+  if (!baseTuple || !currentTuple) return false;
+
+  const delta = currentTuple[0] - baseTuple[0]
+    || currentTuple[1] - baseTuple[1]
+    || currentTuple[2] - baseTuple[2];
+  const basePre = preReleaseOf(base);
+  const currentPre = preReleaseOf(version);
+
+  if (!caret) {
+    // Exact range: same tuple AND the same pre-release identity.
+    return delta === 0 && currentPre === basePre;
+  }
+  if (currentTuple[0] !== baseTuple[0]) return false;
+  if (currentPre && !basePre) return false;
+  if (currentPre && basePre) {
+    return delta > 0 || (delta === 0 && comparePreRelease(currentPre, basePre) >= 0);
+  }
+  return delta >= 0;
 }

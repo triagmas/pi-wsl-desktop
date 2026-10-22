@@ -82,6 +82,27 @@ function dependencyRefs(manifest: ModuleManifest): DependencyRef[] {
   );
 }
 
+/**
+ * Hard cap on diagnostics carried by one entry. Downstream causes are copied
+ * into every ancestor, so on a wide fan-in graph the count would otherwise
+ * double per level — `push(...hugeArray)` then exceeds the JS argument limit
+ * and `registerModules` throws, breaking its "never throws" contract. The cap
+ * bounds both memory and spread size; the reason string is already capped at
+ * 512 chars, which limits WIDTH, not COUNT.
+ */
+const MAX_DIAGNOSTICS = 32;
+const TRUNCATION_MARKER = '… further dependency diagnostics truncated';
+
+function pushBounded(target: string[], incoming: readonly string[]): void {
+  for (const message of incoming) {
+    if (target.length >= MAX_DIAGNOSTICS) {
+      if (target[target.length - 1] !== TRUNCATION_MARKER) target.push(TRUNCATION_MARKER);
+      return;
+    }
+    target.push(message);
+  }
+}
+
 function entryId(raw: unknown): string {
   if (raw !== null && typeof raw === 'object' && 'id' in raw) {
     const id = (raw as { id?: unknown }).id;
@@ -163,7 +184,10 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
         const previous = cached.get(name);
         if (previous) {
           if (!previous.ok) {
-            frame.errors.push(...previous.errors.map((err) => reason(name, err)));
+            pushBounded(
+              frame.errors,
+              previous.errors.map((err) => reason(name, err)),
+            );
           }
           continue;
         }
@@ -176,7 +200,10 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
       active.delete(manifest.id);
       const parent = stack[stack.length - 1];
       if (parent && !outcome.ok) {
-        parent.errors.push(...outcome.errors.map((err) => reason(manifest.id, err)));
+        pushBounded(
+          parent.errors,
+          outcome.errors.map((err) => reason(manifest.id, err)),
+        );
       }
     }
     return cached.get(root.manifest!.id)!;

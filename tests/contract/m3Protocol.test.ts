@@ -212,3 +212,17 @@ describe('M3 R03 contract — action target', () => {
     if (result.ok) expect(result.manifest.actions[0]).not.toHaveProperty('target');
   });
 });
+
+describe('M3 R03 contract — pre-release range resolution', () => {
+  it('never lets a pre-release satisfy an exact release range (semver precedence)', () => {
+    const sat = (m3 as Record<string, unknown>).satisfiesSemverRange as (
+      version: string,
+      range: string,
+    ) => boolean;
+    // 1.0.0-beta.1 < 1.0.0 — an exact "1.0.0" requirement must not accept it
+    expect(sat('1.0.0-beta.1', '1.0.0')).toBe(false);
+    // an exact pre-release range only accepts that exact pre-release
+    expect(sat('1.0.0-beta.2', '1.0.0-beta.1')).toBe(false);
+    expect(sat('1.0.0-beta.1', '1.0.0-beta.1')).toBe(true);
+  });
+});

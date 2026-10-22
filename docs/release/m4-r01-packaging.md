@@ -44,13 +44,23 @@ no network updates; the file is inert. Disclosed here for the security review.
 ## Lifecycle & data guarantees (Issue #16)
 
 - **Install** (one-click, `oneClick: true` + `perMachine: false`): always
-  per-user, NO elevation, NO install-mode page and NO directory choice —
-  the install dir is fixed to `%LOCALAPPDATA%\Programs\pi-wsl-desktop`
-  (package name; exe `Pi WSL Desktop.exe`), so
-  the uninstaller's recursive delete can never reach an arbitrary user
-  directory. User data lives in `%APPDATA%\pi-wsl-desktop` (Electron
-  `userData`) — outside the install dir by construction. Settings
-  (`settings.json`, `module-state.json`) are never written by the installer.
+  per-user, NO elevation and NO directory choice in the UI — the default
+  install dir is fixed to `%LOCALAPPDATA%\Programs\pi-wsl-desktop`
+  (package name; exe `Pi WSL Desktop.exe`).
+  **Disclosed residual (`/D=` override):** NSIS itself honors a trailing
+  `installer.exe /D=<dir>` argument (electron-builder 26.15.3 template
+  `multiUser.nsh` accepts it unconditionally) and the uninstaller removes
+  `$INSTDIR` recursively. A user who explicitly points `/D=` at an
+  existing directory and later uninstalls can lose that directory's
+  contents. This is a CLI-only footgun of the NSIS platform — no UI path,
+  no elevation, no third-party victim — and closing it fully would require
+  allowing custom NSIS macros (`customInstall`/`customRemoveFiles`), which
+  this release deliberately forbids; that trade-off is filed for the owner
+  in Issue #16. Ordinary install/update/uninstall never touches user data
+  (proven by the CI sentinel test below). User data lives in
+  `%APPDATA%\pi-wsl-desktop` (Electron `userData`) — outside the install
+  dir by construction. Settings (`settings.json`, `module-state.json`) are
+  never written by the installer.
 - **Update**: run the new installer over the old one (same `appId`
   `io.pi-desktop.wsl`); files are replaced, `userData` is not versioned into
   the install dir. No automatic transactional rollback is claimed: if a
@@ -60,8 +70,9 @@ no network updates; the file is inert. Disclosed here for the security review.
   the older artifact the same way.
 - **Uninstall** (Add/Remove Programs): removes the program directory and
   shortcuts only. `deleteAppDataOnUninstall: false` — user data survives;
-  WSL, `~/.pi` and user projects are outside the uninstaller's reach (fixed
-  install dir + no custom NSIS scripts).
+  WSL, `~/.pi` and user projects are outside the uninstaller's reach in
+  every standard scenario (no directory choice in the UI, no custom NSIS
+  scripts; see the disclosed `/D=` CLI residual above).
 - **Verified synthetically in CI** (`scripts/packaged-lifecycle.mjs`):
   silent install → re-install (upgrade) → silent uninstall against the
   real NSIS artifacts, with sentinel files outside the install dir proving

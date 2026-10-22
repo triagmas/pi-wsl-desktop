@@ -148,6 +148,7 @@
 - [x] Лицензии: MIT + `THIRD_PARTY_NOTICES.md` с полными дословными LICENSE react/react-dom/zod и контрактом сверки с `node_modules`.
 - [x] Локальная сборка win-unpacked: содержимое проверено `scripts/verify-release.mjs` (10/10 PASS, включая LICENSE/NOTICES в asar); NSIS-финализация на Linux требует wine — локально NOT RUN, инсталлятор собирается и проверяется в Windows CI.
 - [x] CI: Windows job собирает инсталлятор, верифицирует содержимое, гоняет packaged smoke (boot без dev-сервера, fail-closed `WSL_UNAVAILABLE` без WSL) и синтетический lifecycle install→upgrade→uninstall с sentinel-файлами пользовательских данных (`scripts/packaged-lifecycle.mjs`), выгружает артефакт на 14 дней; Linux job без изменений.
+- [x] Residual раскрыт (delta review): NSIS принимает CLI-оверрайд `/D=<dir>` даже в one-click, uninstaller удаляет `$INSTDIR` рекурсивно — footgun только при явном запуске `installer /D=` (нет UI-пути, нет elevation); полное закрытие требует разрешения custom-NSIS-макросов — решение владельца (Issue #16). Штатные сценарии закрыты CI-тестом сентинелов.
 - [ ] Реальная установка/обновление/удаление в рабочем Windows-профиле и запуск установленного приложения с реальным WSL+Pi — **NOT RUN (требуется прямое разрешение владельца)** — обязательный гейт до объявления 1.0.0.
 - [ ] Финальная приёмка M4, release notes и объявление 1.0.0 — после всех R-задач M4 и независимого review.
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
@@ -8,6 +8,7 @@ import { ModulesView } from './ModulesView';
 import { ModulePanel } from './ModulePanel';
 import { ModuleTabView } from './ModuleTabView';
 import type { ModuleAction } from '../shared/m3Protocol';
+import { ListModulesResultSchema } from '../shared/m3Ipc';
 import { useConnection } from './useConnection';
 import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
 import {
@@ -39,6 +40,55 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
   );
+  /** R04: bounded discovery/persistence problems, shown honestly in Modules. */
+  const [loadDiagnostics, setLoadDiagnostics] = useState<string[]>([]);
+  const [persistError, setPersistError] = useState<string | null>(null);
+
+  /**
+   * R04 external discovery — default registrations only (tests that inject
+   * `moduleDefinitions` bypass IPC entirely). The bridge owns the path
+   * (params are `{}`), the response is schema-checked, every file-level or
+   * bridge diagnostic becomes visible state, and persisted `enabled:false`
+   * entries are applied AFTER registration so state can never resurrect an
+   * invalid/incompatible module.
+   */
+  useEffect(() => {
+    if (moduleDefinitions !== undefined || !effectiveApi) return undefined;
+    const api = effectiveApi;
+    let cancelled = false;
+    void (async () => {
+      const problems: string[] = [];
+      try {
+        const response = await api.request('listModules');
+        const parsed = ListModulesResultSchema.safeParse(response);
+        if (!parsed.success) {
+          problems.push('listModules: bridge вернул некорректный ответ (внешние модули пропущены)');
+        } else {
+          const result = parsed.data;
+          const raws: unknown[] = [DEMO_MODULE_MANIFEST];
+          for (const entry of result.files) {
+            if (entry.status === 'ok') {
+              raws.push(entry.raw);
+            } else {
+              problems.push(`${entry.file}: ${entry.errors.join('; ')}`);
+            }
+          }
+          problems.push(...result.diagnostics);
+          let entries = registerModules(raws);
+          for (const [id, enabled] of Object.entries(result.state)) {
+            if (!enabled) entries = setModuleEnabled(entries, id, false);
+          }
+          if (!cancelled) setModuleEntries(entries);
+        }
+      } catch (error) {
+        problems.push(`listModules: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!cancelled) setLoadDiagnostics(problems.slice(0, 64));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApi, moduleDefinitions]);
 
   const toggleModule = (moduleId: string, enabled: boolean) => {
     setModuleEntries((entries) => setModuleEnabled(entries, moduleId, enabled));
@@ -47,6 +97,20 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       setView((current) =>
         current.startsWith(`module:${moduleId}/`) ? 'status' : current,
       );
+    }
+    // R04 persistence (default path only): optimistic update, then persist.
+    // A rejected write REVERTS the toggle so the visible state never silently
+    // diverges from what is stored — and the failure is always on screen.
+    if (moduleDefinitions === undefined && effectiveApi) {
+      setPersistError(null);
+      void effectiveApi
+        .request('setModuleState', { id: moduleId, enabled })
+        .then(() => setPersistError(null))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setModuleEntries((entries) => setModuleEnabled(entries, moduleId, !enabled));
+          setPersistError(`Не удалось сохранить состояние «${moduleId}»: ${message}`);
+        });
     }
   };
 
@@ -209,8 +273,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       ) : (
         <ModulesView
           entries={moduleEntries}
+          diagnostics={loadDiagnostics}
           onToggle={(id, enabled) => toggleModule(id, enabled)}
         />
+      )}
+      {persistError && (
+        <p className="request-error" role="alert" data-testid="modules-persist-error">
+          {persistError}
+        </p>
       )}
       {actionError && (
         <p className="request-error" role="alert" data-testid="module-action-error">

@@ -392,3 +392,136 @@ describe('M3 R03 fix — action reachability and visible failure', () => {
     expect(screen.getByTestId('module-action-error')).toBeInTheDocument();
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* M3 R04 UI — external discovery, persisted toggles, honest failures   */
+/* ------------------------------------------------------------------ */
+describe('M3 R04 UI — external discovery and persistence', () => {
+  const EXT_MANIFEST = {
+    id: 'ext1',
+    version: '1.0.0',
+    apiVersion: 1,
+    capabilities: ['runtime'],
+    ui: [{ kind: 'tab', id: 'welcome', title: 'Внешний', blocks: [{ type: 'text', value: 'внешний модуль' }] }],
+  };
+
+  function apiWith(request: ReturnType<typeof vi.fn>): DesktopApi {
+    return { ...makeApi(), request: request as DesktopApi['request'] };
+  }
+
+  function payload(
+    files: Array<{ file: string; status: string; raw?: unknown; errors?: string[] }>,
+    state: Record<string, boolean> = {},
+    diagnostics: string[] = [],
+  ) {
+    return { root: '/home/u/.pi-desktop/modules', available: true, files, diagnostics, state };
+  }
+
+  it('registers a discovered external manifest through the generic contract', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') return payload([{ file: 'ext.json', status: 'ok', raw: EXT_MANIFEST }]);
+      return { id: 'ext1', enabled: true };
+    });
+    render(<App api={apiWith(request)} />);
+
+    expect(await screen.findByTestId('tab-module-ext1/welcome')).toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith('listModules');
+  });
+
+  it('applies persisted disabled state, then persists the toggle back', async () => {
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'listModules') {
+        return payload([{ file: 'ext.json', status: 'ok', raw: EXT_MANIFEST }], { ext1: false });
+      }
+      return params ?? {};
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    expect(await screen.findByTestId('tab-modules')).toBeInTheDocument();
+    await user.click(screen.getByTestId('tab-modules'));
+    expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('disabled');
+    expect(screen.queryByTestId('tab-module-ext1/welcome')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('module-toggle-ext1'));
+    expect(request).toHaveBeenCalledWith('setModuleState', { id: 'ext1', enabled: true });
+    expect(await screen.findByTestId('tab-module-ext1/welcome')).toBeInTheDocument();
+    expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('enabled');
+  });
+
+  it('reverts the toggle and shows a visible error when persistence fails', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') {
+        return payload([{ file: 'ext.json', status: 'ok', raw: EXT_MANIFEST }], { ext1: false });
+      }
+      throw new Error('WSL gone');
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(screen.getByTestId('module-toggle-ext1'));
+
+    const error = await screen.findByTestId('modules-persist-error');
+    expect(error).toHaveTextContent('WSL gone');
+    expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('disabled');
+    expect(screen.queryByTestId('tab-module-ext1/welcome')).not.toBeInTheDocument();
+  });
+
+  it('keeps the demo working and surfaces bridge failure as visible diagnostics', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') throw new Error('WSL gone');
+      return { id: 'demo', enabled: true };
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    expect(await screen.findByTestId('modules-diagnostics')).toHaveTextContent('WSL gone');
+    expect(screen.getByTestId('tab-module-demo/welcome')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('module-toggle-demo'));
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
+    expect(screen.queryByTestId('modules-persist-error')).not.toBeInTheDocument();
+  });
+
+  it('shows per-file discovery errors in the diagnostics list', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') {
+        return payload([{ file: 'link.json', status: 'error', errors: ['symlink rejected (not a regular file)'] }]);
+      }
+      return {};
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    const diagnostics = await screen.findByTestId('modules-diagnostics');
+    expect(diagnostics).toHaveTextContent('link.json: symlink rejected (not a regular file)');
+  });
+
+  it('gives a discovered module with an unoffered capability no tab and no panel', async () => {
+    const greedy = {
+      id: 'greedy',
+      version: '1.0.0',
+      apiVersion: 1,
+      capabilities: ['notifications'],
+      ui: [
+        { kind: 'tab', id: 'main', title: 'Greedy', blocks: [{ type: 'text', value: 'x' }] },
+        { kind: 'panel', id: 'rail', title: 'Rail', blocks: [{ type: 'text', value: 'x' }] },
+      ],
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') return payload([{ file: 'greedy.json', status: 'ok', raw: greedy }]);
+      return {};
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    expect(screen.queryByTestId('tab-module-greedy/main')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('module-panel-greedy/rail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('incompatible');
+    expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/not provided by the host/i);
+  });
+});

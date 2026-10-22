@@ -9,11 +9,13 @@ import type { ModuleEntry } from './modules/registry';
 
 export interface ModulesViewProps {
   entries: readonly ModuleEntry[];
+  /** R04: bounded discovery/persistence diagnostics (rendered only when non-empty). */
+  diagnostics?: readonly string[];
   /** Toggle handler: (moduleId, nextEnabled). */
   onToggle: (moduleId: string, enabled: boolean) => void;
 }
 
-export function ModulesView({ entries, onToggle }: ModulesViewProps) {
+export function ModulesView({ entries, diagnostics, onToggle }: ModulesViewProps) {
   return (
     <section className="panel" aria-label="Модули">
       <header className="panel-header">
@@ -65,6 +67,15 @@ export function ModulesView({ entries, onToggle }: ModulesViewProps) {
               </li>
             );
           })}
+        </ul>
+      )}
+      {diagnostics !== undefined && diagnostics.length > 0 && (
+        <ul className="module-list" data-testid="modules-diagnostics">
+          {diagnostics.map((line, index) => (
+            <li key={`${index}-${line.slice(0, 24)}`} data-testid={`module-diagnostic-${index}`}>
+              {line}
+            </li>
+          ))}
         </ul>
       )}
     </section>

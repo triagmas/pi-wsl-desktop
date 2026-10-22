@@ -114,7 +114,12 @@ describe('App UI (RTL)', () => {
   it('surfaces a rejected runtime request as error text instead of crashing', async () => {
     const user = userEvent.setup();
     const mock = makeApi(READY);
-    mock.request.mockRejectedValueOnce(new Error('method not allowed: exec'));
+    // R04: route rejections by method — App now also calls `listModules` on
+    // mount, so a blind mockRejectedValueOnce would be consumed by it.
+    mock.request.mockImplementation(async (method: string) => {
+      if (method === 'getRuntimeInfo') throw new Error('method not allowed: exec');
+      return { ok: true };
+    });
     render(<App api={mock.api} />);
     await waitFor(() => expect(screen.getByTestId('status-phase')).toHaveTextContent(/готово/i));
     await user.click(screen.getByRole('button', { name: /обновить данные/i }));

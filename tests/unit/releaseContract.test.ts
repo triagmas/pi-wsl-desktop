@@ -88,6 +88,9 @@ describe('M4 R01 — electron-builder configuration contract', () => {
     expect(build.nsis?.oneClick).toBe(true);
     expect(build.nsis?.perMachine).toBe(false);
     expect(build.nsis?.allowToChangeInstallationDirectory).toBeUndefined();
+    // no auto-launch after install: a running app would pin files in the
+    // install dir (breaking uninstall) and surprise the user
+    expect(build.nsis?.runAfterFinish).toBe(false);
     // THE data guarantee: uninstalling never deletes the user profile
     expect(build.nsis?.deleteAppDataOnUninstall).toBe(false);
     // no custom NSIS hooks — nothing may run arbitrary install-time scripts;

@@ -105,7 +105,18 @@ assert('re-install (upgrade path) succeeds', upgrade.ok, upgrade.detail);
 assert('app exe still present after upgrade', existsSync(appExe));
 assert('sentinels survive upgrade', sentinelsIntact());
 
-// 3. Uninstall (silent)
+// 3. Uninstall (silent). runAfterFinish is disabled by contract, but never
+// let a stray instance of OUR OWN installed app (and only that app) pin the
+// exe during the synthetic test.
+await new Promise((resolve) => {
+  const k = spawn('taskkill', ['/F', '/IM', `${pkg.build.productName}.exe`], {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  k.on('error', () => resolve(undefined));
+  k.on('exit', () => resolve(undefined));
+  setTimeout(() => resolve(undefined), 10_000);
+});
 const uninstallerRel = findUninstaller();
 assert('uninstaller present', uninstallerRel !== null, installDir);
 const un = uninstallerRel ? await run(path.join(installDir, uninstallerRel), ['/S']) : { ok: false, detail: 'no uninstaller' };

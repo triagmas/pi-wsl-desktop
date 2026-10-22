@@ -167,7 +167,7 @@ export function setModuleEnabled(
     if (entry.manifest?.id !== id) return entry;
     if (entry.state !== 'enabled' && entry.state !== 'disabled' && entry.state !== 'blocked') return entry;
     const next: ModuleState = enabled ? 'enabled' : 'disabled';
-    return next === entry.state ? entry : { ...entry, state: next };
+    return next === entry.state ? entry : { ...entry, state: next, errors: [] };
   });
   return reconcileDependencies(toggled);
 }

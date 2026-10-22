@@ -171,4 +171,24 @@ describe('module registry', () => {
     expect(moduleTabs(entries).map((t) => t.tabKey)).toEqual(['independent/welcome']);
   });
 
+  it('lets the owner explicitly disable a blocked module without automatically re-enabling it', () => {
+    const registered = registerModules([
+      validRaw({ id: 'consumer', dependencies: ['provider'] }),
+      validRaw({ id: 'provider' }),
+    ]);
+    const blocked = setModuleEnabled(registered, 'provider', false);
+    expect(blocked[0]!.state).toBe('blocked');
+
+    const optedOut = setModuleEnabled(blocked, 'consumer', false);
+    expect(optedOut[0]!.state).toBe('disabled');
+    expect(optedOut[0]!.errors).toEqual([]);
+
+    const restoredProvider = setModuleEnabled(optedOut, 'provider', true);
+    expect(restoredProvider[0]!.state).toBe('disabled');
+    expect(moduleTabs(restoredProvider).map((t) => t.tabKey)).toEqual(['provider/welcome']);
+
+    const optedIn = setModuleEnabled(restoredProvider, 'consumer', true);
+    expect(optedIn[0]!.state).toBe('enabled');
+  });
+
 });

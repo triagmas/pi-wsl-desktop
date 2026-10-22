@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import type { RendererSnapshot } from './types';
 
@@ -24,6 +24,19 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 export function useConnection(api: DesktopApi | null) {
   const [snapshot, setSnapshot] = useState<RendererSnapshot>(api ? IDLE_SNAPSHOT : NO_API_SNAPSHOT);
   const [requestError, setRequestError] = useState<string | null>(null);
+  /**
+   * Monotonic connection-generation counter (review R04 N1): every REAL
+   * snapshot transition (phase/distro/attempt) bumps it, so consumers can
+   * build keys that never repeat across a reconnect — `attempt` resets to 0
+   * on READY, which made `ready:<distro>:<attempt>` collide after a reconnect
+   * and let a toggle slip in while a fresh discovery was in flight.
+   */
+  const [connectionSeq, setConnectionSeq] = useState(0);
+  const lastSnapshotRef = useRef<{ phase: string; distro: string | null; attempt: number }>({
+    phase: api ? 'idle' : 'error',
+    distro: null,
+    attempt: 0,
+  });
 
   useEffect(() => {
     if (!api) return;
@@ -32,7 +45,10 @@ export function useConnection(api: DesktopApi | null) {
     void api
       .getStatus()
       .then((s) => {
-        if (alive && !sawEvent) setSnapshot(s);
+        if (alive && !sawEvent) {
+          lastSnapshotRef.current = { phase: s.phase, distro: s.distro, attempt: s.attempt };
+          setSnapshot(s);
+        }
       })
       .catch((err: unknown) => {
         if (alive && !sawEvent) {
@@ -41,6 +57,11 @@ export function useConnection(api: DesktopApi | null) {
       });
     const off = api.onStateChange((s) => {
       sawEvent = true;
+      const last = lastSnapshotRef.current;
+      if (last.phase !== s.phase || last.distro !== s.distro || last.attempt !== s.attempt) {
+        lastSnapshotRef.current = { phase: s.phase, distro: s.distro, attempt: s.attempt };
+        setConnectionSeq((n) => n + 1);
+      }
       if (alive) setSnapshot(s);
     });
     return () => {
@@ -83,5 +104,5 @@ export function useConnection(api: DesktopApi | null) {
     }
   }, [api]);
 
-  return { snapshot, requestError, retry, selectDistro, refreshRuntime };
+  return { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime };
 }

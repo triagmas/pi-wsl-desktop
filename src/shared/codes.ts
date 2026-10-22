@@ -57,8 +57,22 @@ export const M2_METHODS = [
 ] as const;
 export type M2Method = (typeof M2_METHODS)[number];
 
-/** Every method the bridge serves (M0 read-only + M1 sessions/chat + M2 resources). */
-export const ALL_METHODS = [...M0_METHODS, ...M1_METHODS, ...M2_METHODS] as const;
+/**
+ * Bridge contract methods added in M3 (Module System), Issue #10 — R04:
+ * `listModules` is read-only discovery of external DECLARATIVE manifests from
+ * a bridge-owned directory (no caller-supplied path — traversal is out of
+ * reach by construction); `setModuleState` is the M3 write boundary and
+ * persists only Desktop app state (module enable/disable) under
+ * `$HOME/.pi-desktop` — never Pi configuration, never `~/.pi`. Both are
+ * reachable from the renderer on explicit user gestures; `setModuleState`
+ * is re-validated and guarded in the bridge (strict schema, regular-file
+ * checks, atomic merge-preserving write).
+ */
+export const M3_METHODS = ['listModules', 'setModuleState'] as const;
+export type M3Method = (typeof M3_METHODS)[number];
+
+/** Every method the bridge serves (M0 + M1 + M2 + M3). */
+export const ALL_METHODS = [...M0_METHODS, ...M1_METHODS, ...M2_METHODS, ...M3_METHODS] as const;
 export type AllMethod = (typeof ALL_METHODS)[number];
 
 /**

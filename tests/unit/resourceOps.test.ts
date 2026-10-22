@@ -287,7 +287,11 @@ describe('ResourceOps — review round 1 fixes (BLOCKER #1, IMPORTANT #2/#3/#5, 
     h.setSpawn(() => ({ code: 0, stdout: 'leak q1 here', stderr: '' }));
     const p = await h.ops.preview({ kind: 'mcp-add', source: 's2', command: ['/bin/true'], env: { SHORT: 'q1' } });
     expect(p.plan.command.join(' ')).toMatch(/SHORT=\*\*\*/);
-    expect(JSON.stringify(p.plan)).not.toContain('q1');
+    // Assert the DISPLAY surface (argv + description), not the whole plan JSON:
+    // the plan also carries filesTouched paths, and the random mkdtemp suffix
+    // (piwsd-ops-XXXXXX) can itself contain the short secret — that made this
+    // assertion fail spuriously (Windows CI run 39728000408: piwsd-ops-q1gd1H).
+    expect(JSON.stringify({ command: p.plan.command, description: p.plan.description })).not.toContain('q1');
     const r = await h.ops.apply(p.plan.planId, true);
     expect(r.output).not.toContain('q1');
   });

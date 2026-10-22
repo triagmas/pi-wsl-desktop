@@ -109,18 +109,36 @@ export const ModuleActionSchema = z.object({
 });
 export type ModuleAction = z.infer<typeof ModuleActionSchema>;
 
+/**
+ * Collection caps (R04): external raws can be arbitrarily large, so every
+ * unbounded manifest array/record has a hard ceiling BEFORE anything
+ * downstream (registry entries, diagnostics, IPC frames) sees the input.
+ * Existing R01–R03 manifests are far below these limits.
+ */
+export const MAX_UI_ENTRIES = 64;
+export const MAX_ACTIONS = 64;
+export const MAX_DEPENDENCIES = 128;
+export const MAX_PARAMS_KEYS = 64;
+
 export const ModuleManifestSchema = z
   .object({
     id: ModuleIdSchema,
     version: SemverSchema,
     apiVersion: z.number().int().positive(),
     capabilities: z.array(z.enum(MODULE_CAPABILITIES)).min(1),
-    ui: z.array(ModuleUiEntrySchema).min(1),
-    actions: z.array(ModuleActionSchema).default([]),
-    dependencies: z.array(z.union([ModuleIdSchema, ModuleDependencySchema])).default([]),
+    ui: z.array(ModuleUiEntrySchema).min(1).max(MAX_UI_ENTRIES),
+    actions: z.array(ModuleActionSchema).max(MAX_ACTIONS).default([]),
+    dependencies: z.array(z.union([ModuleIdSchema, ModuleDependencySchema])).max(MAX_DEPENDENCIES).default([]),
     params: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
   })
   .superRefine((manifest, ctx) => {
+    if (Object.keys(manifest.params).length > MAX_PARAMS_KEYS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['params'],
+        message: `params: must contain at most ${MAX_PARAMS_KEYS} keys`,
+      });
+    }
     // Duplicate ui entry ids would project colliding tabKeys / React keys,
     // silently making the second contribution unreachable — fail closed.
     const seen = new Set<string>();

@@ -264,3 +264,54 @@ describe('M3 R04 — semver range correctness (P2)', () => {
     expect(sat('1.0.0-9007199254740993', '^1.0.0-9007199254740992')).toBe(true);
   });
 });
+
+describe('M3 R04 — manifest collection caps (oversized input)', () => {
+  const uiEntry = (i: number) => ({
+    kind: 'tab' as const,
+    id: `t${i}`,
+    title: `Tab ${i}`,
+    blocks: [{ type: 'text' as const, value: `block ${i}` }],
+  });
+  const action = (i: number) => ({
+    id: `act${i}`,
+    title: `Action ${i}`,
+    operation: 'refresh' as const,
+  });
+
+  it('rejects more than 64 ui entries', () => {
+    const tooMany = parseModuleManifest({ ...validManifest(), ui: Array.from({ length: 65 }, (_, i) => uiEntry(i + 1)) });
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) {
+      expect(tooMany.stage).toBe('manifest');
+      expect(tooMany.errors.join(' ')).toMatch(/<=64 items/);
+    }
+  });
+
+  it('still accepts exactly 64 ui entries', () => {
+    const ok = parseModuleManifest({ ...validManifest(), ui: Array.from({ length: 64 }, (_, i) => uiEntry(i + 1)) });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('rejects more than 64 actions', () => {
+    const tooMany = parseModuleManifest({ ...validManifest(), actions: Array.from({ length: 65 }, (_, i) => action(i + 1)) });
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.errors.join(' ')).toMatch(/<=64 items/);
+  });
+
+  it('rejects more than 128 dependencies', () => {
+    const tooMany = parseModuleManifest({
+      ...validManifest(),
+      dependencies: Array.from({ length: 129 }, (_, i) => `dep${i}`),
+    });
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.errors.join(' ')).toMatch(/<=128 items/);
+  });
+
+  it('rejects more than 64 params keys', () => {
+    const params: Record<string, string> = {};
+    for (let i = 1; i <= 65; i += 1) params[`k${i}`] = 'v';
+    const tooMany = parseModuleManifest({ ...validManifest(), params });
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.errors.join(' ')).toMatch(/params/);
+  });
+});

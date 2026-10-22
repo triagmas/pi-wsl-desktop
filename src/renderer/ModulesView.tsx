@@ -24,7 +24,7 @@ export function ModulesView({ entries, onToggle }: ModulesViewProps) {
       ) : (
         <ul className="module-list">
           {entries.map((entry) => {
-            const toggleable = entry.state === 'enabled' || entry.state === 'disabled';
+            const toggleable = entry.state === 'enabled' || entry.state === 'disabled' || entry.state === 'blocked';
             return (
               <li key={entry.key} className="module-entry" data-testid={`module-entry-${entry.key}`}>
                 <div className="module-entry-main">
@@ -44,9 +44,9 @@ export function ModulesView({ entries, onToggle }: ModulesViewProps) {
                     type="button"
                     data-testid={`module-toggle-${entry.id}`}
                     aria-pressed={entry.state === 'enabled'}
-                    onClick={() => onToggle(entry.id, entry.state !== 'enabled')}
+                    onClick={() => onToggle(entry.id, entry.state === 'disabled')}
                   >
-                    {entry.state === 'enabled' ? 'Отключить' : 'Включить'}
+                    {entry.state === 'disabled' ? 'Включить' : 'Отключить'}
                   </button>
                 ) : (
                   <span className="module-entry-fixed" data-testid={`module-fixed-${entry.key}`}>

@@ -160,4 +160,51 @@ describe('M3 module registration UI', () => {
       consoleError.mockRestore();
     }
   });
+
+  it('shows blocked dependencies and keeps unrelated valid modules interactive', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          DEMO_MODULE_MANIFEST,
+          { ...DEMO_MODULE_MANIFEST, id: 'consumer', dependencies: ['absent'] },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByTestId('tab-modules'));
+    expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('blocked');
+    expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/absent/i);
+    expect(screen.queryByTestId('module-toggle-consumer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-module-consumer/welcome')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('tab-module-demo/welcome'));
+    expect(screen.getByTestId('module-tab-demo')).toBeInTheDocument();
+  });
+
+  it('removes dependent tabs when a provider is disabled and restores them on re-enable', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          { ...DEMO_MODULE_MANIFEST, id: 'consumer', dependencies: ['provider'] },
+          { ...DEMO_MODULE_MANIFEST, id: 'provider' },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('tab-module-consumer/welcome')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('module-toggle-provider'));
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
+    expect(screen.getByTestId('module-errors-module-0')).toHaveTextContent(/provider/i);
+    expect(screen.queryByTestId('tab-module-consumer/welcome')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('module-toggle-provider'));
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('enabled');
+    expect(screen.getByTestId('tab-module-consumer/welcome')).toBeInTheDocument();
+  });
+
 });

@@ -207,4 +207,26 @@ describe('M3 module registration UI', () => {
     expect(screen.getByTestId('tab-module-consumer/welcome')).toBeInTheDocument();
   });
 
+  it('lets the user disable a dependency-blocked module instead of forcing auto-recovery', async () => {
+    const user = userEvent.setup();
+    render(
+      <App
+        api={makeApi()}
+        moduleDefinitions={[
+          { ...DEMO_MODULE_MANIFEST, id: 'consumer', dependencies: ['missing'] },
+          DEMO_MODULE_MANIFEST,
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByTestId('tab-modules'));
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
+    expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Отключить');
+    await user.click(screen.getByTestId('module-toggle-consumer'));
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
+    expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Включить');
+    await user.click(screen.getByTestId('module-toggle-consumer'));
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
+  });
+
 });

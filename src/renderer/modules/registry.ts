@@ -55,47 +55,76 @@ function entryId(raw: unknown): string {
  * already accepted by parseModuleManifest (no file IO / Pi mutations).
  */
 function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
-  const validById = new Map<string, ModuleEntry>();
+  const byId = new Map<string, ModuleEntry>();
   for (const entry of entries) {
     if (entry.manifest && entry.state !== 'invalid' && entry.state !== 'incompatible') {
-      validById.set(entry.manifest.id, entry);
+      byId.set(entry.manifest.id, entry);
     }
   }
-
   type Resolution = { ok: boolean; errors: string[] };
-  const resolved = new Map<string, Resolution>();
+  type Frame = { entry: ModuleEntry; next: number; errors: string[] };
+  const cached = new Map<string, Resolution>();
 
-  const resolve = (entry: ModuleEntry, stack: readonly string[]): Resolution => {
-    const manifest = entry.manifest!;
-    if (stack.includes(manifest.id)) {
-      return {
-        ok: false,
-        errors: [`dependency cycle detected: ${[...stack, manifest.id].join(' -> ')}`],
-      };
-    }
-    if (entry.state === 'disabled') {
-      return { ok: false, errors: [`module "${manifest.id}" is disabled`] };
-    }
+  const reason = (name: string, cause: string): string => {
+    const message = 'dependency "' + name + '": ' + cause;
+    if (message.length <= 512) return message;
+    const kind = cause.includes('cycle') ? 'dependency cycle detected'
+      : cause.includes('disabled') ? 'module disabled'
+      : cause.includes('missing') ? 'dependency missing/incompatible'
+      : 'dependency unavailable';
+    return 'dependency "' + name + '": ' + kind + ' (details truncated)';
+  };
 
-    const cached = resolved.get(manifest.id);
-    if (cached) return cached;
+  const resolve = (root: ModuleEntry): Resolution => {
+    const stack: Frame[] = [];
+    const active = new Map<string, number>();
+    const visit = (entry: ModuleEntry): void => {
+      active.set(entry.manifest!.id, stack.length);
+      stack.push({ entry, next: 0, errors: [] });
+    };
 
-    const errors: string[] = [];
-    for (const dependency of manifest.dependencies) {
-      const required = validById.get(dependency);
-      if (!required) {
-        errors.push(`dependency "${dependency}" is missing or invalid/incompatible`);
+    visit(root);
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+      const manifest = frame.entry.manifest!;
+      if (frame.next < manifest.dependencies.length) {
+        const dependency = manifest.dependencies[frame.next++]!;
+        const child = byId.get(dependency);
+        if (!child) {
+          frame.errors.push('dependency "' + dependency + '" is missing or invalid/incompatible');
+          continue;
+        }
+        if (child.state === 'disabled') {
+          frame.errors.push('dependency "' + dependency + '": module disabled');
+          continue;
+        }
+        const cycleAt = active.get(dependency);
+        if (cycleAt !== undefined) {
+          const path = stack.slice(cycleAt, cycleAt + 12)
+            .map((node) => node.entry.manifest!.id).join(' -> ');
+          frame.errors.push('dependency cycle detected: ' + path + ' -> ' + dependency);
+          continue;
+        }
+        const previous = cached.get(dependency);
+        if (previous) {
+          if (!previous.ok) {
+            frame.errors.push(...previous.errors.map((err) => reason(dependency, err)));
+          }
+          continue;
+        }
+        visit(child);
         continue;
       }
-      const result = resolve(required, [...stack, manifest.id]);
-      if (!result.ok) {
-        errors.push(...result.errors.map((error) => `dependency "${dependency}": ${error}`));
+      const outcome: Resolution = { ok: frame.errors.length === 0, errors: frame.errors };
+      cached.set(manifest.id, outcome);
+      stack.pop();
+      active.delete(manifest.id);
+      const parent = stack[stack.length - 1];
+      if (parent && !outcome.ok) {
+        parent.errors.push(...outcome.errors.map((err) => reason(manifest.id, err)));
       }
     }
-
-    const outcome = { ok: errors.length === 0, errors };
-    resolved.set(manifest.id, outcome);
-    return outcome;
+    return cached.get(root.manifest!.id)!;
   };
 
   return entries.map((entry): ModuleEntry => {
@@ -103,10 +132,10 @@ function reconcileDependencies(entries: readonly ModuleEntry[]): ModuleEntry[] {
       return entry;
     }
     if (entry.state === 'disabled') return entry;
-    const resolution = resolve(entry, []);
-    return resolution.ok
+    const result = cached.get(entry.manifest.id) ?? resolve(entry);
+    return result.ok
       ? { ...entry, state: 'enabled', errors: [] }
-      : { ...entry, state: 'blocked', errors: resolution.errors };
+      : { ...entry, state: 'blocked', errors: result.errors };
   });
 }
 

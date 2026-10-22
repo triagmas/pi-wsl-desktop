@@ -56,11 +56,13 @@ test.describe('M3 module system E2E', () => {
 
       // 2. Modules view lists the registered module with an honest state.
       await page.getByTestId('tab-modules').click();
+      await expect(page.getByTestId('modules-view')).toHaveAttribute('data-loading', 'false');
       await expect(page.getByTestId('module-entry-module-0')).toBeVisible();
       await expect(page.getByTestId('module-row-state-module-0')).toHaveText('enabled');
 
       // 3. Disable: tab disappears, core views are unaffected.
       await page.getByTestId('module-toggle-demo').click();
+      await expect(page.getByTestId('module-toggle-demo')).toBeEnabled();
       await expect(page.getByTestId('module-row-state-module-0')).toHaveText('disabled');
       await expect(page.getByTestId('tab-module-demo/welcome')).not.toBeVisible();
       await page.getByTestId('tab-status').click();
@@ -68,7 +70,9 @@ test.describe('M3 module system E2E', () => {
 
       // 4. Re-enable: the tab comes back — the whole cycle holds.
       await page.getByTestId('tab-modules').click();
+      await expect(page.getByTestId('modules-view')).toHaveAttribute('data-loading', 'false');
       await page.getByTestId('module-toggle-demo').click();
+      await expect(page.getByTestId('module-toggle-demo')).toBeEnabled();
       await expect(page.getByTestId('module-row-state-module-0')).toHaveText('enabled');
       await expect(page.getByTestId('tab-module-demo/welcome')).toBeVisible();
     } finally {

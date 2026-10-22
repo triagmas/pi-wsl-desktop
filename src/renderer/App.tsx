@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
@@ -43,6 +43,33 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** R04: bounded discovery/persistence problems, shown honestly in Modules. */
   const [loadDiagnostics, setLoadDiagnostics] = useState<string[]>([]);
   const [persistError, setPersistError] = useState<string | null>(null);
+  /**
+   * Review #1: discovery is keyed to the CONNECTION lifecycle, not mount —
+   * `WslConnection.request` rejects before `ready`, and a distro switch must
+   * reload the registry/persistence for the NEW environment (stale results
+   * are cancelled by the effect cleanup). 'error' still runs the request so
+   * the failure surfaces as visible diagnostics instead of a silent spinner.
+   */
+  const readyKey = !effectiveApi
+    ? 'no-api'
+    : snapshot.phase === 'ready' && snapshot.distro !== null
+      ? `ready:${snapshot.distro}:${snapshot.attempt}`
+      : snapshot.phase === 'error'
+        ? `error:${snapshot.attempt}`
+        : 'wait';
+  /** Review #6: toggles stay disabled until discovery settles (no lost toggles).
+   * Derived (no sync setState in the effect): loading = the connection key we
+   * last finished a discovery for is not the current one. It flips true
+   * automatically on connect, distro switch and disconnect. */
+  const [discoveredKey, setDiscoveredKey] = useState<string | null>(null);
+  const modulesLoading =
+    moduleDefinitions === undefined &&
+    effectiveApi !== null &&
+    discoveredKey !== readyKey;
+  /** Review #6: last server-confirmed enabled state per module (revert target). */
+  const confirmedRef = useRef(new Map<string, boolean>());
+  /** Review #6: per-module persistence lock — one write op in flight at a time. */
+  const [persistingIds, setPersistingIds] = useState<ReadonlySet<string>>(new Set());
 
   /**
    * R04 external discovery — default registrations only (tests that inject
@@ -54,6 +81,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    */
   useEffect(() => {
     if (moduleDefinitions !== undefined || !effectiveApi) return undefined;
+    if (readyKey === 'wait') return undefined;
     const api = effectiveApi;
     let cancelled = false;
     void (async () => {
@@ -78,19 +106,44 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           for (const [id, enabled] of Object.entries(result.state)) {
             if (!enabled) entries = setModuleEnabled(entries, id, false);
           }
-          if (!cancelled) setModuleEntries(entries);
+          if (!cancelled) {
+            setModuleEntries(entries);
+            // Baseline of server-confirmed states: failure reverts land here,
+            // never on a blind inverse of the last click.
+            const confirmed = new Map<string, boolean>();
+            for (const entry of entries) {
+              if (entry.state === 'enabled' || entry.state === 'disabled') {
+                confirmed.set(entry.id, entry.state !== 'disabled');
+              }
+            }
+            confirmedRef.current = confirmed;
+          }
         }
       } catch (error) {
         problems.push(`listModules: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (!cancelled) setLoadDiagnostics(problems.slice(0, 64));
+      if (!cancelled) {
+        setLoadDiagnostics(problems.slice(0, 64));
+        setDiscoveredKey(readyKey);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [effectiveApi, moduleDefinitions]);
+  }, [effectiveApi, moduleDefinitions, readyKey]);
 
   const toggleModule = (moduleId: string, enabled: boolean) => {
+    const shouldPersist = moduleDefinitions === undefined && effectiveApi !== null;
+    // Review #6: no toggle while discovery is still settling and no second
+    // toggle for a module whose write is in flight — concurrent optimistic
+    // reverts are what let the UI end up opposite to the persisted state.
+    if (moduleDefinitions === undefined && (modulesLoading || persistingIds.has(moduleId))) {
+      return;
+    }
+    if (shouldPersist) {
+      setPersistingIds((prev) => new Set(prev).add(moduleId));
+      setPersistError(null);
+    }
     setModuleEntries((entries) => setModuleEnabled(entries, moduleId, enabled));
     // Leaving a module tab when its module gets disabled keeps the app sane.
     if (!enabled) {
@@ -99,16 +152,31 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       );
     }
     // R04 persistence (default path only): optimistic update, then persist.
-    // A rejected write REVERTS the toggle so the visible state never silently
-    // diverges from what is stored — and the failure is always on screen.
-    if (moduleDefinitions === undefined && effectiveApi) {
-      setPersistError(null);
-      void effectiveApi
+    // A rejected write reverts to the LAST SERVER-CONFIRMED state (not a blind
+    // inverse of the click) — the visible state never silently diverges from
+    // what is stored, and the failure is always on screen.
+    if (shouldPersist && effectiveApi) {
+      const api = effectiveApi;
+      void api
         .request('setModuleState', { id: moduleId, enabled })
-        .then(() => setPersistError(null))
+        .then(() => {
+          confirmedRef.current.set(moduleId, enabled);
+          setPersistingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(moduleId);
+            return next;
+          });
+          setPersistError(null);
+        })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          setModuleEntries((entries) => setModuleEnabled(entries, moduleId, !enabled));
+          const confirmed = confirmedRef.current.get(moduleId) ?? true;
+          setModuleEntries((entries) => setModuleEnabled(entries, moduleId, confirmed));
+          setPersistingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(moduleId);
+            return next;
+          });
           setPersistError(`Не удалось сохранить состояние «${moduleId}»: ${message}`);
         });
     }
@@ -274,6 +342,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         <ModulesView
           entries={moduleEntries}
           diagnostics={loadDiagnostics}
+          loading={modulesLoading}
+          busyIds={persistingIds}
           onToggle={(id, enabled) => toggleModule(id, enabled)}
         />
       )}

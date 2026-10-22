@@ -3,7 +3,7 @@
  * tab appears through ONE generic contract, Modules view toggles it, and
  * malformed / incompatible / throwing modules never take the app down.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -38,6 +38,20 @@ function makeApi(): DesktopApi {
   };
 }
 
+/**
+ * Review #1/#6 gate: initial discovery must settle before toggles become
+ * clickable, and one module's persist must finish before the next toggle.
+ */
+async function settleLoad(): Promise<void> {
+  await waitFor(() =>
+    expect(screen.getByTestId('modules-view')).toHaveAttribute('data-loading', 'false'),
+  );
+}
+
+async function settleToggle(id: string): Promise<void> {
+  await waitFor(() => expect(screen.getByTestId(`module-toggle-${id}`)).toBeEnabled());
+}
+
 function Bomb(): ReactNode {
   throw new Error('взрыв модуля');
 }
@@ -62,13 +76,16 @@ describe('M3 module registration UI', () => {
     render(<App api={makeApi()} />);
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-entry-module-0')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('module-toggle-demo'));
+    await settleToggle('demo');
     expect(screen.queryByTestId('tab-module-demo/welcome')).not.toBeInTheDocument();
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
 
     await user.click(screen.getByTestId('module-toggle-demo'));
+    await settleToggle('demo');
     expect(screen.getByTestId('tab-module-demo/welcome')).toBeInTheDocument();
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('enabled');
   });
@@ -78,6 +95,7 @@ describe('M3 module registration UI', () => {
     render(<App api={makeApi()} moduleDefinitions={[DEMO_MODULE_MANIFEST, null]} />);
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-entry-module-1')).toBeInTheDocument();
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/expected object/i);
 
@@ -99,6 +117,7 @@ describe('M3 module registration UI', () => {
     );
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     // both malformed entries are listed with a reason, not crashed on
     expect(screen.getByTestId('module-entry-module-1')).toBeInTheDocument();
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/version/i);
@@ -129,6 +148,7 @@ describe('M3 module registration UI', () => {
     );
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('incompatible');
     // M1: the incompatible reason is actually visible to the user
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/apiVersion/i);
@@ -174,6 +194,7 @@ describe('M3 module registration UI', () => {
     );
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('blocked');
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/absent/i);
     expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Отключить');
@@ -197,12 +218,15 @@ describe('M3 module registration UI', () => {
     expect(screen.getByTestId('tab-module-consumer/welcome')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     await user.click(screen.getByTestId('module-toggle-provider'));
+    await settleToggle('provider');
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
     expect(screen.getByTestId('module-errors-module-0')).toHaveTextContent(/provider/i);
     expect(screen.queryByTestId('tab-module-consumer/welcome')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('module-toggle-provider'));
+    await settleToggle('provider');
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('enabled');
     expect(screen.getByTestId('tab-module-consumer/welcome')).toBeInTheDocument();
   });
@@ -220,12 +244,15 @@ describe('M3 module registration UI', () => {
     );
 
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
     expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Отключить');
     await user.click(screen.getByTestId('module-toggle-consumer'));
+    await settleToggle('consumer');
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
     expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Включить');
     await user.click(screen.getByTestId('module-toggle-consumer'));
+    await settleToggle('consumer');
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
   });
 
@@ -280,7 +307,9 @@ describe('M3 R03 UI — panels, actions and capability grants', () => {
 
     expect(screen.getByTestId('module-panel-sidekick/rail')).toBeInTheDocument();
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     await user.click(screen.getByTestId('module-toggle-sidekick'));
+    await settleToggle('sidekick');
     expect(screen.queryByTestId('module-panel-sidekick/rail')).not.toBeInTheDocument();
   });
 
@@ -339,6 +368,7 @@ describe('M3 R03 UI — panels, actions and capability grants', () => {
     expect(screen.queryByTestId('module-panel-greedy/rail')).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-errors-module-0')).toHaveTextContent(/not provided by the host/i);
   });
 });
@@ -414,7 +444,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     state: Record<string, boolean> = {},
     diagnostics: string[] = [],
   ) {
-    return { root: '/home/u/.pi-desktop/modules', available: true, files, diagnostics, state };
+    return { available: true, files, diagnostics, state };
   }
 
   it('registers a discovered external manifest through the generic contract', async () => {
@@ -440,10 +470,12 @@ describe('M3 R04 UI — external discovery and persistence', () => {
 
     expect(await screen.findByTestId('tab-modules')).toBeInTheDocument();
     await user.click(screen.getByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('disabled');
     expect(screen.queryByTestId('tab-module-ext1/welcome')).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId('module-toggle-ext1'));
+    await settleToggle('ext1');
     expect(request).toHaveBeenCalledWith('setModuleState', { id: 'ext1', enabled: true });
     expect(await screen.findByTestId('tab-module-ext1/welcome')).toBeInTheDocument();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('enabled');
@@ -460,7 +492,9 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     render(<App api={apiWith(request)} />);
 
     await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
     await user.click(screen.getByTestId('module-toggle-ext1'));
+    await settleToggle('ext1');
 
     const error = await screen.findByTestId('modules-persist-error');
     expect(error).toHaveTextContent('WSL gone');
@@ -477,10 +511,12 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     render(<App api={apiWith(request)} />);
 
     await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
     expect(await screen.findByTestId('modules-diagnostics')).toHaveTextContent('WSL gone');
     expect(screen.getByTestId('tab-module-demo/welcome')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('module-toggle-demo'));
+    await settleToggle('demo');
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
     expect(screen.queryByTestId('modules-persist-error')).not.toBeInTheDocument();
   });
@@ -496,6 +532,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     render(<App api={apiWith(request)} />);
 
     await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
     const diagnostics = await screen.findByTestId('modules-diagnostics');
     expect(diagnostics).toHaveTextContent('link.json: symlink rejected (not a regular file)');
   });
@@ -519,9 +556,105 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     render(<App api={apiWith(request)} />);
 
     await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
     expect(screen.queryByTestId('tab-module-greedy/main')).not.toBeInTheDocument();
     expect(screen.queryByTestId('module-panel-greedy/rail')).not.toBeInTheDocument();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('incompatible');
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/not provided by the host/i);
   });
+  it('defers discovery until the connection is ready and reloads on distro switch (review #1)', async () => {
+    let current: RendererSnapshot = { ...READY, phase: 'connecting' };
+    const subs: Array<(s: RendererSnapshot) => void> = [];
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listModules') return payload([]);
+      return {};
+    });
+    const api: DesktopApi = {
+      request: request as DesktopApi['request'],
+      getStatus: async () => current,
+      retry: vi.fn(async () => current),
+      listDistros: async () => ['Ubuntu', 'Ubuntu中文'],
+      selectDistro: vi.fn(async (d: string) => {
+        current = { ...READY, phase: 'ready', distro: d };
+        for (const cb of subs) cb(current);
+        return current;
+      }),
+      onStateChange: (cb) => {
+        subs.push(cb);
+        return () => undefined;
+      },
+      onChatEvent: () => () => undefined,
+    };
+    render(<App api={api} />);
+
+    // not ready → discovery must NOT fire (WslConnection rejects pre-ready)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(request.mock.calls.filter((c) => c[0] === 'listModules')).toHaveLength(0);
+
+    // connect → discovery runs
+    current = { ...READY, phase: 'ready' };
+    for (const cb of subs) cb(current);
+    await waitFor(() =>
+      expect(request.mock.calls.filter((c) => c[0] === 'listModules')).toHaveLength(1),
+    );
+
+    // distro switch → the registry/persistence must reload for the NEW distro
+    await api.selectDistro('Ubuntu中文');
+    await waitFor(() =>
+      expect(request.mock.calls.filter((c) => c[0] === 'listModules').length).toBeGreaterThanOrEqual(2),
+    );
+  });
+
+  it('keeps toggles disabled until initial discovery settles (review #6)', async () => {
+    let resolveLoad!: (v: unknown) => void;
+    const request = vi.fn((method: string) => {
+      if (method === 'listModules') {
+        return new Promise((res) => {
+          resolveLoad = res;
+        });
+      }
+      return Promise.resolve({});
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    const toggle = screen.getByTestId('module-toggle-demo');
+    expect(toggle).toBeDisabled();
+    expect(screen.getByTestId('modules-view')).toHaveAttribute('data-loading', 'true');
+
+    resolveLoad(payload([]));
+    await waitFor(() => expect(toggle).toBeEnabled());
+    expect(screen.getByTestId('modules-view')).toHaveAttribute('data-loading', 'false');
+  });
+
+  it('blocks a second toggle while persistence is in flight (review #6)', async () => {
+    let resolvePersist!: (v: unknown) => void;
+    const request = vi.fn((method: string) => {
+      if (method === 'listModules') return Promise.resolve(payload([]));
+      return new Promise((res) => {
+        resolvePersist = res;
+      });
+    });
+    const user = userEvent.setup();
+    render(<App api={apiWith(request)} />);
+
+    await user.click(await screen.findByTestId('tab-modules'));
+    await settleLoad();
+
+    await user.click(screen.getByTestId('module-toggle-demo'));
+    // optimistic state applied, but the module is locked while persisting
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
+    expect(screen.getByTestId('module-toggle-demo')).toBeDisabled();
+
+    // a second click while in flight must be ignored (no second write op)
+    await user.click(screen.getByTestId('module-toggle-demo'));
+    resolvePersist({});
+    await settleToggle('demo');
+    expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('disabled');
+    expect(
+      request.mock.calls.filter((c) => c[0] === 'setModuleState'),
+    ).toHaveLength(1);
+  });
+
 });

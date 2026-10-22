@@ -11,13 +11,25 @@ export interface ModulesViewProps {
   entries: readonly ModuleEntry[];
   /** R04: bounded discovery/persistence diagnostics (rendered only when non-empty). */
   diagnostics?: readonly string[];
+  /** Review #6: initial discovery in flight — toggles are disabled (data-loading). */
+  loading?: boolean;
+  /** Review #6: modules whose persistence write is in flight — their toggle is locked. */
+  busyIds?: ReadonlySet<string>;
   /** Toggle handler: (moduleId, nextEnabled). */
   onToggle: (moduleId: string, enabled: boolean) => void;
 }
 
-export function ModulesView({ entries, diagnostics, onToggle }: ModulesViewProps) {
+const NO_BUSY: ReadonlySet<string> = new Set();
+
+export function ModulesView({
+  entries,
+  diagnostics,
+  loading = false,
+  busyIds = NO_BUSY,
+  onToggle,
+}: ModulesViewProps) {
   return (
-    <section className="panel" aria-label="Модули">
+    <section className="panel" aria-label="Модули" data-testid="modules-view" data-loading={loading ? 'true' : 'false'}>
       <header className="panel-header">
         <h2 data-testid="modules-heading">Модули</h2>
       </header>
@@ -46,6 +58,8 @@ export function ModulesView({ entries, diagnostics, onToggle }: ModulesViewProps
                     type="button"
                     data-testid={`module-toggle-${entry.id}`}
                     aria-pressed={entry.state !== 'disabled'}
+                    disabled={loading || busyIds.has(entry.id)}
+                    aria-busy={loading || busyIds.has(entry.id)}
                     onClick={() => onToggle(entry.id, entry.state === 'disabled')}
                   >
                     {entry.state === 'disabled' ? 'Включить' : 'Отключить'}

@@ -45,6 +45,8 @@ import {
   RollbackResourceOpParamsSchema,
   RollbackResourceOpResultSchema,
 } from '../shared/m2Protocol';
+import { ListModulesParamsSchema, ListModulesResultSchema } from '../shared/m3Ipc';
+import { discoverModules } from './modules';
 import { probePi, type PiProbe, type SpawnFn } from './probe';
 import { buildSessionIndex, inodeMatches, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
@@ -422,6 +424,14 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       } finally {
         cfgCache = null; // restored bytes change the inventory too
       }
+    },
+
+    /* ----------------------- M3 read path: discovery ---------------------- */
+    listModules: async (params) => {
+      // No caller-supplied path: params must be exactly {}. The root, size,
+      // symlink and encoding guards live in discoverModules (bridge-owned).
+      parseParams(ListModulesParamsSchema, params ?? {}, 'listModules');
+      return assertOut(ListModulesResultSchema, await discoverModules(ctx.home), 'listModules');
     },
   };
 

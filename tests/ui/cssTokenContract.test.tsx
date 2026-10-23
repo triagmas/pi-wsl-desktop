@@ -1,0 +1,69 @@
+/**
+ * UI-A review fix (P1): design-token delivery contract.
+ * Every `var(--pw-…)` the stylesheet consumes must be either
+ *  (a) declared locally in index.css (geometry/base constants), or
+ *  (b) produced by the design system: applyTheme (theme tokens) or
+ *      applyTypography (4 properties × 8 areas) — and each of those
+ *      produced variables must actually be consumed by the stylesheet,
+ *      so no theme/typography knob can be silently dead again.
+ */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { cssVarName } from '../../src/renderer/design/applyTheme';
+import { typographyCssVarNames } from '../../src/renderer/design/applyTypography';
+import { THEME_PRESETS } from '../../src/shared/design/presets';
+import { TYPOGRAPHY_AREAS } from '../../src/shared/appearance';
+
+const cssPath = path.join(__dirname, '..', '..', 'src', 'renderer', 'index.css');
+const css = readFileSync(cssPath, 'utf8');
+
+const used = new Set([...css.matchAll(/var\((--pw-[a-z0-9-]+)/g)].map((m) => m[1]));
+const declaredLocally = new Set(
+  [...css.matchAll(/^\s*(--pw-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+);
+
+const produced = new Set<string>();
+for (const key of Object.keys(THEME_PRESETS.dark.tokens)) produced.add(cssVarName(key));
+const typographyVars = new Map<string, string>();
+for (const area of TYPOGRAPHY_AREAS) {
+  for (const [prop, name] of Object.entries(typographyCssVarNames(area))) {
+    produced.add(name);
+    typographyVars.set(`${area}:${prop}`, name);
+  }
+}
+
+describe('design token delivery contract (index.css ↔ design system)', () => {
+  it('every var(--pw-…) consumed by the stylesheet is declared locally or produced by applyTheme/applyTypography', () => {
+    const dead = [...used].filter(
+      (v) => !declaredLocally.has(v) && !produced.has(v),
+    );
+    expect(
+      dead,
+      `dead stylesheet variables (never written by the design system):\n${dead.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('interface theme colors produced by applyTheme are consumed (terminal/syntax groups may wait for UI-B)', () => {
+    const DEFERRED = /^(syntax|terminal)/; // code/terminal styling lands with UI-B highlighting/PTY
+    const unusedTheme = [...produced]
+      .filter((v) => !v.startsWith('--pw-font-'))
+      .filter((v) => !used.has(v))
+      .filter((v) => !DEFERRED.test(v.replace('--pw-', '')));
+    expect(
+      unusedTheme,
+      `theme variables produced but never used in index.css:\n${unusedTheme.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('each of the 8 typography areas consumes all four properties (family/size/line-height/weight)', () => {
+    const missing: string[] = [];
+    for (const [key, name] of typographyVars) {
+      if (!used.has(name)) missing.push(`${key} → ${name}`);
+    }
+    expect(
+      missing,
+      `typography properties written by applyTypography but not consumed by index.css:\n${missing.join('\n')}`,
+    ).toEqual([]);
+  });
+});

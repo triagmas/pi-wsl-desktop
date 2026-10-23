@@ -108,7 +108,7 @@ export interface ChatController {
   open: () => Promise<void>;
   send: (text: string) => Promise<void>;
   interrupt: () => Promise<void>;
-  closeChat: () => Promise<void>;
+  closeChat: () => Promise<boolean>;
 }
 
 export function useChat(api: DesktopApi | null, file: string): ChatController {
@@ -173,17 +173,20 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     }
   }, [api]);
 
-  const closeChat = useCallback(async () => {
-    if (!api) return;
+  const closeChat = useCallback(async (): Promise<boolean> => {
+    if (!api) return false;
     try {
       await m1.closeSession(api);
     } catch (err) {
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       setState((s) => ({ ...s, error: parseBridgeError(err) }));
-      return;
+      // Review P1: a refused close is a FAILED close — the caller must not
+      // treat it as success and switch away from a possibly live session.
+      return false;
     }
-    if (!mounted.current) return;
+    if (!mounted.current) return true;
     setState((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '' }));
+    return true;
   }, [api]);
 
   return { state, open, send, interrupt, closeChat };

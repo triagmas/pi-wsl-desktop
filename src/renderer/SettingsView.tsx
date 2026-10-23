@@ -4,7 +4,7 @@
  * Подключение WSL (real M0 status/diagnostics). All changes go through the
  * appearance store — Pi data is never touched.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
 import {
@@ -21,6 +21,7 @@ import {
 } from '../shared/appearance';
 import { validateCustomTokens, suggestFix, type ValidationIssue } from './design/customTheme';
 import { applyTheme } from './design/applyTheme';
+import { applyTypography } from './design/applyTypography';
 import type { RendererSnapshot } from './types';
 
 const TOKEN_GROUPS: { title: string; keys: (keyof ThemeTokens)[] }[] = [
@@ -213,16 +214,27 @@ export function SettingsView(props: SettingsViewProps) {
   const [editName, setEditName] = useState('Моя тема');
   const [editIssues, setEditIssues] = useState<ValidationIssue[]>([]);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  /** Tokens the editor was opened with — Reset returns exactly here (review P2). */
+  const startTokens = useRef<ThemeTokens | null>(null);
+  /** Set right after a successful Apply so the restore effect keeps the new theme. */
+  const skipRestore = useRef(false);
 
   const startEditor = (base: ThemePresetId): void => {
-    setEditTokens(structuredClone(THEME_PRESETS[base].tokens));
+    // Re-opening the editor must start from the SAVED custom theme when there
+    // is one — never silently reset editing to preset-dark (review P2).
+    const saved = appearance.theme.preset === 'custom' ? appearance.theme.custom : null;
+    const initial = structuredClone(saved ?? THEME_PRESETS[base].tokens);
+    startTokens.current = initial;
+    setEditTokens(initial);
+    setEditName(appearance.theme.preset === 'custom' ? appearance.theme.customName : 'Моя тема');
     setEditIssues([]);
     setEditorOpen(true);
   };
 
   // Live preview: while editing, the preview applies ONLY to the document
-  // theme variables — never to Pi data (§9.2). On cancel/apply we re-apply
-  // the persisted appearance below.
+  // theme variables — never to Pi data (§9.2). On cancel/close/unmount the
+  // cleanup below re-applies the persisted appearance, because App's layout
+  // effect only reacts to CHANGED token references (review P2).
   useEffect(() => {
     if (editorOpen && editTokens) {
       const previewRoot = document.documentElement;
@@ -231,9 +243,20 @@ export function SettingsView(props: SettingsViewProps) {
   }, [editorOpen, editTokens]);
 
   useEffect(() => {
-    if (!editorOpen) return; // persisted appearance is re-applied by App
-    // closing restores the real theme (App layout effect runs on appearance)
-  }, [editorOpen]);
+    if (!editorOpen) return undefined;
+    return () => {
+      if (skipRestore.current) {
+        skipRestore.current = false;
+        return; // Apply already stored the new theme — App re-applies it.
+      }
+      const persisted =
+        appearance.theme.preset === 'custom'
+          ? (appearance.theme.custom ?? THEME_PRESETS.dark.tokens)
+          : THEME_PRESETS[appearance.theme.preset].tokens;
+      applyTheme(document.documentElement, persisted);
+      applyTypography(document.documentElement, appearance.typography);
+    };
+  }, [editorOpen, appearance]);
 
   const validate = (tokens: ThemeTokens): boolean => {
     const result = validateCustomTokens(tokens);
@@ -248,6 +271,7 @@ export function SettingsView(props: SettingsViewProps) {
       ...appearance,
       theme: { preset: 'custom', customName: editName.trim() || 'Моя тема', custom: editTokens },
     });
+    skipRestore.current = true; // the NEW theme must survive the close cleanup
     setSavedAt(new Date().toLocaleTimeString());
     setEditorOpen(false);
   };
@@ -256,14 +280,14 @@ export function SettingsView(props: SettingsViewProps) {
     setEditTokens(null);
     setEditIssues([]);
     setEditorOpen(false);
-    // App re-applies the persisted theme via its layout effect.
+    // The close-cleanup restores the document theme; this call only ensures
+    // App observes the same persisted appearance object (no settings change).
     onChange({ ...appearance });
   };
 
   const resetEditor = (): void => {
-    if (!editTokens) return;
-    const base = THEME_PRESETS[appearance.theme.preset === 'custom' ? 'dark' : appearance.theme.preset].tokens;
-    setEditTokens(structuredClone(base));
+    if (!startTokens.current) return;
+    setEditTokens(structuredClone(startTokens.current));
     setEditIssues([]);
   };
 

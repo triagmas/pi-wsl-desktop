@@ -287,8 +287,12 @@ export function LeftSidebar({
           {!collapsed && <span className="nav-label">Настройки</span>}
         </button>
         <div data-testid="sidebar-connection" className="sidebar-connection">
-          <span className="conn-dot" aria-hidden="true" />
-          {!collapsed && <span className="nav-label muted">Pi подключён</span>}
+          <span className={`conn-dot${connectionReady ? '' : ' conn-dot-pending'}`} aria-hidden="true" />
+          {!collapsed && (
+            <span className="nav-label muted">
+              {connectionReady ? 'Pi подключён' : 'Подключение…'}
+            </span>
+          )}
         </div>
       </nav>
     </aside>

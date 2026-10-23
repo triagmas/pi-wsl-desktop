@@ -1,3 +1,14 @@
+import * as fs from 'node:fs';
+import { vi } from 'vitest';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    writeFileSync: vi.fn(actual.writeFileSync),
+    renameSync: vi.fn(actual.renameSync),
+  };
+});
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -97,6 +108,20 @@ describe('appearance store (versioned Desktop-only storage, §9.1)', () => {
     expect(existsSync(path.join(dir, `${APPEARANCE_FILE}.tmp`))).toBe(false);
     const onDisk = JSON.parse(readFileSync(path.join(dir, APPEARANCE_FILE), 'utf8'));
     expect(onDisk.version).toBe(APPEARANCE_VERSION);
+  });
+
+  it('rolls back on an injected write failure: previous file intact, temp removed (review P2)', () => {
+    const dir = freshDir();
+    saveAppearance(dir, { ...DEFAULT_APPEARANCE, layout: { ...DEFAULT_APPEARANCE.layout, leftWidth: 333 } });
+    const before = fs.readFileSync(path.join(dir, APPEARANCE_FILE), 'utf8');
+    vi.mocked(fs.writeFileSync).mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+    expect(() => saveAppearance(dir, { ...DEFAULT_APPEARANCE, layout: { ...DEFAULT_APPEARANCE.layout, leftWidth: 444 } })).toThrow('disk full');
+    // The previous file must be byte-identical and no half-written temp left.
+    expect(fs.readFileSync(path.join(dir, APPEARANCE_FILE), 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(dir, `${APPEARANCE_FILE}.tmp`))).toBe(false);
+    expect(loadAppearance(dir).layout.leftWidth).toBe(333);
   });
 
   it('reset restores exact defaults on disk', () => {

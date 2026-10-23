@@ -197,7 +197,12 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
 
   const confirmSwitchSession = async (): Promise<void> => {
     if (!pendingSession) return;
-    await chat.closeChat();
+    const closed = await chat.closeChat();
+    if (!closed) {
+      // Fail-closed (review P1): the old session may still be live — keep the
+      // confirm dialog up and do not present another session as active.
+      return;
+    }
     setActiveSession(pendingSession);
     setPendingSession(null);
     setDraft('');

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
-import { makeApi } from './helpers/shellApi';
+import { makeApi, READY_SNAPSHOT } from './helpers/shellApi';
 
 /**
  * UI-A App Shell contract (Issue #21 §2/§4/§6/§9.4): independent sidebars,
@@ -90,6 +90,55 @@ describe('App shell', () => {
     await waitFor(() =>
       expect(api._request).toHaveBeenCalledWith('subscribeEvents', { topic: 'chat' }),
     );
+  });
+
+  it('fails closed when the bridge refuses to close the old session during a switch (review P1)', async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    const project = { id: '/work/repo', path: '/work/repo', sessionCount: 2, lastActivityAt: '2026-10-19T02:00:00.000Z' };
+    const session = (id: string) => ({
+      id,
+      file: `/root/${id}.jsonl`,
+      root: '/root',
+      projectId: '/work/repo',
+      projectPath: '/work/repo',
+      name: id,
+      createdAt: '2026-10-19T01:00:00.000Z',
+      updatedAt: '2026-10-19T02:00:00.000Z',
+      sizeBytes: 512,
+      version: 3,
+      availability: 'ok',
+      activeWrite: false,
+      diagnostics: null,
+    });
+    api._request.mockImplementation(async (method: string) => {
+      if (method === 'listProjects') return { projects: [project], diagnostics: [] };
+      if (method === 'listSessions') return { sessions: [session('s1'), session('s2')], diagnostics: [] };
+      if (method === 'openSession') return { state: null };
+      if (method === 'readSession')
+        return { header: null, entries: [], leafId: null, nextCursor: null, truncated: false, partialTrailing: false, diagnostics: [], availability: 'ok' };
+      if (method === 'closeSession') throw new Error('close refused');
+      if (method === 'subscribeEvents') return { subscribed: true };
+      return { ok: true };
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+    await user.click(await screen.findByTestId('session-s1'));
+    await user.click(await screen.findByTestId('tab-chat'));
+    await user.click(screen.getByRole('button', { name: 'Открыть чат' }));
+    await waitFor(() => expect(screen.getByTestId('chat-status')).toBeInTheDocument());
+    await user.click(screen.getByTestId('session-s2'));
+    expect(screen.getByTestId('switch-confirm')).toBeInTheDocument();
+    await user.click(screen.getByTestId('switch-confirm'));
+    // Fail-closed: the confirm dialog stays up — the old session may still be
+    // live, so the UI must not present the other one as active.
+    expect(await screen.findByTestId('switch-cancel')).toBeInTheDocument();
+  });
+
+  it('never claims a connected Pi while the bridge is still starting (review P2)', () => {
+    render(<App api={makeApi({ ...READY_SNAPSHOT, phase: 'connecting' })} moduleDefinitions={[]} />);
+    const conn = screen.getByTestId('sidebar-connection');
+    expect(conn).not.toHaveTextContent('Pi подключён');
+    expect(conn).toHaveTextContent('Подключение');
   });
 
   it('navigates to Resources and Modules from the sidebar without losing the chat state', async () => {

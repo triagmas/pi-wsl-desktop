@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { SettingsView, type SettingsViewProps } from '../../src/renderer/SettingsView';
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../src/shared/appearance';
 import { THEME_PRESETS } from '../../src/shared/design/presets';
+import { applyTheme } from '../../src/renderer/design/applyTheme';
 import type { DesktopApi } from '../../src/renderer/api';
 import type { RendererSnapshot } from '../../src/renderer/types';
 
@@ -172,6 +173,51 @@ describe('custom theme editor (§9.2)', () => {
     expect(screen.queryByTestId('theme-editor')).not.toBeInTheDocument();
     // Cancel re-applies the SAME persisted state — nothing new is stored.
     expect(p.onChange).toHaveBeenCalledWith(DEFAULT_APPEARANCE);
+  });
+
+  it('Cancel restores the previous theme on the document (review P2 — live preview must not leak)', async () => {
+    const user = userEvent.setup();
+    // The App applies the persisted theme to the document before Settings opens;
+    // simulate that pre-state so the leak would be observable.
+    applyTheme(document.documentElement, THEME_PRESETS.light.tokens);
+    renderSettings({
+      appearance: {
+        ...DEFAULT_APPEARANCE,
+        theme: { preset: 'light', customName: 'Моя тема', custom: structuredClone(THEME_PRESETS.light.tokens) },
+      },
+    });
+    await user.click(screen.getByTestId('theme-card-custom'));
+    const radius = screen.getByTestId('token-radiusSmall') as HTMLInputElement;
+    fireEvent.change(radius, { target: { value: '21px' } });
+    expect(document.documentElement.style.getPropertyValue('--pw-radius-small')).toBe('21px');
+    await user.click(screen.getByTestId('theme-cancel'));
+    expect(document.documentElement.style.getPropertyValue('--pw-radius-small')).toBe(
+      THEME_PRESETS.light.tokens.radiusSmall,
+    );
+  });
+
+  it('re-opens the SAVED custom theme for editing (not the dark preset) and re-applies it unchanged (review P2)', async () => {
+    const user = userEvent.setup();
+    const savedCustom = { ...THEME_PRESETS.dark.tokens, accentColor: '#a9c9ad', radiusSmall: '19px' };
+    const p = renderSettings({
+      appearance: {
+        ...DEFAULT_APPEARANCE,
+        theme: { preset: 'custom', customName: 'Моя особая', custom: savedCustom },
+      },
+    });
+    await user.click(screen.getByTestId('custom-edit'));
+    const editor = screen.getByTestId('theme-editor');
+    expect(within(editor).getByTestId('theme-name')).toHaveValue('Моя особая');
+    expect((within(editor).getByTestId('token-accentColor') as HTMLInputElement).value.toLowerCase()).toBe('#a9c9ad');
+    expect((within(editor).getByTestId('token-radiusSmall') as HTMLInputElement).value).toBe('19px');
+    // Opening + saving without touching anything must NOT overwrite the
+    // stored custom theme with preset-dark values.
+    await user.click(within(editor).getByTestId('theme-apply'));
+    expect(p.onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        theme: { preset: 'custom', customName: 'Моя особая', custom: expect.objectContaining({ accentColor: '#a9c9ad', radiusSmall: '19px' }) },
+      }),
+    );
   });
 
   it('Reset restores the editor to its base preset colors', async () => {

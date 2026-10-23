@@ -149,15 +149,19 @@ console.log(`info: tampered uninstall exit=${unTampered.detail}`);
 await new Promise((r) => setTimeout(r, 3000));
 assert('tampered uninstall (no marker) keeps install dir (fail-safe)', existsSync(installDir), installDir);
 assert('tampered uninstall keeps app files', existsSync(appExe));
-// restore the marker so the standard uninstall below proceeds
-writeFileSync(markerFile, `${pkg.build.appId ?? pkg.name} ${version} (restored-by-test)`, 'utf8');
-const unRestored = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
-assert('uninstall succeeds after marker restoration', unRestored.ok, unRestored.detail);
-const deadline2 = Date.now() + 90_000;
-while (existsSync(installDir) && Date.now() < deadline2) {
-  await new Promise((r) => setTimeout(r, 1000));
+if (existsSync(installDir)) {
+  // fail-safe held: restore the marker and finish the standard uninstall
+  writeFileSync(markerFile, `${pkg.build.appId ?? pkg.name} ${version} (restored-by-test)`, 'utf8');
+  const unRestored = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
+  assert('uninstall succeeds after marker restoration', unRestored.ok, unRestored.detail);
+  const deadline2 = Date.now() + 90_000;
+  while (existsSync(installDir) && Date.now() < deadline2) {
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  assert('install dir removed after restored-marker uninstall', !existsSync(installDir), installDir);
+} else {
+  console.log('info: tamper fail-safe NOT present yet (RED) — dir was deleted; continuing to the /D= scenario');
 }
-assert('install dir removed after restored-marker uninstall', !existsSync(installDir), installDir);
 assert('sentinels byte-identical after tamper scenario', sentinelsIntact());
 
 // 4. Uninstall (silent). runAfterFinish:false (contract-tested) guarantees

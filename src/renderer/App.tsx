@@ -55,6 +55,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
   /** §9.6 step 2: chat is the default workspace (details of the base screen). */
   const [view, setView] = useState<View>('chat');
+  /** Which Settings section to land on when Settings opens (R02 review P2:
+   * the connection-recovery shortcut must reach Connection, not Appearance). */
+  const [settingsSection, setSettingsSection] = useState<'appearance' | 'connection'>('appearance');
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
@@ -534,7 +537,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
                 <strong>{snapshot.lastError?.code ?? 'CONNECTION_ERROR'}</strong>{' '}
                 — {snapshot.lastError?.message ?? 'Не удалось подключиться к Pi в WSL'}
                 <div>
-                  <button type="button" data-testid="empty-open-settings" onClick={() => setView('settings')}>
+                  <button
+                    type="button"
+                    data-testid="empty-open-settings"
+                    onClick={() => {
+                      setSettingsSection('connection');
+                      setView('settings');
+                    }}
+                  >
                     Открыть настройки подключения
                   </button>
                 </div>
@@ -553,6 +563,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           api={effectiveApi}
           appearance={appearance}
           ready={appearanceReady}
+          initialSection={settingsSection}
           onChange={persistAppearance}
           onReset={() => {
             if (!effectiveApi) {
@@ -634,7 +645,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           onNewChat={newChat}
           connectionReady={snapshot.phase === 'ready'}
           moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
-          onView={(v) => setView(v as View)}
+          onView={(v) => {
+            if (v === 'settings') setSettingsSection('appearance');
+            setView(v as View);
+          }}
           onPickSession={pickSession}
           onPickProject={() => undefined}
         />

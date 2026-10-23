@@ -31,7 +31,10 @@ if [ "$1" = "-l" ] || [ "$1" = "--list" ]; then
   esac
 elif [ "$is_probe" = "1" ]; then
   case "${FAKE_WSL_PROBE_MODE:-probe}" in
-    probe)
+    probe|slow)
+      # `slow` (UI-A R02 review P1 delayed-start coverage): the probe sleeps
+      # before answering so a readiness race would surface as a hung test.
+      if [ "${FAKE_WSL_PROBE_MODE:-probe}" = "slow" ]; then sleep 2; fi
       probe_json="$FAKE_WSL_PROBE_JSON"
       if [ -z "$probe_json" ]; then probe_json='{"ok":true,"nodePath":"/fake/node","nodeVersion":"v22.1.0","home":"/home/fake","bridgeOk":true}'; fi
       printf '%s\n' "$probe_json"

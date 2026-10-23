@@ -6,7 +6,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { launchApp } from './launchApp';
+import { launchApp, waitForReady } from './launchApp';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -50,7 +50,7 @@ function makeFixture(): void {
   settingsShaBefore = createHash('sha256').update(readFileSync(settingsPath)).digest('hex');
 }
 
-function launch(): Promise<{ app: ElectronApplication; page: Page }> {
+function launch(extra: Record<string, string> = {}): Promise<{ app: ElectronApplication; page: Page }> {
   // The fixture agent-home/cwd/resource CLI stay spec-owned; HOME and
   // userData come isolated from the shared launchApp fixture.
   return launchApp({
@@ -58,6 +58,7 @@ function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     PI_WS_DESKTOP_AGENT_HOME: home,
     PI_WS_DESKTOP_AGENT_CWD: proj,
     PI_WS_DESKTOP_RESOURCE_CLI: fakeCli,
+    ...extra,
   });
 }
 
@@ -73,9 +74,9 @@ test.describe('M2 resources E2E', () => {
   test('resources tab inventories the isolated home; secrets never reach the screen', async () => {
     const { app, page } = await launch();
     try {
-      // UI-A R02: connection diagnostics moved to Settings — the shell itself
-      // is the ready signal here; the resource inventory is file-based.
-      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
+      // UI-A R02 review P1: wait for a genuine bridge READY (not just the
+      // sidebar being on screen) before the inventory request is issued.
+      await waitForReady(page);
       await page.getByTestId('nav-resources').click();
 
       // Skills: fixture skill listed with provenance
@@ -106,9 +107,8 @@ test.describe('M2 resources E2E', () => {
   test('two-phase write: preview shows the plan, confirm applies via fixture CLI, rollback restores bytes', async () => {
     const { app, page } = await launch();
     try {
-      // UI-A R02: connection diagnostics moved to Settings — the shell itself
-      // is the ready signal here; the resource inventory is file-based.
-      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
+      // UI-A R02 review P1: genuine bridge READY before inventory.
+      await waitForReady(page);
       await page.getByTestId('nav-resources').click();
       const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
       await expect(skillRow).toBeVisible({ timeout: 15_000 });
@@ -142,6 +142,21 @@ test.describe('M2 resources E2E', () => {
       await page.getByTestId('op-rollback').click();
       await expect(page.getByTestId('res-notice')).toContainText(/Откат/i, { timeout: 15_000 });
       expect(createHash('sha256').update(readFileSync(settingsPath)).digest('hex')).toBe(settingsShaBefore);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('UI-A R02 P1: a delayed bridge start still inventories (no readiness race)', async () => {
+    // The probe sleeps 2s before answering — a plain "sidebar is visible"
+    // guard would issue the inventory request against a not-yet-READY
+    // connection and hang. `waitForReady` waits for the real phase signal.
+    const { app, page } = await launch({ FAKE_WSL_PROBE_MODE: 'slow' });
+    try {
+      await waitForReady(page);
+      await page.getByTestId('nav-resources').click();
+      const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
+      await expect(skillRow).toBeVisible({ timeout: 20_000 });
     } finally {
       await app.close();
     }

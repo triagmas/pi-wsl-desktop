@@ -5,7 +5,7 @@
  * are ever read or written by an E2E run. Specs layer their transport
  * overrides (fake Pi, stream timing, agent-home for resources, …) on top.
  */
-import { _electron as electron } from '@playwright/test';
+import { _electron as electron, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,4 +50,13 @@ export async function launchApp(
   const app = await electron.launch({ args: [mainScript], env });
   const page = await app.firstWindow();
   return { app, page, userData, home };
+}
+
+/** UI-A R02 review P1: an honest bridge-READY gate. The left sidebar is
+ * visible before the connection reaches READY, so a plain `left-sidebar`
+ * visible-wait races bridge startup and can hang a resource-inventory test.
+ * `sidebar-connection` renders «Pi подключён» only from `phase === 'ready'`
+ * (LeftSidebar), so waiting for that text waits for the bridge itself. */
+export async function waitForReady(page: Page): Promise<void> {
+  await expect(page.getByTestId('sidebar-connection')).toContainText('Pi подключён', { timeout: 30_000 });
 }

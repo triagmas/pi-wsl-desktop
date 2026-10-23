@@ -113,6 +113,28 @@ describe('App UI (RTL)', () => {
     await waitFor(() => expect(screen.getByTestId('status-phase')).toHaveTextContent(/подключени/i));
   });
 
+  it('the empty-state recovery button opens Settings straight on Connection', async () => {
+    // UI-A R02 review P2: «Открыть настройки подключения» must land on the
+    // Connection section, not on Appearance.
+    const user = userEvent.setup();
+    const mock = makeApi({
+      phase: 'error',
+      attempt: 3,
+      distro: null,
+      distros: null,
+      runtime: null,
+      lastError: { code: 'WSL_UNAVAILABLE', message: 'no distro' },
+    });
+    render(<App api={mock.api} />);
+    const recovery = await screen.findByTestId('empty-open-settings');
+    await user.click(recovery);
+    // The Connection section is shown immediately — no second tab click.
+    await waitFor(() => expect(screen.getByTestId('status-phase')).toBeInTheDocument());
+    expect(screen.getByTestId('status-phase')).toHaveTextContent(/ошибк/i);
+    expect(screen.getByTestId('error-code')).toHaveTextContent('WSL_UNAVAILABLE');
+    expect(screen.getByTestId('settings-tab-connection')).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('lists available distros and selects a new one', async () => {
     const user = userEvent.setup();
     const mock = makeApi(READY);

@@ -15,7 +15,10 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fakePi, launchApp } from './launchApp';
+import { fakePi, launchApp, sessionsRoot, waitForReady } from './launchApp';
+
+const repoRoot = path.join(__dirname, '..');
+const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
 
 /** Body background per theme — proves the tokens actually reach the DOM. */
 const DARK_BG = 'rgb(32, 34, 31)'; // #20221F
@@ -23,6 +26,18 @@ const LIGHT_BG = 'rgb(250, 249, 246)'; // #FAF9F6
 
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   return launchApp({ PI_WS_DESKTOP_PI: fakePi });
+}
+
+/** UI-A R02 review P2: launch over the deterministic RPC transport that can
+ * actually stream a reply, so the populated-chat geometry is exercised.
+ * streamMs=150 keeps the stream bubble observable (same as the m1 streaming
+ * spec) instead of flashing past in a single tick. */
+async function launchRpc(): Promise<{ app: ElectronApplication; page: Page }> {
+  return launchApp({
+    PI_WS_DESKTOP_PI: fakePiRpc,
+    PI_WS_DESKTOP_ACTIVE_WINDOW_MS: '0',
+    FAKE_PI_STREAM_MS: '150',
+  });
 }
 
 async function bodyBackground(page: Page): Promise<string> {
@@ -255,7 +270,8 @@ test.describe('UI-A R02 application shell E2E', () => {
     const { app, page } = await launchApp({ PI_WS_DESKTOP_PI: fakePi, PI_WS_DESKTOP_AGENT_HOME: home });
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
-      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
+      // UI-A R02 review P1: genuine bridge READY before the inventory request.
+      await waitForReady(page);
       await page.getByTestId('nav-resources').click();
       await expect(page.getByRole('heading', { name: 'Ресурсы' })).toBeVisible();
       await expect(page.getByText('Навыки, расширения и подключения вашего Pi')).toBeVisible();
@@ -269,6 +285,52 @@ test.describe('UI-A R02 application shell E2E', () => {
       await page.getByTestId('skills-search').fill('code');
       await expect(page.getByTestId('skill-row')).toHaveCount(1);
       await page.screenshot({ path: testInfo.outputPath('ui-04-resources-dark.png') });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('populated chat: messages render, composer enabled and anchored, entries scroll independently (R02 P2)', async () => {
+    // UI-A R02 review P2: the visual matrix must also exercise a POPULATED,
+    // open chat — not just the closed/composer-disabled state — so the
+    // bottom-anchored composer is validated against real streamed content.
+    const testInfo = test.info();
+    const { app, page } = await launchRpc();
+    try {
+      await waitForReady(page);
+      await openFixtureChat(page);
+      const openBtn = page.getByRole('button', { name: /открыть чат/i });
+      await expect(openBtn).toBeVisible();
+      await openBtn.click();
+      const input = page.getByPlaceholder(/сообщение/i);
+      await expect(input).toBeVisible({ timeout: 20_000 });
+      await expect(input).toBeEnabled();
+
+      // Stream a synthetic prompt through the deterministic fake RPC. m1
+      // already pins the delta-by-delta streaming + interrupt; here we only
+      // need a POPULATED, finalized chat to validate the layout, so we wait
+      // for the durable final entries (stable, not the transient stream bubble).
+      await input.fill('populate the visual matrix');
+      await page.getByRole('button', { name: /отправить/i }).click();
+      await expect(page.getByText('Hello 🌍 — done')).toBeVisible({ timeout: 20_000 });
+      // Both the user prompt and the assistant reply are on screen.
+      await expect(page.locator('.bubble-user')).toContainText('populate the visual matrix');
+      await expect(page.locator('.bubble-assistant')).toContainText('Hello 🌍 — done');
+      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
+
+      // The composer is still enabled after the run and stays bottom-anchored:
+      // its bottom edge sits at the workspace bottom (within a small padding
+      // tolerance), independent of how tall the entries list has grown.
+      await expect(input).toBeEnabled();
+      const ws = await page.getByTestId('view-chat').boundingBox();
+      const form = await page.locator('.chat-form').boundingBox();
+      expect(ws && form).toBeTruthy();
+      if (ws && form) {
+        const gap = ws.y + ws.height - (form.y + form.height);
+        expect(gap).toBeGreaterThanOrEqual(0);
+        expect(gap).toBeLessThanOrEqual(24); // padding, not a layout break
+      }
+      await page.screenshot({ path: testInfo.outputPath('ui-05-chat-populated-dark.png') });
     } finally {
       await app.close();
     }

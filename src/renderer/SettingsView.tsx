@@ -192,6 +192,9 @@ export interface SettingsViewProps {
   api: DesktopApi | null;
   appearance: AppearanceSettings;
   ready: boolean;
+  /** Section to land on when Settings opens (R02: the connection-recovery
+   * shortcut in the chat empty state opens Connection, not Appearance). */
+  initialSection?: Section;
   onChange: (next: AppearanceSettings) => void;
   onReset: () => void;
   snapshot: RendererSnapshot;
@@ -206,7 +209,7 @@ type Section = 'appearance' | 'typography' | 'workspace' | 'connection';
 
 export function SettingsView(props: SettingsViewProps) {
   const { appearance, ready, onChange, onReset, layout } = props;
-  const [section, setSection] = useState<Section>('appearance');
+  const [section, setSection] = useState<Section>(props.initialSection ?? 'appearance');
 
   /* Custom editor state (§9.2): opened only under the fifth card. */
   const [editorOpen, setEditorOpen] = useState(false);

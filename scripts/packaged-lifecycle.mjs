@@ -141,7 +141,26 @@ assert('re-install (upgrade path) succeeds', upgrade.ok, upgrade.detail);
 assert('app exe still present after upgrade', existsSync(appExe));
 assert('sentinels byte-identical after upgrade', sentinelsIntact());
 
-// 3. Uninstall (silent). runAfterFinish:false (contract-tested) guarantees
+// 3. Tampered state (must run BEFORE the standard uninstall): with the ownership marker removed the uninstaller
+// must refuse to delete the install dir (fail-safe, no recursive delete).
+if (existsSync(markerFile)) unlinkSync(markerFile);
+const unTampered = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
+console.log(`info: tampered uninstall exit=${unTampered.detail}`);
+await new Promise((r) => setTimeout(r, 3000));
+assert('tampered uninstall (no marker) keeps install dir (fail-safe)', existsSync(installDir), installDir);
+assert('tampered uninstall keeps app files', existsSync(appExe));
+// restore the marker so the standard uninstall below proceeds
+writeFileSync(markerFile, `${pkg.build.appId ?? pkg.name} ${version} (restored-by-test)`, 'utf8');
+const unRestored = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
+assert('uninstall succeeds after marker restoration', unRestored.ok, unRestored.detail);
+const deadline2 = Date.now() + 90_000;
+while (existsSync(installDir) && Date.now() < deadline2) {
+  await new Promise((r) => setTimeout(r, 1000));
+}
+assert('install dir removed after restored-marker uninstall', !existsSync(installDir), installDir);
+assert('sentinels byte-identical after tamper scenario', sentinelsIntact());
+
+// 4. Uninstall (silent). runAfterFinish:false (contract-tested) guarantees
 // no instance of the app was auto-launched, so nothing pins the exe.
 const uninstallerRel = findUninstaller();
 assert('uninstaller present', uninstallerRel !== null, installDir);
@@ -160,25 +179,6 @@ if (existsSync(installDir)) {
 }
 assert('install dir removed', !existsSync(installDir), installDir);
 assert('sentinels byte-identical after uninstall (user data preserved)', sentinelsIntact());
-
-// 4. Tampered state: with the ownership marker removed the uninstaller
-// must refuse to delete the install dir (fail-safe, no recursive delete).
-if (existsSync(markerFile)) unlinkSync(markerFile);
-const unTampered = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
-console.log(`info: tampered uninstall exit=${unTampered.detail}`);
-await new Promise((r) => setTimeout(r, 3000));
-assert('tampered uninstall (no marker) keeps install dir (fail-safe)', existsSync(installDir), installDir);
-assert('tampered uninstall keeps app files', existsSync(appExe));
-// restore the marker so the standard uninstall below proceeds
-writeFileSync(markerFile, `${pkg.build.appId ?? pkg.name} ${version} (restored-by-test)`, 'utf8');
-const unRestored = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
-assert('uninstall succeeds after marker restoration', unRestored.ok, unRestored.detail);
-const deadline2 = Date.now() + 90_000;
-while (existsSync(installDir) && Date.now() < deadline2) {
-  await new Promise((r) => setTimeout(r, 1000));
-}
-assert('install dir removed after restored-marker uninstall', !existsSync(installDir), installDir);
-assert('sentinels byte-identical after tamper scenario', sentinelsIntact());
 
 // 5. Malicious /D= into an EXISTING foreign directory with foreign sentinels:
 // the installer must REFUSE before touching anything there, and a previous
@@ -206,9 +206,11 @@ while (existsSync(installDir) && Date.now() < deadline3) {
 }
 assert('final install dir removed', !existsSync(installDir), installDir);
 
+assert('sentinels byte-identical after /D= scenario', sentinelsIntact());
+
 cleanupSentinels();
 if (failed > 0) {
   console.error(`packaged-lifecycle: ${failed} FAILED`);
   process.exit(1);
 }
-console.log('packaged-lifecycle: install → upgrade → uninstall — real userData sentinels byte-identical throughout');
+console.log('packaged-lifecycle: install → upgrade → tamper fail-safe → uninstall → refused /D= — user data and foreign dirs preserved');

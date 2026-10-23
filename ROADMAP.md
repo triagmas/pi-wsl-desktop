@@ -5,7 +5,7 @@
 
 [📘 Продукт](PRODUCT.md) · [🛠️ Спецификация](SPECIFICATION.md) · [🤖 Правила для Pi](AGENTS.md) · [🎯 Roadmap Issue #1](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
-**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap и **M0–M3 приняты и слиты**; M3 [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) закрыт, [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) squash-merged в `main` (`bb0e966`); **M4 — подготовка релиза** ([Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16)). Отложенные security/operational риски — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9). **Разработка:** крупными тематическими пакетами и PR.
+**Цель:** Pi WSL Desktop 1.0 · **Статус:** Bootstrap и **M0–M3 приняты и слиты**; M3 [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) закрыт, [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) squash-merged в `main` (`bb0e966`); **M4 — в разработке:** packaging [PR #20](https://github.com/triagmas/pi-wsl-desktop/pull/20) ожидает security closure, обязательный предрелизный [UI Design System / Issue #21](https://github.com/triagmas/pi-wsl-desktop/issues/21), затем Windows+WSL acceptance и release gate [#16](https://github.com/triagmas/pi-wsl-desktop/issues/16). Отложенные security/operational риски — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9). **Разработка:** крупными тематическими пакетами и PR.
 
 ---
 
@@ -18,7 +18,7 @@
 | **M1 — Sessions & Chat** | ✅ Принято | [Issue #5](https://github.com/triagmas/pi-wsl-desktop/issues/5) closed · [PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6) merged 2026-10-20 (`6b3b9c03`) | [ACCEPT ревью](https://github.com/triagmas/pi-wsl-desktop/pull/6#pullrequestreview-5580577901) · squash merge владельца; real write/model prompt **NOT RUN** |
 | **M2 — Pi Manager** | ✅ Принято | [Issue #7](https://github.com/triagmas/pi-wsl-desktop/issues/7) closed · [PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8) merged 2026-10-21 (`6107f959`) | [Финальное техническое ревью](https://github.com/triagmas/pi-wsl-desktop/pull/8#pullrequestreview-5587454200) · разрешённый владельцем squash merge, GitHub CI PASS; настоящие write/model prompt **NOT RUN**, token savings **NOT MEASURED**, остаточные риски → [#9](https://github.com/triagmas/pi-wsl-desktop/issues/9) |
 | **M3 — Module System** | ✅ **Принято и слито** | [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10) closed · [PR #11](https://github.com/triagmas/pi-wsl-desktop/pull/11) squash merged 2026-10-22 (`bb0e966`) | 32 файла, **+5101 / −37**; Product CI Linux 506 PASS / 15 SKIP + E2E 10/10, Windows 338 PASS / 5 SKIP; Repository Contract SUCCESS; real WSL + Windows GUI smoke PASS; residuals документированы |
-| **M4 — Desktop 1.0** | 🟡 **Подготовка (реализация не начата)** | [Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) OPEN | Установщик/обновление/удаление, Windows+WSL регрессии, security/privacy, лицензии и release artifacts; решение о релизе — отдельно |
+| **M4 — Desktop 1.0** | 🟡 **В работе: installer реализован, дизайн и release gate впереди** | [Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) OPEN · Installer [PR #20](https://github.com/triagmas/pi-wsl-desktop/pull/20) OPEN · UI [#21](https://github.com/triagmas/pi-wsl-desktop/issues/21) OPEN | R01 NSIS RC1 проверен CI, до merge — guard `/D=`; UI Design System + две полнофункциональные UI-фазы обязательны до `1.0.0`; далее Windows+WSL native acceptance, security и owner release gate |
 
 **Легенда:** ⬜ запланировано · 🟡 в работе / на ревью · ✅ принято · ⛔ заблокировано. Статус «✅ принято» требует завершённой приёмки, а не только заявления разработчика.
 
@@ -150,7 +150,24 @@
 
 ## 🚀 M4 — Desktop 1.0
 
-**Статус:** подготовка, код M4 ещё не изменён. [Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) — authority. Перед релизом отдельно проверяются установщик и обновление без потери существующих WSL/Pi данных, безопасность IPC/процессов, лицензии и артефакты; real user writes и платные prompts остаются NOT RUN без разрешения.
+**Статус:** M4 в разработке, но **не принят**. [Issue #16](https://github.com/triagmas/pi-wsl-desktop/issues/16) — release authority; [Issue #21](https://github.com/triagmas/pi-wsl-desktop/issues/21) §9 — обязательный интерфейс/Design System до первого рабочего `1.0.0`. RC packaging уже реализован в [PR #20](https://github.com/triagmas/pi-wsl-desktop/pull/20) (`1.0.0-rc.1`, HEAD `8c1f9d3`, 3/3 CI SUCCESS по checkpoint 2026-10-23; **merge не разрешён**); остаётся фикс `/D=` guard B и review. Real user writes / prompts / installed-app acceptance остаются NOT RUN без отдельного разрешения.
+
+
+### M4 — граф поставки до рабочего Desktop 1.0 (согласовано 2026-10-23)
+
+| Пакет | Состояние | Контракт |
+|---|---|---|
+| **R01 — Windows packaging** | 🟡 Продуктовая реализация в [PR #20](https://github.com/triagmas/pi-wsl-desktop/pull/20), не слита | NSIS per-user x64, `1.0.0-rc.1`; CI PASS, установленный smoke и synthetic install/upgrade/uninstall PASS; перед merge закрыть /D= residual через узкий guard B, независимый review, owner authorization |
+| **UI-A — рабочая оболочка и Design System** | ⬜ Не начат | Один продуктовый PR из актуального принятого main; Design System (semantic CSS tokens, reusable UI components), App Shell/layout и separate feature UI/state; **пять тем:** Dark, Light, Claude Code, Codex, **Своя** (под карточками раскрывающийся editor цветовых/стилистических токенов + предпросмотр/применить/отмена/сброс). Независимые font family/size/line-height для общего интерфейса, проектов, ввода, вывода Pi, code, tools, терминала, status bar. Persist appearance/layout только в Desktop state (никаких writes `~/.pi`). Реальные Sessions/Chat/Resources/Modules, две панели, доступность, адаптивность. Только пустой док-слот терминала, не fake PTY |
+| **UI-B — host status & WSL Terminal** | ⬜ Не начат | Typed main IPC для реального **Windows** CPU/RAM и общего status bar; настоящий interactive WSL PTY с selective process ownership, tabs/resize/Ctrl+C/cwd/disconnect, **только в центральной колонке под полем ввода и над status bar**; bundled installer compatibility и Windows+WSL native smoke |
+| **R02 — end-to-end native acceptance** | ⬜ Не начат | Переустановка RC, реальная Windows+WSL+Pi регрессия и UX: Sessions/Chat/stream/abort, Skills/Packages/MCP, M3 Modules, panel state, fonts/themes, PTY; данные пользователя/платные вызовы/установка в рабочий профиль — по отдельному owner consent |
+| **R03 — 1.0.0 release gate** | ⬜ Не начат | Лицензии/third-party notices/README/release notes, package/update/uninstall/rollback, full Vitest/RTL/contract/typecheck/lint/build/Playwright/hosted Windows/Linux CI, независимые review, screenshot matrix (шесть PNG, Dark/Light, panels, terminal, 1440x900/1280x800/1024x768/DPI 125/150%), owner ACCEPT+merge+release |
+
+**Граница архитектуры:** `design/` (семантические токены/темы/типографика/базовые компоненты) → `layout/` (App Shell, панели, центр, dock, статус) → `features/` (Sessions/Chat/Resources/Modules/Settings/Terminal), отдельные `state/services` для живых Pi sessions/stream/drafts/PTY. Не отдельный процесс/репозиторий/framework, не переписывать существующий Bridge. Смена темы или скрытие панели не теряют черновик и не закрывают active stream/PTY. Настройки шрифтов независимы от темы; fonts с безопасными fallbacks, без передачи font files.
+
+**Обязательная визуальная приёмка:** шесть исходных PNG в [#21](https://github.com/triagmas/pi-wsl-desktop/issues/21#issuecomment-6344296243); поздний макет имеет приоритет — терминал строго под чатом в центре. Не подменять UX screenshot-only мокапом или fictional host metrics.
+
+**Ветки и безопасность:** основной продуктовый main не менять напрямую; документационный checkpoint этого ROADMAP остаётся в [PR #19](https://github.com/triagmas/pi-wsl-desktop/pull/19) до отдельного merge. Installer [PR #20](https://github.com/triagmas/pi-wsl-desktop/pull/20) не переписывать из UI-A. Dashboard [#17](https://github.com/triagmas/pi-wsl-desktop/issues/17) только после первого принятого 1.0. Новую инфраструктуру ради редизайна не создавать.
 
 - [ ] Установка, обновление и удаление Windows-приложения без потери Pi-сессий.
 - [ ] Регрессионная матрица Windows+WSL: повторное подключение, воспроизводимость, безопасность.

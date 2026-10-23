@@ -4,40 +4,15 @@
  * re-enables it without ever taking the core down. Built as one scenario to
  * keep the paid-real-estate of a real window small.
  */
-import { expect, test, _electron as electron } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { mkdtempSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { fakePi, launchApp } from './launchApp';
 
-const repoRoot = path.join(__dirname, '..');
-const mainScript = path.join(repoRoot, 'dist', 'main', 'index.cjs');
-const fakeWsl = path.join(repoRoot, 'tests', 'fixtures', 'fake-wsl');
-const fakePi = path.join(repoRoot, 'tests', 'fixtures', 'fakepi');
 
-async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
-  const env = Object.fromEntries(
-    Object.entries({
-      ...process.env,
-      // R04: isolate module-state persistence — the bridge writes
-      // $HOME/.pi-desktop/module-state.json on toggle; a throwaway HOME keeps
-      // the real one clean and makes the E2E run independent of leftovers.
-      HOME: mkdtempSync(path.join(os.tmpdir(), 'piwsd-e2e-home-')),
-      PI_WS_DESKTOP_WSL_PATH: fakeWsl,
-      PI_WS_DESKTOP_PI: fakePi,
-      PI_WS_DESKTOP_TIMEOUT_MS: '8000',
-      FAKE_WSL_PROBE_JSON: JSON.stringify({
-        ok: true,
-        nodePath: process.execPath,
-        nodeVersion: process.version,
-        home: '/home/fake',
-        bridgeOk: true,
-      }),
-    }).filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
-  const app = await electron.launch({ args: [mainScript], env });
-  const page = await app.firstWindow();
-  return { app, page };
+function launch(): Promise<{ app: ElectronApplication; page: Page }> {
+  // launchApp provides a throwaway HOME (module-state isolation), userData
+  // and the fixture session root.
+  return launchApp({ PI_WS_DESKTOP_PI: fakePi });
 }
 
 test.describe('M3 module system E2E', () => {

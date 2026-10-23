@@ -218,6 +218,16 @@ export function SettingsView(props: SettingsViewProps) {
   const startTokens = useRef<ThemeTokens | null>(null);
   /** Set right after a successful Apply so the restore effect keeps the new theme. */
   const skipRestore = useRef(false);
+  /**
+   * Latest persisted appearance for the close-cleanup. The cleanup depends on
+   * `editorOpen` ONLY (round-2 review): if it depended on `appearance`, every
+   * preset/typography change with the editor open would run the cleanup and
+   * roll the document back to the previous snapshot.
+   */
+  const appearanceRef = useRef(appearance);
+  useEffect(() => {
+    appearanceRef.current = appearance;
+  }, [appearance]);
 
   const startEditor = (base: ThemePresetId): void => {
     // Re-opening the editor must start from the SAVED custom theme when there
@@ -249,14 +259,15 @@ export function SettingsView(props: SettingsViewProps) {
         skipRestore.current = false;
         return; // Apply already stored the new theme — App re-applies it.
       }
+      const a = appearanceRef.current; // CURRENT persisted state at close/unmount
       const persisted =
-        appearance.theme.preset === 'custom'
-          ? (appearance.theme.custom ?? THEME_PRESETS.dark.tokens)
-          : THEME_PRESETS[appearance.theme.preset].tokens;
+        a.theme.preset === 'custom'
+          ? (a.theme.custom ?? THEME_PRESETS.dark.tokens)
+          : THEME_PRESETS[a.theme.preset].tokens;
       applyTheme(document.documentElement, persisted);
-      applyTypography(document.documentElement, appearance.typography);
+      applyTypography(document.documentElement, a.typography);
     };
-  }, [editorOpen, appearance]);
+  }, [editorOpen]);
 
   const validate = (tokens: ThemeTokens): boolean => {
     const result = validateCustomTokens(tokens);

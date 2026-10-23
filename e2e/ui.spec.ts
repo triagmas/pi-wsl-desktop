@@ -7,42 +7,16 @@
  * image flakiness). Each run gets its own userData profile (review P2), so the
  * defaults are deterministic and the working profile is never touched.
  */
-import { expect, test, _electron as electron } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
-const repoRoot = path.join(__dirname, '..');
-const mainScript = path.join(repoRoot, 'dist', 'main', 'index.cjs');
-const fakeWsl = path.join(repoRoot, 'tests', 'fixtures', 'fake-wsl');
-const fakePi = path.join(repoRoot, 'tests', 'fixtures', 'fakepi');
+import { fakePi, launchApp } from './launchApp';
 
 /** Body background per theme — proves the tokens actually reach the DOM. */
 const DARK_BG = 'rgb(32, 34, 31)'; // #20221F
 const LIGHT_BG = 'rgb(250, 249, 246)'; // #FAF9F6
 
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
-  const userData = await mkdtemp(path.join(tmpdir(), 'ui21-e2e-'));
-  const env = Object.fromEntries(
-    Object.entries({
-      ...process.env,
-      PI_WS_DESKTOP_WSL_PATH: fakeWsl,
-      PI_WS_DESKTOP_PI: fakePi,
-      PI_WS_DESKTOP_TIMEOUT_MS: '8000',
-      PI_WS_DESKTOP_USER_DATA_DIR: userData,
-      FAKE_WSL_PROBE_JSON: JSON.stringify({
-        ok: true,
-        nodePath: process.execPath,
-        nodeVersion: process.version,
-        home: '/home/fake',
-        bridgeOk: true,
-      }),
-    }).filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
-  const app = await electron.launch({ args: [mainScript], env });
-  const page = await app.firstWindow();
-  return { app, page };
+  return launchApp({ PI_WS_DESKTOP_PI: fakePi });
 }
 
 async function bodyBackground(page: Page): Promise<string> {
@@ -95,6 +69,10 @@ test.describe('UI-A application shell E2E', () => {
       await expect(sidebar).toHaveClass(/sidebar-collapsed/);
       await page.getByTestId('sidebar-collapse').click();
       await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+      // Don't snapshot mid-transition (width animates 140ms — round-2 review).
+      await expect
+        .poll(() => sidebar.evaluate((el) => (el as unknown as { offsetWidth: number }).offsetWidth))
+        .toBe(260);
 
       // Fresh dark profile: the preset tokens must actually paint the body
       // (the stylesheet consumes exactly what applyTheme writes — review P1).
@@ -152,6 +130,46 @@ test.describe('UI-A application shell E2E', () => {
       for (const area of ['ui', 'sidebar', 'chatInput', 'chatResponse', 'code', 'terminal', 'statusBar']) {
         await expect(page.getByTestId(`typo-${area}`)).toBeVisible();
       }
+
+      // The sidebar zone must drive the REAL project/session rows — not just a
+      // dead selector (round-2 review). Fixture sessions render in the list.
+      const rowFontSize = () =>
+        page.evaluate(() => {
+          const w = window as unknown as {
+            document: { querySelector: (s: string) => unknown };
+            getComputedStyle: (el: unknown) => { fontSize: string };
+          };
+          const el = w.document.querySelector('.session-row') ?? w.document.querySelector('.project-row');
+          return el ? w.getComputedStyle(el).fontSize : 'missing';
+        });
+      await expect.poll(rowFontSize).not.toBe('missing');
+      await page.getByTestId('sidebar-size').fill('19');
+      await expect.poll(rowFontSize).toBe('19px');
+      await page.getByTestId('sidebar-weight').selectOption('700');
+      const rowWeight = () =>
+        page.evaluate(() => {
+          const w = window as unknown as {
+            document: { querySelector: (s: string) => unknown };
+            getComputedStyle: (el: unknown) => { fontWeight: string };
+          };
+          const el = w.document.querySelector('.session-row') ?? w.document.querySelector('.project-row');
+          return el ? w.getComputedStyle(el).fontWeight : 'missing';
+        });
+      await expect.poll(rowWeight).toBe('700');
+      // Status bar and terminal slot consume their own zones as computed styles.
+      await page.getByTestId('statusBar-size').fill('17');
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const w = window as unknown as {
+              document: { querySelector: (s: string) => unknown };
+              getComputedStyle: (el: unknown) => { fontSize: string };
+            };
+            const el = w.document.querySelector('.status-bar');
+            return el ? w.getComputedStyle(el).fontSize : 'missing';
+          }),
+        )
+        .toBe('17px');
 
       // Workspace: layout controls exist and the status panel keeps the real
       // connection data (§5 settings scope).

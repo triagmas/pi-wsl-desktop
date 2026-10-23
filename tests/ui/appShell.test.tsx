@@ -132,6 +132,11 @@ describe('App shell', () => {
     // Fail-closed: the confirm dialog stays up — the old session may still be
     // live, so the UI must not present the other one as active.
     expect(await screen.findByTestId('switch-cancel')).toBeInTheDocument();
+    // The refusal path is a real close attempt against the OLD session …
+    expect(api._request.mock.calls.some((c) => c[0] === 'closeSession')).toBe(true);
+    // … and the old row remains the active one (aria-current), the new one not.
+    expect(screen.getByTestId('session-s1')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('session-s2')).toHaveAttribute('aria-current', 'false');
   });
 
   it('never claims a connected Pi while the bridge is still starting (review P2)', () => {
@@ -139,6 +144,29 @@ describe('App shell', () => {
     const conn = screen.getByTestId('sidebar-connection');
     expect(conn).not.toHaveTextContent('Pi подключён');
     expect(conn).toHaveTextContent('Подключение');
+  });
+
+  it('a preset switch while the custom editor is open is not rolled back by the restore cleanup (round-2 P2)', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    const bg = () =>
+      (document.documentElement as HTMLElement & { style: CSSStyleDeclaration }).style.getPropertyValue(
+        '--pw-window-background-color',
+      );
+    // App's layout effect applies the persisted (dark) theme before settings open.
+    await user.click(screen.getByTestId('nav-settings'));
+    expect(bg()).toBe('#20221F');
+    // Open the custom editor (live preview engages).
+    await user.click(screen.getByTestId('theme-card-custom'));
+    expect(screen.getByTestId('theme-editor')).toBeInTheDocument();
+    // Switch the SAVED preset while the editor is still open: App re-applies
+    // Light in its layout effect; the editor-close cleanup must NOT roll the
+    // document back to the pre-switch snapshot.
+    await user.click(screen.getByTestId('theme-card-light'));
+    expect(bg()).toBe('#FAF9F6');
+    // Closing the editor restores the CURRENT persisted appearance (light).
+    await user.click(screen.getByTestId('theme-cancel'));
+    expect(bg()).toBe('#FAF9F6');
   });
 
   it('navigates to Resources and Modules from the sidebar without losing the chat state', async () => {

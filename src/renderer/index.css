@@ -300,6 +300,10 @@ input[type="range"] {
   display: flex;
   align-items: center;
   gap: 4px;
+  font-family: var(--pw-font-sidebar-family, inherit);
+  font-size: var(--pw-font-sidebar-size, 13px);
+  line-height: var(--pw-font-sidebar-line-height, 1.5);
+  font-weight: var(--pw-font-sidebar-weight, 400);
 }
 
 .chevron {
@@ -315,8 +319,12 @@ input[type="range"] {
   text-align: left;
 }
 
-.session-item.session-row {
+.session-row {
   display: flex;
+  font-family: var(--pw-font-sidebar-family, inherit);
+  font-size: var(--pw-font-sidebar-size, 13px);
+  line-height: var(--pw-font-sidebar-line-height, 1.5);
+  font-weight: var(--pw-font-sidebar-weight, 400);
 }
 
 .session-row-name.session-name {
@@ -520,6 +528,18 @@ input[type="range"] {
   align-self: flex-start;
   background: var(--pw-chat-bubble-assistant-background-color);
   border: 1px solid transparent;
+}
+
+/* Tool results are real chat/history content (§9.3 toolOutput zone). */
+.bubble.bubble-tool,
+.bubble-tool {
+  align-self: flex-start;
+  background: var(--pw-tool-card-background-color);
+  border: 1px solid var(--pw-tool-card-border-color);
+  font-family: var(--pw-font-tool-output-family, inherit);
+  font-size: var(--pw-font-tool-output-size, 13px);
+  line-height: var(--pw-font-tool-output-line-height, 1.5);
+  font-weight: var(--pw-font-tool-output-weight, 400);
 }
 
 .bubble.bubble-stream {

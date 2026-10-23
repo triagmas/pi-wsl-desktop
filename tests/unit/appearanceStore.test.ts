@@ -110,15 +110,19 @@ describe('appearance store (versioned Desktop-only storage, §9.1)', () => {
     expect(onDisk.version).toBe(APPEARANCE_VERSION);
   });
 
-  it('rolls back on an injected write failure: previous file intact, temp removed (review P2)', () => {
+  it('rolls back after a PARTIALLY written temp file: previous file intact, temp removed (round-2 review)', async () => {
+    const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
     const dir = freshDir();
     saveAppearance(dir, { ...DEFAULT_APPEARANCE, layout: { ...DEFAULT_APPEARANCE.layout, leftWidth: 333 } });
     const before = fs.readFileSync(path.join(dir, APPEARANCE_FILE), 'utf8');
-    vi.mocked(fs.writeFileSync).mockImplementationOnce(() => {
+    // The write FAILS MID-FILE: bytes already land on disk before the error,
+    // which is the case the rollback guarantee actually has to survive.
+    vi.mocked(fs.writeFileSync).mockImplementationOnce((file, data) => {
+      actual.writeFileSync(file as string, String(data).slice(0, 16));
       throw new Error('disk full');
     });
     expect(() => saveAppearance(dir, { ...DEFAULT_APPEARANCE, layout: { ...DEFAULT_APPEARANCE.layout, leftWidth: 444 } })).toThrow('disk full');
-    // The previous file must be byte-identical and no half-written temp left.
+    // The previous file must be byte-identical and the partial temp removed.
     expect(fs.readFileSync(path.join(dir, APPEARANCE_FILE), 'utf8')).toBe(before);
     expect(fs.existsSync(path.join(dir, `${APPEARANCE_FILE}.tmp`))).toBe(false);
     expect(loadAppearance(dir).layout.leftWidth).toBe(333);

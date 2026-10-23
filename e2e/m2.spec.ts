@@ -4,19 +4,17 @@
  * write cycle against the committed fixture CLI — preview → confirm →
  * verified write → byte-exact rollback. Never touches the real ~/.pi.
  */
-import { expect, test, _electron as electron } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { launchApp } from './launchApp';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 const repoRoot = path.join(__dirname, '..');
-const mainScript = path.join(repoRoot, 'dist', 'main', 'index.cjs');
-const fakeWsl = path.join(repoRoot, 'tests', 'fixtures', 'fake-wsl');
 const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
 const fakeCli = path.join(repoRoot, 'tests', 'fixtures', 'fake-resource-cli');
-const sessionsRoot = path.join(repoRoot, 'tests', 'fixtures', 'sessions');
 
 const SECRET = 'e2e-never-on-screen-777';
 
@@ -52,29 +50,15 @@ function makeFixture(): void {
   settingsShaBefore = createHash('sha256').update(readFileSync(settingsPath)).digest('hex');
 }
 
-async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
-  const env = Object.fromEntries(
-    Object.entries({
-      ...process.env,
-      PI_WS_DESKTOP_WSL_PATH: fakeWsl,
-      PI_WS_DESKTOP_TIMEOUT_MS: '8000',
-      PI_CODING_AGENT_SESSION_DIR: sessionsRoot,
-      PI_WS_DESKTOP_PI: fakePiRpc,
-      PI_WS_DESKTOP_AGENT_HOME: home,
-      PI_WS_DESKTOP_AGENT_CWD: proj,
-      PI_WS_DESKTOP_RESOURCE_CLI: fakeCli,
-      FAKE_WSL_PROBE_JSON: JSON.stringify({
-        ok: true,
-        nodePath: process.execPath,
-        nodeVersion: process.version,
-        home: '/home/fake',
-        bridgeOk: true,
-      }),
-    }).filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
-  const app = await electron.launch({ args: [mainScript], env });
-  const page = await app.firstWindow();
-  return { app, page };
+function launch(): Promise<{ app: ElectronApplication; page: Page }> {
+  // The fixture agent-home/cwd/resource CLI stay spec-owned; HOME and
+  // userData come isolated from the shared launchApp fixture.
+  return launchApp({
+    PI_WS_DESKTOP_PI: fakePiRpc,
+    PI_WS_DESKTOP_AGENT_HOME: home,
+    PI_WS_DESKTOP_AGENT_CWD: proj,
+    PI_WS_DESKTOP_RESOURCE_CLI: fakeCli,
+  });
 }
 
 test.describe('M2 resources E2E', () => {

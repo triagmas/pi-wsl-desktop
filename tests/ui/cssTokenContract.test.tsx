@@ -33,6 +33,44 @@ for (const area of TYPOGRAPHY_AREAS) {
   }
 }
 
+/**
+ * Round-2 review: the CSS text can consume a zone variable in a DEAD selector.
+ * These links pin each zone to the elements that actually render content.
+ */
+const REQUIRED_ZONE_LINKS: Array<{ selector: string; zone: string; vars: string[] }> = [
+  { selector: '.project-row', zone: 'sidebar', vars: Object.values(typographyCssVarNames('sidebar')) },
+  { selector: '.session-row', zone: 'sidebar', vars: Object.values(typographyCssVarNames('sidebar')) },
+  { selector: '.bubble-tool', zone: 'toolOutput', vars: Object.values(typographyCssVarNames('toolOutput')) },
+];
+
+function cssBlocks(): Array<{ selectors: string; body: string }> {
+  const blocks: Array<{ selectors: string; body: string }> = [];
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css)) !== null) {
+    const selectors = m[1].trim();
+    if (selectors.startsWith('@') || selectors.includes('@')) continue;
+    blocks.push({ selectors, body: m[2] });
+  }
+  return blocks;
+}
+
+describe('zone → real content element links (round-2 review)', () => {
+  for (const link of REQUIRED_ZONE_LINKS) {
+    it(`${link.zone} zone drives ${link.selector}`, () => {
+      const bodies = cssBlocks()
+        .filter((b) => b.selectors.split(',').some((sel) => sel.trim() === link.selector))
+        .map((b) => b.body)
+        .join('\n');
+      const missing = link.vars.filter((v) => !bodies.includes(`var(${v}`));
+      expect(
+        missing,
+        `${link.selector} does not consume ${link.zone} variables:\n${missing.join('\n')}`,
+      ).toEqual([]);
+    });
+  }
+});
+
 describe('design token delivery contract (index.css ↔ design system)', () => {
   it('every var(--pw-…) consumed by the stylesheet is declared locally or produced by applyTheme/applyTypography', () => {
     const dead = [...used].filter(

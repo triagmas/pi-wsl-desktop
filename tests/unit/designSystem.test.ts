@@ -116,6 +116,26 @@ describe('custom theme validation (editor contract)', () => {
     expect(result.issues[0]).toMatchObject({ key: 'bodyTextColor', kind: 'hex' });
   });
 
+  it('rejects a tool-card background that clashes with body/muted text (round-3 P2)', () => {
+    // The tool result bubbles use toolCardBackgroundColor as their surface;
+    // body text and the muted role label render on top of it.
+    const bodyClash = {
+      ...THEME_PRESETS.dark.tokens,
+      toolCardBackgroundColor: THEME_PRESETS.dark.tokens.bodyTextColor,
+    };
+    const r1 = validateCustomTokens(bodyClash);
+    expect(r1.ok).toBe(false);
+    expect(r1.issues.map((i) => i.message).join(' ')).toContain('bodyTextColor на toolCardBackgroundColor');
+
+    const mutedClash = {
+      ...THEME_PRESETS.dark.tokens,
+      toolCardBackgroundColor: THEME_PRESETS.dark.tokens.mutedTextColor,
+    };
+    const r2 = validateCustomTokens(mutedClash);
+    expect(r2.ok).toBe(false);
+    expect(r2.issues.map((i) => i.message).join(' ')).toContain('mutedTextColor на toolCardBackgroundColor');
+  });
+
   it('flags low-contrast text pairs as contrast issues (AA)', () => {
     const bad = { ...THEME_PRESETS.dark.tokens, bodyTextColor: '#2A2E29' } as ThemeTokens;
     const result = validateCustomTokens(bad);

@@ -32,6 +32,10 @@ function textPairs(): [keyof ThemeTokens, keyof ThemeTokens][] {
     ['bodyTextColor', 'elevatedSurfaceBackgroundColor'],
     ['bodyTextColor', 'chatBubbleUserBackgroundColor'],
     ['bodyTextColor', 'chatBubbleAssistantBackgroundColor'],
+    // Tool-result bubbles render body text AND the muted role label on this
+    // surface (round-3 review): it must stay AA-readable like the other panels.
+    ['bodyTextColor', 'toolCardBackgroundColor'],
+    ['mutedTextColor', 'toolCardBackgroundColor'],
     ['mutedTextColor', 'windowBackgroundColor'],
     ['mutedTextColor', 'surfaceBackgroundColor'],
     ['linkColor', 'windowBackgroundColor'],

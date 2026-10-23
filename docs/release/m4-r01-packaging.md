@@ -47,20 +47,32 @@ no network updates; the file is inert. Disclosed here for the security review.
   per-user, NO elevation and NO directory choice in the UI — the default
   install dir is fixed to `%LOCALAPPDATA%\Programs\pi-wsl-desktop`
   (package name; exe `Pi WSL Desktop.exe`).
-  **Disclosed residual (`/D=` override):** NSIS itself honors a trailing
-  `installer.exe /D=<dir>` argument (electron-builder 26.15.3 template
-  `multiUser.nsh` accepts it unconditionally) and the uninstaller removes
-  `$INSTDIR` recursively. A user who explicitly points `/D=` at an
-  existing directory and later uninstalls can lose that directory's
-  contents. This is a CLI-only footgun of the NSIS platform — no UI path,
-  no elevation, no third-party victim — and closing it fully would require
-  allowing custom NSIS macros (`customInstall`/`customRemoveFiles`), which
-  this release deliberately forbids; that trade-off is filed for the owner
-  in Issue #16. Ordinary install/update/uninstall never touches user data
-  (proven by the CI sentinel test below). User data lives in
-  `%APPDATA%\pi-wsl-desktop` (Electron `userData`) — outside the install
-  dir by construction. Settings (`settings.json`, `module-state.json`) are
-  never written by the installer.
+  **`/D=` override — CLOSED (owner decision: variant B, security closure):**
+  a minimal allow-listed NSIS guard (`build/nsis-guard.nsh`, the single
+  sanctioned `nsis.include`) enforces ownership at both ends of the
+  lifecycle while the standard electron-builder templates stay untouched:
+  - `customInit` runs in `.onInit` AFTER `initMultiUser` (the final
+    `$INSTDIR`, including any trailing `/D=` argument, is known) and BEFORE
+    any extraction — an existing non-empty directory without the ownership
+    marker is rejected (silent: non-zero exit; interactive: stop message).
+    Empty/non-existent directories and upgrades of our own installs
+    (marker present) stay allowed.
+  - `customInstall` writes the marker `.pi-desktop-install-marker`
+    (`APP_ID` + `VERSION`) after extraction on every install/upgrade.
+  - `customUnInstall` quits BEFORE any deletion when the marker is missing
+    (tampered/broken state) — the uninstaller never recursively deletes a
+    directory it cannot prove it owns.
+  The guard is contract-pinned by `tests/unit/nsisGuardContract.test.ts`
+  (hook definitions, instruction allow-list: no Exec/nsExec/registry
+  writes, no deletion, no wsl/taskkill) and proven end-to-end by CI: a
+  refused `/D=` install exits 2 with foreign sentinels byte-identical and
+  the previous install untouched; a tampered uninstall keeps the dir and
+  files (fail-safe). Known minor quirk (disclosed): a SECOND uninstall run
+  on the same install tree can leave the emptied folder behind — files and
+  data are still removed; strict full-removal assertions apply to every
+  first-run uninstall. User data lives in `%APPDATA%\pi-wsl-desktop`
+  (Electron `userData`) — outside the install dir by construction. Settings
+  (`settings.json`, `module-state.json`) are never written by the installer.
 - **Update**: run the new installer over the old one (same `appId`
   `io.pi-desktop.wsl`); files are replaced, `userData` is not versioned into
   the install dir. No automatic transactional rollback is claimed: if a
@@ -71,12 +83,14 @@ no network updates; the file is inert. Disclosed here for the security review.
 - **Uninstall** (Add/Remove Programs): removes the program directory and
   shortcuts only. `deleteAppDataOnUninstall: false` — user data survives;
   WSL, `~/.pi` and user projects are outside the uninstaller's reach in
-  every standard scenario (no directory choice in the UI, no custom NSIS
-  scripts; see the disclosed `/D=` CLI residual above).
+  every standard scenario (no directory choice in the UI; ownership guard
+  refuses non-owned directories before any deletion — see the `/D=`
+  closure above).
 - **Verified synthetically in CI** (`scripts/packaged-lifecycle.mjs`):
-  silent install → re-install (upgrade) → silent uninstall against the
-  real NSIS artifacts, with sentinel files outside the install dir proving
-  user-data preservation on every step.
+  silent install → upgrade → tampered-uninstall fail-safe → uninstall →
+  refused malicious `/D=` against the real NSIS artifacts, with byte-exact
+  sentinel files inside the real userData dir AND in a foreign target dir
+  proving user-data and third-party preservation on every step.
 - Never performed by our application code: `wsl --unregister`,
   `wsl --shutdown`, stopping WSL/Pi/distro processes, writes into the
   user's Pi home. The standard NSIS installer/uninstaller (upstream

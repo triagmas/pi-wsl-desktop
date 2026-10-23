@@ -15,7 +15,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fakePi, launchApp, sessionsRoot, waitForReady } from './launchApp';
+import { fakePi, launchApp, waitForReady } from './launchApp';
 
 const repoRoot = path.join(__dirname, '..');
 const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');

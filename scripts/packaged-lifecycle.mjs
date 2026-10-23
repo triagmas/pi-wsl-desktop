@@ -15,6 +15,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { repoRootFrom } from './lib/releasePaths.mjs';
 
 if (process.platform !== 'win32') {

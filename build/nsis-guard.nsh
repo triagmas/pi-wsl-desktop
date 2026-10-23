@@ -35,9 +35,9 @@
   FindFirst $R9 $R8 "$INSTDIR\*"
   IfErrors guard_dir_allowed
   guard_init_entry:
-    StrLen $R7 $R8
-    IntCmp $R7 1 guard_init_next 0 0            ; "." → skip
-    IntCmp $R7 2 0 guard_init_foreign 0
+    ; exact full-string matches ONLY: any other name (including one-char
+    ; names like "a" or "x") is foreign — no length-based shortcuts.
+    StrCmp $R8 "." guard_init_next 0
     StrCmp $R8 ".." guard_init_next guard_init_foreign
   guard_init_next:
     ClearErrors

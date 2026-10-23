@@ -56,6 +56,74 @@ describe('NSIS security guard contract', () => {
     expect(un).not.toMatch(/RMDir \/r|Delete /);
   });
 
+  /**
+   * TRUE instruction allow-list: strip comments, then every statement must
+   * be one of the sanctioned operations — anything else (Exec, Delete,
+   * WriteRegDWORD, lowercase spellings, ...) is a contract violation.
+   */
+  const ALLOWED_STATEMENTS = new Set(
+    [
+      'strcmp', 'strlen', 'findfirst', 'findnext', 'findclose', 'clearerrors', 'iferrors',
+      'goto', 'iffileexists', 'fileopen', 'filewrite', 'fileclose',
+      'messagebox', 'abort', 'quit',
+      '${if}', '${ifnot}', '${endif}', '${silent}', '${fileexists}',
+      '!ifndef', '!define', '!endif', '!macro', '!macroend',
+    ].map((t) => t.toLowerCase()),
+  );
+  const assertAllowList = (src: string, label: string) => {
+    const lines = src
+      .split('\n')
+      .map((l) => l.replace(/;.*/, '').trim())
+      .filter((l) => l.length > 0);
+    for (const line of lines) {
+      if (line.endsWith(':')) continue; // labels
+      const token = line.split(/\s+/)[0].toLowerCase();
+      if (!ALLOWED_STATEMENTS.has(token)) {
+        throw new Error(`${label}: statement not on the allow-list: "${line}"`);
+      }
+    }
+  };
+
+  it('passes a strict statement allow-list (comments stripped)', () => {
+    const src = readFileSync(guardPath, 'utf8');
+    assertAllowList(src, 'nsis-guard.nsh');
+  });
+
+  it('rejects injected statements outside the allow-list (mutations)', () => {
+    const src = readFileSync(guardPath, 'utf8');
+    const injections = [
+      'Exec "notepad.exe"',
+      'ExecWait "$INSTDIR\\evil.exe"',
+      'ExecShell "open" "http://x"',
+      'Delete "$INSTDIR\\important.file"',
+      'RMDir /r "$INSTDIR"',
+      'WriteRegDWORD HKCU "Software\\x" "v" 1',
+      'nsExec::ExecToLog "cmd /c del"',
+      'wsl.exe --unregister Ubuntu',
+      'taskkill /F /IM explorer.exe',
+    ];
+    for (const payload of injections) {
+      const mutated = src.replace('!macro customInstall', `${payload}\n!macro customInstall`);
+      expect(() => assertAllowList(mutated, payload), `must reject: ${payload}`).toThrow();
+    }
+  });
+
+  it('only ever opens/writes the ownership marker file', () => {
+    const src = readFileSync(guardPath, 'utf8');
+    const opens = [...src.matchAll(/\bFileOpen\s+(\$\w+)\s+"([^"]+)"/g)];
+    expect(opens.length).toBeGreaterThan(0);
+    for (const [, , operand] of opens) {
+      expect(operand).toBe('$INSTDIR\\${INSTALL_MARKER}');
+    }
+    // every FileWrite must target a handle opened above (no path operand)
+    const handles = new Set(opens.map((m) => m[1].toLowerCase()));
+    const writes = [...src.matchAll(/\bFileWrite\s+(\$\w+)\s+/g)];
+    expect(writes.length).toBeGreaterThan(0);
+    for (const [, handle] of writes) {
+      expect(handles.has(handle.toLowerCase())).toBe(true);
+    }
+  });
+
   it('never performs process execution or registry writes', () => {
     const src = readFileSync(guardPath, 'utf8');
     for (const banned of ['ExecShell', 'ExecWait', 'nsExec', 'WScript', 'WriteRegStr', 'DeleteRegKey', 'RegDelete', 'wsl.exe', 'taskkill']) {

@@ -441,8 +441,12 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           <span className="muted">
             {activeSession ? activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект' : 'Pi Desktop'}
           </span>
-          <span aria-hidden="true">/</span>
+          <span className="center-slash" aria-hidden="true">/</span>
           <strong>{activeSession ? sessionLabel(activeSession) : 'Диалог'}</strong>
+          {activeSession?.activeWrite && <span className="badge badge-active">запись</span>}
+          {activeSession && activeSession.availability !== 'ok' && (
+            <span className="badge badge-warn">⚠ {activeSession.diagnostics ?? activeSession.availability}</span>
+          )}
         </div>
         <div className="center-actions">
           <button

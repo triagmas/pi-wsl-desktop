@@ -73,14 +73,19 @@ test.describe('M2 resources E2E', () => {
   test('resources tab inventories the isolated home; secrets never reach the screen', async () => {
     const { app, page } = await launch();
     try {
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      // UI-A R02: connection diagnostics moved to Settings — the shell itself
+      // is the ready signal here; the resource inventory is file-based.
+      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
       await page.getByTestId('nav-resources').click();
 
       // Skills: fixture skill listed with provenance
       const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
       await expect(skillRow).toBeVisible({ timeout: 15_000 });
       await expect(skillRow).toContainText('user-agents');
-      await expect(skillRow).toContainText('ok');
+      // R02: healthy rows carry no status badge (reference layout) — the
+      // enabled state is expressed by the action button.
+      await expect(skillRow.getByTestId('skill-status')).toHaveCount(0);
+      await expect(skillRow.getByTestId('skill-toggle')).toHaveText('Отключить');
 
       // Packages: builtins visible
       await page.getByTestId('res-tab-packages').click();
@@ -101,7 +106,9 @@ test.describe('M2 resources E2E', () => {
   test('two-phase write: preview shows the plan, confirm applies via fixture CLI, rollback restores bytes', async () => {
     const { app, page } = await launch();
     try {
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      // UI-A R02: connection diagnostics moved to Settings — the shell itself
+      // is the ready signal here; the resource inventory is file-based.
+      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
       await page.getByTestId('nav-resources').click();
       const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
       await expect(skillRow).toBeVisible({ timeout: 15_000 });

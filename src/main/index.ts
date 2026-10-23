@@ -21,7 +21,7 @@ export function createWindow(): BrowserWindow {
     // A1: slim custom header in the renderer; the native Windows caption
     // buttons stay (overlay) so snapping/accessibility keep working.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#191C19', symbolColor: '#E7EAE3', height: 36 },
+    titleBarOverlay: { color: '#191C19', symbolColor: '#E7EAE3', height: 48 },
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.cjs'),
       nodeIntegration: false,
@@ -117,7 +117,7 @@ app.whenReady().then(() => {
           win.setTitleBarOverlay({
             color: colors.backgroundColor,
             symbolColor: colors.textColor,
-            height: 36,
+            height: 48,
           });
         } catch {
           // overlay is cosmetic; never let it break the window

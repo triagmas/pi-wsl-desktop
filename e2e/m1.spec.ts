@@ -35,10 +35,9 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc });
     try {
       await expect(page).toHaveTitle('Pi WSL Desktop');
-      // UI-A: chat is the default screen with the real status visible in the
-      // empty state — wait for the bridge to be genuinely READY (visible text
-      // alone ≠ ready on slow CI)
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      // UI-A R02: connection diagnostics moved to Settings — wait for the
+      // bridge to be genuinely READY via the loaded fixture list.
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
 
       // M1 discovery: the sidebar lists the fixture project/session (§5)
       await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 15_000 });
@@ -46,6 +45,8 @@ test.describe('M1 sessions & chat E2E', () => {
 
       await page.getByText('E2E fixture session').click();
       await expect(page.getByTestId('session-detail')).toBeVisible();
+      // R02: the chat tab is the default — the read-only preview needs История.
+      await page.getByTestId('tab-history').click();
       await expect(page.getByText('Привет из фикстуры')).toBeVisible();
       await expect(page.getByText('Ответ фикстуры: всё читается без изменений')).toBeVisible();
 
@@ -64,7 +65,7 @@ test.describe('M1 sessions & chat E2E', () => {
   test('explicit chat resume streams from fake Pi RPC and interrupt returns to open state', async () => {
     const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc, streamMs: '150' });
     try {
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();
@@ -118,7 +119,7 @@ test.describe('M1 sessions & chat E2E', () => {
     utimesSync(fixtureSession, new Date(), new Date());
     const { app, page } = await launch({ pi: fakePiRpc });
     try {
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();

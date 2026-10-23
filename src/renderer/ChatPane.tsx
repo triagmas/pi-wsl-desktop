@@ -57,7 +57,7 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
 
       {!isOpenLike && state.status !== 'opening' && (
         <div className="chat-actions">
-          <button type="button" className="primary" data-testid="open-chat" onClick={() => void open()}>
+          <button type="button" className="btn-primary" data-testid="open-chat" onClick={() => void open()}>
             Открыть чат
           </button>
           <p className="muted">

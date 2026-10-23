@@ -236,16 +236,22 @@ input[type="range"] {
 }
 
 .left-sidebar.sidebar-collapsed .sidebar-top {
-  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
 }
 
 .sidebar-new {
   width: 100%;
   justify-content: center;
   gap: 8px;
-  height: 40px;
+  min-height: 40px;
+  padding: 8px 12px;
   border-radius: 10px;
   font-weight: 600;
+  font-size: 13px;
+  white-space: normal;
+  line-height: 1.3;
   margin-bottom: 10px;
 }
 
@@ -1703,7 +1709,22 @@ details.tool-result {
 }
 
 .center-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-weight: 600;
+}
+
+.center-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.center-slash {
+  color: var(--pw-placeholder-color);
+  font-weight: 400;
 }
 
 .center-body {
@@ -1745,6 +1766,18 @@ details.tool-result {
   .left-sidebar .module-tab-nav,
   .left-sidebar .sidebar-search-note {
     display: none;
+  }
+
+  /* rail behavior at narrow widths mirrors the collapsed state (R02 A6) */
+  .left-sidebar .sidebar-top {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .left-sidebar .rail-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .m1-grid {

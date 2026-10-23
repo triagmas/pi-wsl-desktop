@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"e2e-fixture-uuid-3","timestamp":"2026-01-03T09:30:00.000Z","cwd":"/"}
+{"type":"session_info","id":"e2e-fixture-uuid-3","name":"Заметки на неделю","timestamp":2}
+{"type":"message","id":"n1","parentId":null,"timestamp":"2026-01-03T09:30:01.000Z","message":{"role":"user","content":"Синтетическая фикстура: заметки.","timestamp":1}}
+{"type":"message","id":"n2","parentId":"n1","timestamp":"2026-01-03T09:30:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Синтетический ответ для скриншотов (fixture)."}],"api":"fake","provider":"fake","model":"fake","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":2}}

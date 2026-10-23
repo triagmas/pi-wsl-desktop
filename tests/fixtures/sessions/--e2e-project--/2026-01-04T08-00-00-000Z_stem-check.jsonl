@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"e2e-fixture-uuid-4","timestamp":"2026-01-04T08:00:00.000Z","cwd":"/"}
+{"type":"message","id":"k1","parentId":null,"timestamp":"2026-01-04T08:00:01.000Z","message":{"role":"user","content":"Синтетическая фикстура без session_info — проверка stem-fallback подписи.","timestamp":1}}
+{"type":"message","id":"k2","parentId":"k1","timestamp":"2026-01-04T08:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Синтетический ответ (fixture)."}],"api":"fake","provider":"fake","model":"fake","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":2}}

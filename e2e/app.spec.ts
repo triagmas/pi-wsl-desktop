@@ -14,6 +14,12 @@ function launch(opts: LaunchOpts): Promise<{ app: ElectronApplication; page: Pag
   return launchApp(opts.env);
 }
 
+/** UI-A R02: connection diagnostics live in Settings → Connection. */
+async function openConnectionSettings(page: Page): Promise<void> {
+  await page.getByTestId('nav-settings').click();
+  await page.getByTestId('settings-tab-connection').click();
+}
+
 test.describe('M0 desktop shell E2E (real Electron window)', () => {
   test('starts a secure window, reaches ready over the fake WSL transport and reports runtime info', async () => {
     const { app, page } = await launch({
@@ -46,6 +52,7 @@ test.describe('M0 desktop shell E2E (real Electron window)', () => {
       expect(globals.api).toBe('object');
 
       // Connection reaches ready and shows the fixture Pi version.
+      await openConnectionSettings(page);
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 20_000 });
       await expect(page.getByText('9.9.9')).toBeVisible();
       await expect(page.getByTestId('distro')).toBeVisible();
@@ -79,6 +86,7 @@ test.describe('M0 desktop shell E2E (real Electron window)', () => {
       },
     });
     try {
+      await openConnectionSettings(page);
       await expect(page.getByTestId('status-phase')).toHaveText(/Ошибка/, { timeout: 30_000 });
       await expect(page.getByTestId('error-code')).toHaveText('WSL_UNAVAILABLE');
       const retry = page.getByRole('button', { name: /повторить/i });
@@ -110,6 +118,7 @@ test.describe('M0 desktop shell E2E (real Electron window)', () => {
     });
     try {
       // Bridge reaches ready (fake wsl is healthy), but the Pi gate must fail.
+      await openConnectionSettings(page);
       await expect(page.getByTestId('status-phase')).toHaveText(/Ошибка/, { timeout: 30_000 });
       await expect(page.getByTestId('error-code')).toHaveText('PI_NOT_FOUND');
       await expect(page.getByTestId('status-phase')).not.toHaveText(/Готово/);
@@ -136,6 +145,7 @@ test.describe('M0 desktop shell E2E (real Electron window)', () => {
       },
     });
     try {
+      await openConnectionSettings(page);
       await expect(page.getByTestId('status-phase')).toHaveText(/Ошибка/, { timeout: 30_000 });
       await expect(page.getByTestId('error-code')).toHaveText('PI_INCOMPATIBLE');
       await expect(page.getByTestId('status-phase')).not.toHaveText(/Готово/);

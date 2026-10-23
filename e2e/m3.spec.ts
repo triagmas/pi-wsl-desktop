@@ -20,7 +20,7 @@ test.describe('M3 module system E2E', () => {
     const { app, page } = await launch();
     try {
       await expect(page).toHaveTitle('Pi WSL Desktop');
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
 
       // 1. The demo module's tab is registered and visible through the generic contract.
       const demoTab = page.getByTestId('tab-module-demo/welcome');
@@ -41,7 +41,7 @@ test.describe('M3 module system E2E', () => {
       await expect(page.getByTestId('module-row-state-module-0')).toHaveText('disabled');
       await expect(page.getByTestId('tab-module-demo/welcome')).not.toBeVisible();
       await page.getByTestId('nav-chat').click();
-      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/);
+      await expect(page.getByTestId('chat-empty')).toBeVisible();
 
       // 4. Re-enable: the tab comes back — the whole cycle holds.
       await page.getByTestId('nav-modules').click();

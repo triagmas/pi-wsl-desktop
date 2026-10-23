@@ -143,6 +143,15 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
 
   const excluded = (s: SkillInfoT): boolean => s.status === 'excluded';
 
+  /** Russian plural for the inventory meta line (1 навык / 2 навыка / 5 навыков). */
+  const skillsWord = (n: number): string => {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'навык';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'навыка';
+    return 'навыков';
+  };
+
   const skillSources = useMemo(
     () => (skills === null ? [] : [...new Set(skills.map((s) => s.source))].sort()),
     [skills],
@@ -285,7 +294,7 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
           ) : (
             <>
               <p className="res-meta muted" data-testid="skills-meta">
-                {visibleSkills.length} навыков
+                {visibleSkills.length} {skillsWord(visibleSkills.length)}
               </p>
               <ul className="res-skill-list" data-testid="skills-list">
                 {visibleSkills.length === 0 && <li className="muted sidebar-empty">Навыки не найдены</li>}

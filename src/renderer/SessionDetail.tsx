@@ -5,7 +5,6 @@ import { useState } from 'react';
 import type { DesktopApi } from './api';
 import { HistoryView } from './HistoryView';
 import { ChatPane } from './ChatPane';
-import { sessionLabel } from './shell/LeftSidebar';
 import type { SessionInfoT } from './types';
 
 export interface SessionDetailProps {
@@ -19,15 +18,11 @@ export interface SessionDetailProps {
 
 export function SessionDetail({ api, session, chat, draft = '', onDraftChange }: SessionDetailProps) {
   // R02 A3: a picked session opens straight into its chat — no extra hop.
+  // The session NAME lives in the chat header breadcrumb (App) — no second
+  // duplicated title block here; only the tabs and the content remain.
   const [tab, setTab] = useState<'history' | 'chat'>('chat');
   return (
     <section className="detail" data-testid="session-detail">
-      <header className="detail-head">
-        <h3>{sessionLabel(session)}</h3>
-        <span className="muted">{session.file}</span>
-        {session.activeWrite && <span className="badge badge-active">запись</span>}
-        {session.availability !== 'ok' && <span className="badge badge-warn">⚠ {session.diagnostics ?? session.availability}</span>}
-      </header>
       <div className="tabs" role="tablist">
         <button type="button" role="tab" data-testid="tab-history" aria-selected={tab === 'history'} onClick={() => setTab('history')}>
           История

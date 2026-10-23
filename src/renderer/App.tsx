@@ -599,6 +599,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
           }}
           onNewChat={newChat}
+          connectionReady={snapshot.phase === 'ready'}
           moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
           onView={(v) => setView(v as View)}
           onPickSession={pickSession}

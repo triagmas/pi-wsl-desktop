@@ -50,8 +50,8 @@ test.describe('UI-A application shell E2E', () => {
 
       // Status bar: honest em dashes for unavailable Windows CPU/RAM (§7),
       // no invented numbers.
-      await expect(page.getByTestId('status-cpu')).toHaveText('—');
-      await expect(page.getByTestId('status-ram')).toHaveText('—');
+      await expect(page.getByTestId('status-cpu')).toHaveText('CPU —');
+      await expect(page.getByTestId('status-ram')).toHaveText('RAM —');
       await expect(page.getByTestId('status-connection')).toBeVisible();
       await expect(page.getByTestId('status-distro')).toContainText('Ubuntu');
 

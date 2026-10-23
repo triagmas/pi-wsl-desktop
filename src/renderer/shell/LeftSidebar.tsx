@@ -23,6 +23,9 @@ export interface SidebarModuleTab {
 
 export interface LeftSidebarProps {
   api: DesktopApi | null;
+  /** Bridge connection readiness — the list reloads once it flips to true
+   *  (the first attempt at mount may race the bridge startup). */
+  connectionReady: boolean;
   /** M3 module tabs stay reachable from the sidebar (§5 keeps the contract). */
   moduleTabs: SidebarModuleTab[];
   collapsed: boolean;
@@ -38,6 +41,7 @@ export interface LeftSidebarProps {
 
 export function LeftSidebar({
   api,
+  connectionReady,
   moduleTabs,
   collapsed,
   width,
@@ -80,7 +84,7 @@ export function LeftSidebar({
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, connectionReady]);
 
   const q = query.trim().toLowerCase();
   const visibleSessions = q

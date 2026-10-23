@@ -75,8 +75,9 @@ describe('NSIS security guard contract', () => {
       .split('\n')
       .map((l) => l.replace(/;.*/, '').trim())
       .filter((l) => l.length > 0);
+    const LABEL = /^[A-Za-z_][A-Za-z0-9_]*:$/; // bare identifier only
     for (const line of lines) {
-      if (line.endsWith(':')) continue; // labels
+      if (LABEL.test(line.trim())) continue; // true label, nothing else
       const token = line.split(/\s+/)[0].toLowerCase();
       if (!ALLOWED_STATEMENTS.has(token)) {
         throw new Error(`${label}: statement not on the allow-list: "${line}"`);
@@ -101,6 +102,11 @@ describe('NSIS security guard contract', () => {
       'nsExec::ExecToLog "cmd /c del"',
       'wsl.exe --unregister Ubuntu',
       'taskkill /F /IM explorer.exe',
+      'Exec "notepad.exe" :',
+      'NsExec::ExecToLog "$SYSDIR\\cmd.exe /c exit 0" :',
+      'exec "notepad.exe" :',
+      'Exec "x"  :',
+      'Delete $INSTDIR\\a :',
     ];
     for (const payload of injections) {
       const mutated = src.replace('!macro customInstall', `${payload}\n!macro customInstall`);

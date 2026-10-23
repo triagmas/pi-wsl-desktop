@@ -37,6 +37,14 @@ export function createWindow(): BrowserWindow {
 
 let connection: WslConnection | null = null;
 
+// Test isolation (review P2): E2E runs must not mutate the working profile's
+// appearance/settings — only an explicit env hook can redirect userData, and
+// production builds never set it.
+const userDataOverride = process.env.PI_WS_DESKTOP_USER_DATA_DIR;
+if (userDataOverride) {
+  app.setPath('userData', userDataOverride);
+}
+
 app.whenReady().then(() => {
   const userData = app.getPath('userData');
   const settings = loadSettings(userData);
@@ -81,6 +89,7 @@ app.whenReady().then(() => {
       }
     },
     {
+      appearanceDir: userData,
       onDistroChange: (distro) => {
         try {
           saveSettings(userData, { distro });

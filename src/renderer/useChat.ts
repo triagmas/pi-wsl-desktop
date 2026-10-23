@@ -103,7 +103,15 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
   }
 }
 
-export function useChat(api: DesktopApi | null, file: string) {
+export interface ChatController {
+  state: ChatUiState;
+  open: () => Promise<void>;
+  send: (text: string) => Promise<void>;
+  interrupt: () => Promise<void>;
+  closeChat: () => Promise<boolean>;
+}
+
+export function useChat(api: DesktopApi | null, file: string): ChatController {
   const [state, setState] = useState<ChatUiState>(initialChatState);
   const mounted = useRef(true);
   useEffect(() => {
@@ -120,6 +128,12 @@ export function useChat(api: DesktopApi | null, file: string) {
       setState((s) => applyChatEvent(s, payload as ChatEventT));
     });
   }, [api]);
+
+  // Switching the active session resets the visible chat state — a draft or
+  // stream from another file must never leak into this one (§9.1 item 4).
+  useEffect(() => {
+    setState(initialChatState);
+  }, [file]);
 
   const open = useCallback(async () => {
     if (!api) return;
@@ -159,17 +173,20 @@ export function useChat(api: DesktopApi | null, file: string) {
     }
   }, [api]);
 
-  const closeChat = useCallback(async () => {
-    if (!api) return;
+  const closeChat = useCallback(async (): Promise<boolean> => {
+    if (!api) return false;
     try {
       await m1.closeSession(api);
     } catch (err) {
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       setState((s) => ({ ...s, error: parseBridgeError(err) }));
-      return;
+      // Review P1: a refused close is a FAILED close — the caller must not
+      // treat it as success and switch away from a possibly live session.
+      return false;
     }
-    if (!mounted.current) return;
+    if (!mounted.current) return true;
     setState((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '' }));
+    return true;
   }, [api]);
 
   return { state, open, send, interrupt, closeChat };

@@ -54,6 +54,9 @@ function makeApi(): DesktopApi {
     selectDistro: vi.fn(async () => READY),
     onStateChange: () => () => undefined,
     onChatEvent: () => () => undefined,
+        getAppearance: async () => undefined,
+        saveAppearance: async () => undefined,
+        resetAppearance: async () => undefined,
   };
 }
 

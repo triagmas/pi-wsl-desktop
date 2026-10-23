@@ -3,20 +3,26 @@
  * opened automatically — only an explicit button click calls openSession;
  * prompts, interrupt and close are explicit actions too (Issue #5 gate 5).
  */
-import { useState, type FormEvent } from 'react';
-import type { DesktopApi } from './api';
-import { useChat } from './useChat';
+import type { FormEvent } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
+import type { ChatController } from './useChat';
 
-export function ChatPane({ api, file }: { api: DesktopApi | null; file: string }) {
-  const { state, open, send, interrupt, closeChat } = useChat(api, file);
-  const [draft, setDraft] = useState('');
+export interface ChatPaneProps {
+  /** Controller + composer draft live above the panel (§9.1 item 4): hiding
+   * panels, switching views or themes never drops them or aborts the stream. */
+  chat: ChatController;
+  draft: string;
+  onDraftChange: (value: string) => void;
+}
+
+export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
+  const { state, open, send, interrupt, closeChat } = chat;
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();
     if (draft.trim() === '' || state.status !== 'open') return;
     void send(draft);
-    setDraft('');
+    onDraftChange('');
   };
 
   const isOpenLike = state.status === 'open' || state.status === 'sending';
@@ -89,7 +95,7 @@ export function ChatPane({ api, file }: { api: DesktopApi | null; file: string }
           <form className="chat-form" onSubmit={submit}>
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => onDraftChange(e.target.value)}
               placeholder="Сообщение…"
               aria-label="Сообщение"
               disabled={state.status !== 'open'}

@@ -3,14 +3,13 @@
  * chat resume over the fake Pi RPC → streaming → interrupt → conflict state.
  * Renderer isolation is asserted by the M0 spec and re-asserted here.
  */
-import { expect, test, _electron as electron } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { launchApp } from './launchApp';
 import { existsSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 
 const repoRoot = path.join(__dirname, '..');
-const mainScript = path.join(repoRoot, 'dist', 'main', 'index.cjs');
-const fakeWsl = path.join(repoRoot, 'tests', 'fixtures', 'fake-wsl');
 const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
 const sessionsRoot = path.join(repoRoot, 'tests', 'fixtures', 'sessions');
 const fixtureSession = path.join(sessionsRoot, '--e2e-project--', '2026-01-01T00-00-00-000Z_e2e.jsonl');
@@ -22,29 +21,12 @@ interface ExtraEnv {
   streamMs?: string;
 }
 
-async function launch(extra: ExtraEnv = {}): Promise<{ app: ElectronApplication; page: Page }> {
-  const env = Object.fromEntries(
-    Object.entries({
-      ...process.env,
-      PI_WS_DESKTOP_WSL_PATH: fakeWsl,
-      PI_WS_DESKTOP_TIMEOUT_MS: '8000',
-      PI_WS_DESKTOP_SESSION_DIR_OVERRIDE: '',
-      PI_CODING_AGENT_SESSION_DIR: sessionsRoot,
-      ...(extra.activeWindow !== undefined ? { PI_WS_DESKTOP_ACTIVE_WINDOW_MS: extra.activeWindow } : {}),
-      ...(extra.pi !== undefined ? { PI_WS_DESKTOP_PI: extra.pi } : {}),
-      ...(extra.streamMs !== undefined ? { FAKE_PI_STREAM_MS: extra.streamMs } : {}),
-      FAKE_WSL_PROBE_JSON: JSON.stringify({
-        ok: true,
-        nodePath: process.execPath,
-        nodeVersion: process.version,
-        home: '/home/fake',
-        bridgeOk: true,
-      }),
-    }).filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
-  const app = await electron.launch({ args: [mainScript], env });
-  const page = await app.firstWindow();
-  return { app, page };
+function launch(extra: ExtraEnv = {}): Promise<{ app: ElectronApplication; page: Page }> {
+  return launchApp({
+    ...(extra.activeWindow !== undefined ? { PI_WS_DESKTOP_ACTIVE_WINDOW_MS: extra.activeWindow } : {}),
+    ...(extra.pi !== undefined ? { PI_WS_DESKTOP_PI: extra.pi } : {}),
+    ...(extra.streamMs !== undefined ? { FAKE_PI_STREAM_MS: extra.streamMs } : {}),
+  });
 }
 
 test.describe('M1 sessions & chat E2E', () => {
@@ -53,12 +35,13 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc });
     try {
       await expect(page).toHaveTitle('Pi WSL Desktop');
-      // M0 status tab is still the default (regression) — and wait for the
-      // bridge to be genuinely READY (visible text alone ≠ ready on slow CI)
+      // UI-A: chat is the default screen with the real status visible in the
+      // empty state — wait for the bridge to be genuinely READY (visible text
+      // alone ≠ ready on slow CI)
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
 
-      await page.getByTestId('tab-sessions').click();
-      await expect(page.getByTestId('sessions-view')).toBeVisible({ timeout: 15_000 });
+      // M1 discovery: the sidebar lists the fixture project/session (§5)
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
 
       await page.getByText('E2E fixture session').click();
@@ -82,7 +65,7 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc, streamMs: '150' });
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
-      await page.getByTestId('tab-sessions').click();
+      await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();
 
@@ -136,7 +119,7 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ pi: fakePiRpc });
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
-      await page.getByTestId('tab-sessions').click();
+      await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();
       await page.getByRole('button', { name: /открыть чат/i }).click();

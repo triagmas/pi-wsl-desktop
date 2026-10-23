@@ -15,6 +15,9 @@ export interface DesktopApi {
   selectDistro(distro: string): Promise<ConnectionSnapshot>;
   onStateChange(callback: (snapshot: ConnectionSnapshot) => void): () => void;
   onChatEvent(callback: (payload: unknown) => void): () => void;
+  getAppearance(): Promise<unknown>;
+  saveAppearance(settings: unknown): Promise<unknown>;
+  resetAppearance(): Promise<unknown>;
 }
 
 const api: DesktopApi = {
@@ -38,6 +41,9 @@ const api: DesktopApi = {
     ipcRenderer.on('bridge:chat', listener as never);
     return () => ipcRenderer.removeListener('bridge:chat', listener as never);
   },
+  getAppearance: () => ipcRenderer.invoke('appearance:get'),
+  saveAppearance: (settings) => ipcRenderer.invoke('appearance:set', settings),
+  resetAppearance: () => ipcRenderer.invoke('appearance:reset'),
 };
 
 contextBridge.exposeInMainWorld('piDesktop', api);

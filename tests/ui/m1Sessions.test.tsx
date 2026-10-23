@@ -60,6 +60,9 @@ function makeApi(route: Route = {}) {
         chatSubs.length = 0;
       };
     },
+        getAppearance: async () => undefined,
+        saveAppearance: async () => undefined,
+        resetAppearance: async () => undefined,
   };
   return { api, request, chatSubs, emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb(p)) };
 }
@@ -141,6 +144,9 @@ describe('SessionsView — readiness deadline (no eternal spinner, SPEC §7)', (
         chatSubs.push(cb);
         return () => undefined;
       },
+          getAppearance: async () => undefined,
+          saveAppearance: async () => undefined,
+          resetAppearance: async () => undefined,
     };
     render(<SessionsView api={api} readyDeadlineMs={30} />);
     const alert = await screen.findByRole('alert', undefined, { timeout: 3000 });

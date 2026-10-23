@@ -1,26 +1,17 @@
-import { expect, test, _electron as electron } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import path from 'node:path';
 
 const repoRoot = path.join(__dirname, '..');
-const mainScript = path.join(repoRoot, 'dist', 'main', 'index.cjs');
-const fakeWsl = path.join(repoRoot, 'tests', 'fixtures', 'fake-wsl');
 const fakePi = path.join(repoRoot, 'tests', 'fixtures', 'fakepi');
+import { fakeWsl, launchApp } from './launchApp';
 
 interface LaunchOpts {
   env: Record<string, string>;
 }
 
-async function launch(opts: LaunchOpts): Promise<{ app: ElectronApplication; page: Page }> {
-  const env = Object.fromEntries(
-    Object.entries({ ...process.env, ...opts.env }).filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
-  const app = await electron.launch({
-    args: [mainScript],
-    env,
-  });
-  const page = await app.firstWindow();
-  return { app, page };
+function launch(opts: LaunchOpts): Promise<{ app: ElectronApplication; page: Page }> {
+  return launchApp(opts.env);
 }
 
 test.describe('M0 desktop shell E2E (real Electron window)', () => {

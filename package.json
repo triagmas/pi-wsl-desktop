@@ -1,7 +1,7 @@
 {
   "name": "pi-wsl-desktop",
-  "version": "0.1.0",
-  "description": "Lightweight Windows desktop client for the existing Pi coding agent inside WSL. M0: secure Electron shell + persistent typed WSL Bridge + robust WSL/Pi discovery.",
+  "version": "1.0.0-rc.1",
+  "description": "Lightweight Windows desktop client for the existing Pi coding agent inside WSL. M4 R01: reproducible Windows release packaging.",
   "license": "MIT",
   "private": true,
   "main": "dist/main/index.cjs",
@@ -38,6 +38,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.9.0",
+    "electron-builder": "26.15.3",
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -47,5 +48,48 @@
     "typescript-eslint": "^8.71.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
+  },
+  "build": {
+    "appId": "io.pi-desktop.wsl",
+    "productName": "Pi WSL Desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "!node_modules/**"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "dist/bridge/index.cjs",
+        "to": "bridge/index.cjs"
+      }
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "artifactName": "PiWSLDesktop-${version}-setup.${ext}",
+      "shortcutName": "Pi WSL Desktop",
+      "uninstallDisplayName": "Pi WSL Desktop",
+      "runAfterFinish": false,
+      "include": "nsis-guard.nsh"
+    }
   }
 }

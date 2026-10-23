@@ -58,9 +58,9 @@ jobs:
         run: xvfb-run -a npx playwright test
 
   windows:
-    name: Windows — typecheck, lint, unit+contract, build
+    name: Windows — typecheck, lint, unit+contract, build, installer, packaged smoke
     runs-on: windows-latest # Standard GitHub-hosted runner: free for public repos.
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Checkout PR code (read-only token; no secrets)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -89,3 +89,33 @@ jobs:
 
       - name: Build (esbuild main/preload/bridge + Vite renderer)
         run: npm run build
+
+      # M4 R01: reproducible unsigned NSIS installer from the same lockfile.
+      # No signing certificate, no publish, no auto-update files are consumed.
+      - name: Package Windows installer (electron-builder NSIS, unsigned)
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Verify release contents (asar, real bridge file, versioned installer)
+        run: node scripts/verify-release.mjs
+
+      # The packaged app must boot from its own installed files (no dev
+      # server, no checkout paths) and fail closed when WSL is absent —
+      # the exact state of a clean runner.
+      - name: Packaged smoke (no dev server, fail-closed without WSL)
+        run: node scripts/packaged-smoke.mjs
+
+      # Synthetic install → upgrade → uninstall against the real NSIS
+      # artifacts with sentinel files proving user data outside the fixed
+      # per-user install dir is never touched. Throwaway runner profile.
+      - name: Synthetic lifecycle (install, upgrade, uninstall, sentinels)
+        run: node scripts/packaged-lifecycle.mjs
+        env:
+          PI_WS_DESKTOP_LIFECYCLE_ALLOW: '1' # throwaway runner profile only
+
+      - name: Upload Windows installer artifact (14-day retention)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-installer-nsis-${{ github.sha }}
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14

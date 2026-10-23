@@ -8,6 +8,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { WslConnection } from './connection';
+import { resolveBridgeWinPath } from './paths';
 import { registerIpc } from './ipc';
 import { loadSettings, saveSettings } from './settings';
 import { DEFAULT_WSL_PATH } from './wsl';
@@ -47,8 +48,13 @@ app.whenReady().then(() => {
     .map((n) => Number(n.trim()))
     .filter((n) => Number.isFinite(n) && n >= 0);
   const conn = new WslConnection({
-    // __dirname is dist/main → sibling dist/bridge bundle inside this install.
-    bridgeWinPath: path.join(__dirname, '..', 'bridge', 'index.cjs'),
+    // Packaged: the bridge is a real file in <resources>/bridge (WSL cannot
+    // read asar); dev checkout: sibling dist/bridge bundle (M4 R01).
+    bridgeWinPath: resolveBridgeWinPath(
+      app.isPackaged,
+      process.resourcesPath,
+      __dirname,
+    ),
     wslPath: process.env.PI_WS_DESKTOP_WSL_PATH || DEFAULT_WSL_PATH,
     ...(settings.distro ? { distro: settings.distro } : {}),
     ...(maxAttemptsOverride ? { maxAutoAttempts: maxAttemptsOverride } : {}),

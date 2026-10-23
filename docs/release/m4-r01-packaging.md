@@ -68,9 +68,14 @@ no network updates; the file is inert. Disclosed here for the security review.
   RED-proven on the real installer) makes the directory foreign.
   The guard is contract-pinned by `tests/unit/nsisGuardContract.test.ts`
   (hook definitions plus a STRICT statement allow-list applied after
-  comment stripping: statements outside the sanctioned set — Exec, Delete,
-  WriteRegDWORD, nsExec, wsl, taskkill, ... — and non-marker FileOpen
-  paths are rejected, with mutation fixtures proving it) and proven
+  comment stripping and case-folding: statements outside the sanctioned
+  set — Exec, Delete, WriteRegDWORD, nsExec, wsl, taskkill, ... — are
+  rejected; only bare-identifier labels `^[A-Za-z_][A-Za-z0-9_]*:$` are
+  skipped; file operations are parsed FAIL-CLOSED — every FileOpen must be
+  the canonical `marker + "w"` form and every FileWrite a handle opened by
+  it, so unquoted paths, other modes, lower/mixed-case spellings and
+  mid-line uses cannot slip through — each bypass class is pinned by a
+  mutation fixture with a recorded RED→GREEN proof) and proven
   end-to-end by CI: a refused `/D=` install exits 2 with foreign sentinels
   byte-identical and the previous install untouched; single-character
   foreign entries are refused too; a tampered uninstall keeps the dir and

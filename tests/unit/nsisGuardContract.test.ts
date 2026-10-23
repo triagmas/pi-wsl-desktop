@@ -108,32 +108,75 @@ describe('NSIS security guard contract', () => {
     }
   });
 
-  it('only ever opens/writes the ownership marker file', () => {
+  it('only ever opens/writes the ownership marker file (fail-closed)', () => {
     const src = readFileSync(guardPath, 'utf8');
-    const opens = [...src.matchAll(/\bFileOpen\s+(\$\w+)\s+"([^"]+)"/gi)];
-    expect(opens.length).toBeGreaterThan(0);
-    for (const [, , operand] of opens) {
-      expect(operand).toBe('$INSTDIR\\${INSTALL_MARKER}');
+    const lines = src
+      .split('\n')
+      .map((l) => l.replace(/;.*/, ''))
+      .filter((l) => l.trim().length > 0);
+    // canonical: fileopen $h "$INSTDIR\${INSTALL_MARKER}" w — anything else
+    // (unquoted paths, other handles, other modes, hidden mid-line uses) is
+    // rejected fail-closed: NSIS accepts unquoted operands, so a bare
+    // regex over quoted forms would be bypassable.
+    const canonicalOpen =
+      /^\s*fileopen\s+\$[a-z]\w*\s+"\$instdir\\\$\{install_marker\}"\s+w\s*$/i;
+    const openedHandles = new Set<string>();
+    let openCount = 0;
+    for (const line of lines) {
+      if (/\bfileopen\b/i.test(line)) {
+        if (!canonicalOpen.test(line)) {
+          throw new Error(`non-canonical FileOpen rejected: "${line.trim()}"`);
+        }
+        openCount += 1;
+        const h = line.trim().split(/\s+/)[1];
+        openedHandles.add(h.toLowerCase());
+      }
+      if (/\bfilewrite\b/i.test(line)) {
+        const m = line.match(/^\s*filewrite\s+(\$\w+)\s+/i);
+        if (!m || !openedHandles.has(m[1].toLowerCase())) {
+          throw new Error(`FileWrite to a non-marker handle rejected: "${line.trim()}"`);
+        }
+      }
     }
-    // every FileWrite must target a handle opened above (no path operand)
-    const handles = new Set(opens.map((m) => m[1].toLowerCase()));
-    const writes = [...src.matchAll(/\bFileWrite\s+(\$\w+)\s+/gi)];
-    expect(writes.length).toBeGreaterThan(0);
-    for (const [, handle] of writes) {
-      expect(handles.has(handle.toLowerCase())).toBe(true);
-    }
-    // case-insensitive enforcement: NSIS commands are case-insensitive, so
-    // "fileopen $R7 \"...foreign...\" w" must be rejected as well
-    for (const bad of [
-      'fileopen $R7 "$INSTDIR\\foreign.txt" w',
-      'FILEOPEN $R7 "$INSTDIR\\foreign.txt" w',
-      'FileOpen $R7 "$TEMP\\foreign.txt" w',
-    ]) {
-      const mutated = src.replace('!macro customInstall', `${bad}\n!macro customInstall`);
-      expect(() => {
-        const m = [...mutated.matchAll(/\bFileOpen\s+(\$\w+)\s+"([^"]+)"/gi)];
-        for (const [, , operand] of m) expect(operand).toBe('$INSTDIR\\${INSTALL_MARKER}');
-      }, `must reject: ${bad}`).toThrow();
+    expect(openCount).toBeGreaterThan(0);
+  });
+
+  it('rejects every non-canonical file operation form (fail-closed)', () => {
+    const src = readFileSync(guardPath, 'utf8');
+    const bad = [
+      'FileOpen $R6 $TEMP\\foreign.txt w',
+      "FileOpen $R6 '$TEMP\\foreign.txt' w",
+      'FileOpen $R7 "$INSTDIR\\foreign.txt" w',
+      'FileOpen $R6 "$INSTDIR\\${INSTALL_MARKER}" r',
+      'fileopen $R6 "$INSTDIR\\foreign.txt" w',
+      'StrCmp $R8 "." x0 FileOpen $R6 $TEMP\\x w',
+      'FileWrite $R7 "untrusted"',
+    ];
+    for (const payload of bad) {
+      const mutated = src.replace('!macro customInstall', `${payload}\n!macro customInstall`);
+      const lines = mutated
+        .split('\n')
+        .map((l) => l.replace(/;.*/, ''))
+        .filter((l) => l.trim().length > 0);
+      const canonicalOpen =
+        /^\s*fileopen\s+\$[a-z]\w*\s+"\$instdir\\\$\{install_marker\}"\s+w\s*$/i;
+      const handles = new Set<string>();
+      let threw = false;
+      try {
+        for (const line of lines) {
+          if (/\bfileopen\b/i.test(line)) {
+            if (!canonicalOpen.test(line)) throw new Error('open');
+            handles.add(line.trim().split(/\s+/)[1].toLowerCase());
+          }
+          if (/\bfilewrite\b/i.test(line)) {
+            const m = line.match(/^\s*filewrite\s+(\$\w+)\s+/i);
+            if (!m || !handles.has(m[1].toLowerCase())) throw new Error('write');
+          }
+        }
+      } catch {
+        threw = true;
+      }
+      expect(threw, `must reject: ${payload}`).toBe(true);
     }
   });
 

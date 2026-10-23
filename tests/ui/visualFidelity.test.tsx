@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
@@ -162,5 +162,77 @@ describe('T3 center chat workspace (A3/A6)', () => {
     expect(composer).toBeInTheDocument();
     expect(composer).toHaveAttribute('disabled');
     expect(screen.getByTestId('open-chat')).toBeInTheDocument();
+  });
+});
+
+describe('T4 right details panel (A4)', () => {
+  it('shows an honest Обзор tab only — no invented files or checks', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    await user.click(screen.getByTestId('open-details'));
+    const panel = screen.getByTestId('right-sidebar');
+    expect(within(panel).getByRole('heading', { name: 'Детали действия' })).toBeInTheDocument();
+    const overview = within(panel).getByRole('tab', { name: 'Обзор' });
+    expect(overview).toHaveAttribute('aria-selected', 'true');
+    // M1 events carry no structured file diffs — the «Файлы» tab must not
+    // exist in UI-A (honest absence, owner A4).
+    expect(within(panel).queryByRole('tab', { name: 'Файлы' })).not.toBeInTheDocument();
+    expect(within(panel).getByTestId('details-empty')).toBeInTheDocument();
+    expect(within(panel).getByTestId('details-summary')).toHaveTextContent('0 инстр.');
+    // no invented counts anywhere in the panel
+    expect(panel.textContent).not.toMatch(/\d+\s*файл/);
+    expect(panel.textContent).not.toMatch(/Все проверки пройдены/);
+  });
+});
+
+describe('T5 resources skills view (A5)', () => {
+  const SKILLS_FIXTURE = {
+    skills: [
+      {
+        name: 'brainstorming',
+        description: 'Помогает превратить идею в понятный план',
+        source: 'user-agents',
+        dir: '/home/u/.agents/skills/brainstorming',
+        status: 'ok',
+        disableModelInvocation: false,
+        diagnostics: [],
+      },
+      {
+        name: 'code-review',
+        description: 'Review diffs before merge',
+        source: 'project',
+        dir: '/work/repo/.pi/skills/code-review',
+        status: 'excluded',
+        disableModelInvocation: false,
+        diagnostics: [],
+      },
+    ],
+    diagnostics: [],
+  };
+
+  it('renders the reference header, search, source filter and compact rows', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'listSkills') return SKILLS_FIXTURE;
+      return {};
+    });
+    const base = makeApi(READY);
+    const api: DesktopApi = { ...base, request: request as DesktopApi['request'] };
+    const user = userEvent.setup();
+    render(<App api={api} moduleDefinitions={[]} />);
+    await user.click(await screen.findByTestId('nav-resources'));
+    expect(screen.getByRole('heading', { name: 'Ресурсы' })).toBeInTheDocument();
+    expect(screen.getByText('Навыки, расширения и подключения вашего Pi')).toBeInTheDocument();
+    const search = screen.getByPlaceholderText('Найти навык...');
+    expect(screen.getByRole('combobox', { name: 'Источник' })).toBeInTheDocument();
+    const rows = await screen.findAllByTestId('skill-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('brainstorming');
+    expect(rows[0]).toHaveTextContent('Помогает превратить идею в понятный план');
+    expect(rows[0]).toHaveTextContent('user-agents');
+    // client-side search narrows the list
+    await user.type(search, 'code');
+    const filtered = await screen.findAllByTestId('skill-row');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]).toHaveTextContent('code-review');
   });
 });

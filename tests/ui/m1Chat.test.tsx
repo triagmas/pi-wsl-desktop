@@ -163,7 +163,10 @@ describe('ChatPane — write boundary and lifecycle', () => {
     emit({ kind: 'pi', name: 'tool_execution_start', data: { toolCallId: 'c1', toolName: 'bash', args: {} } });
     await screen.findByText(/bash/);
     emit({ kind: 'pi', name: 'tool_execution_end', data: { toolCallId: 'c1', toolName: 'bash', isError: false, result: {} } });
-    await waitFor(() => expect(screen.getByTestId('tools').textContent).toMatch(/✓/));
+    // R02: one icon family — completion is a done-state icon, not a glyph.
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="tools"] .tool-state-done')).toBeTruthy(),
+    );
   });
 
   it('a closed(DISCONNECTED) event drops the pane into an explicit recovery state', async () => {

@@ -678,6 +678,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             width={rightWidth}
             tools={chat.state.tools}
             streaming={chat.state.status === 'sending'}
+            title={activeSession ? sessionLabel(activeSession) : null}
             onClose={closeDetails}
           />
         ) : null

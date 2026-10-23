@@ -7,6 +7,7 @@
  */
 import type { FormEvent } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
+import { IconCheck, IconClock, IconXCircle } from './shell/icons';
 import type { ChatController } from './useChat';
 
 export interface ChatPaneProps {
@@ -78,7 +79,13 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
         <div className="chat-tools" data-testid="tools">
           {state.tools.map((t) => (
             <span key={t.id} className={t.error ? 'tool tool-error' : 'tool'}>
-              {t.error ? '✗' : t.done ? '✓' : '⏳'} {t.name}
+              <span
+                className={`tool-state tool-state-${t.error ? 'error' : t.done ? 'done' : 'running'}`}
+                aria-hidden="true"
+              >
+                {t.error ? <IconXCircle /> : t.done ? <IconCheck /> : <IconClock />}
+              </span>
+              {t.name}
             </span>
           ))}
         </div>

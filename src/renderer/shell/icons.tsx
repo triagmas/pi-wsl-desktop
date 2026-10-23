@@ -147,6 +147,33 @@ export function IconClose(props: IconProps) {
   );
 }
 
+export function IconCheck(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="m5.2 8.2 2 2 3.6-4" />
+    </svg>
+  );
+}
+
+export function IconXCircle(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="m5.8 5.8 4.4 4.4M10.2 5.8l-4.4 4.4" />
+    </svg>
+  );
+}
+
+export function IconClock(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 4.8V8l2.2 1.6" />
+    </svg>
+  );
+}
+
 export function IconTerminal(props: IconProps) {
   return (
     <svg {...base(props)}>

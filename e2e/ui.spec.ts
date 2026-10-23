@@ -36,7 +36,8 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
 }
 
 test.describe('UI-A application shell E2E', () => {
-  test('shell structure, panel collapse with focus return, inert terminal slot', async (_t, testInfo) => {
+  test('shell structure, panel collapse with focus return, inert terminal slot', async () => {
+    const testInfo = test.info();
     const { app, page } = await launch();
     try {
       await expect(page.getByTestId('app-shell')).toBeVisible();
@@ -78,7 +79,8 @@ test.describe('UI-A application shell E2E', () => {
     }
   });
 
-  test('settings: 5 theme cards, light preset applies, typography + workspace sections', async (_t, testInfo) => {
+  test('settings: 5 theme cards, light preset applies, typography + workspace sections', async () => {
+    const testInfo = test.info();
     const { app, page } = await launch();
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });

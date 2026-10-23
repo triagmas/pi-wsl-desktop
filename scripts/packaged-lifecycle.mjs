@@ -43,6 +43,10 @@ if (!existsSync(installer)) {
 // taken from package.json so the test cannot drift from the config.
 const installDir = path.join(process.env.LOCALAPPDATA, 'Programs', pkg.name);
 const appExe = path.join(installDir, `${pkg.build.productName}.exe`);
+// ownership marker written by the NSIS guard (build/nsis-guard.nsh) — the
+// uninstaller must refuse recursive deletion when it is missing
+const INSTALL_MARKER = '.pi-desktop-install-marker';
+const markerFile = path.join(installDir, INSTALL_MARKER);
 const findUninstaller = () =>
   readdirSync(installDir).find((f) => f.startsWith('Uninstall')) ?? null;
 
@@ -155,6 +159,51 @@ if (existsSync(installDir)) {
 }
 assert('install dir removed', !existsSync(installDir), installDir);
 assert('sentinels byte-identical after uninstall (user data preserved)', sentinelsIntact());
+
+// 4. Tampered state: with the ownership marker removed the uninstaller
+// must refuse to delete the install dir (fail-safe, no recursive delete).
+if (existsSync(markerFile)) unlinkSync(markerFile);
+const unTampered = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
+console.log(`info: tampered uninstall exit=${unTampered.detail}`);
+await new Promise((r) => setTimeout(r, 3000));
+assert('tampered uninstall (no marker) keeps install dir (fail-safe)', existsSync(installDir), installDir);
+assert('tampered uninstall keeps app files', existsSync(appExe));
+// restore the marker so the standard uninstall below proceeds
+writeFileSync(markerFile, `${pkg.build.appId ?? pkg.name} ${version} (restored-by-test)`, 'utf8');
+const unRestored = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
+assert('uninstall succeeds after marker restoration', unRestored.ok, unRestored.detail);
+const deadline2 = Date.now() + 90_000;
+while (existsSync(installDir) && Date.now() < deadline2) {
+  await new Promise((r) => setTimeout(r, 1000));
+}
+assert('install dir removed after restored-marker uninstall', !existsSync(installDir), installDir);
+assert('sentinels byte-identical after tamper scenario', sentinelsIntact());
+
+// 5. Malicious /D= into an EXISTING foreign directory with foreign sentinels:
+// the installer must REFUSE before touching anything there, and a previous
+// good install must stay intact.
+const goodInstall = await run(installer, ['/S']);
+assert('baseline install for /D= scenario succeeds', goodInstall.ok && existsSync(appExe), goodInstall.detail);
+const foreignDir = path.join(os.tmpdir(), `pi-lifecycle-foreign-${Date.now()}`);
+mkdirSync(foreignDir, { recursive: true });
+const foreignSentinel = path.join(foreignDir, 'important-project-file.txt');
+writeFileSync(foreignSentinel, 'precious foreign content — must never be deleted', 'utf8');
+// NSIS requires /D= as the LAST argument
+const evil = await run(installer, ['/S', `/D=${foreignDir}`]);
+assert('installer /D= into existing foreign dir is REFUSED (non-zero exit)', !evil.ok, evil.detail);
+assert('foreign dir survives', existsSync(foreignDir), foreignDir);
+assert('foreign sentinel byte-identical', readFileSync(foreignSentinel, 'utf8') === 'precious foreign content — must never be deleted');
+assert('no app files landed in the foreign dir', !existsSync(path.join(foreignDir, `${pkg.build.productName}.exe`)));
+assert('previous good install untouched by refused install', existsSync(appExe) && existsSync(markerFile), installDir);
+rmSync(foreignDir, { recursive: true, force: true });
+// cleanup: uninstall the good baseline install
+const unFinal = await run(path.join(installDir, findUninstaller() ?? ''), ['/S']);
+assert('final uninstall succeeds', unFinal.ok, unFinal.detail);
+const deadline3 = Date.now() + 90_000;
+while (existsSync(installDir) && Date.now() < deadline3) {
+  await new Promise((r) => setTimeout(r, 1000));
+}
+assert('final install dir removed', !existsSync(installDir), installDir);
 
 cleanupSentinels();
 if (failed > 0) {

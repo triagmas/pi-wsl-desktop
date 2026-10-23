@@ -189,6 +189,9 @@ test.describe('UI-A application shell E2E', () => {
       };
 
       const matrix = async (theme: 'dark' | 'light'): Promise<void> => {
+        // Each iteration re-asserts desktop size: the previous one ends at
+        // 1024 where the right panel is media-hidden (≤1100).
+        await page.setViewportSize({ width: 1440, height: 900 });
         await page.getByTestId('nav-settings').click();
         await page.getByTestId(`theme-card-${theme}`).click();
         await expect.poll(() => bodyBackground(page)).toBe(theme === 'dark' ? DARK_BG : LIGHT_BG);

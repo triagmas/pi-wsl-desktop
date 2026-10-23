@@ -35,6 +35,9 @@ function makeApi(): DesktopApi {
     selectDistro: vi.fn(async () => READY),
     onStateChange: () => () => undefined,
     onChatEvent: () => () => undefined,
+        getAppearance: async () => undefined,
+        saveAppearance: async () => undefined,
+        resetAppearance: async () => undefined,
   };
 }
 
@@ -75,7 +78,7 @@ describe('M3 module registration UI', () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} />);
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-entry-module-0')).toBeInTheDocument();
 
@@ -94,7 +97,7 @@ describe('M3 module registration UI', () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[DEMO_MODULE_MANIFEST, null]} />);
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-entry-module-1')).toBeInTheDocument();
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/expected object/i);
@@ -116,7 +119,7 @@ describe('M3 module registration UI', () => {
       />,
     );
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     // both malformed entries are listed with a reason, not crashed on
     expect(screen.getByTestId('module-entry-module-1')).toBeInTheDocument();
@@ -147,7 +150,7 @@ describe('M3 module registration UI', () => {
       />,
     );
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('incompatible');
     // M1: the incompatible reason is actually visible to the user
@@ -193,7 +196,7 @@ describe('M3 module registration UI', () => {
       />,
     );
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('blocked');
     expect(screen.getByTestId('module-errors-module-1')).toHaveTextContent(/absent/i);
@@ -217,7 +220,7 @@ describe('M3 module registration UI', () => {
     );
     expect(screen.getByTestId('tab-module-consumer/welcome')).toBeInTheDocument();
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     await user.click(screen.getByTestId('module-toggle-provider'));
     await settleToggle('provider');
@@ -243,7 +246,7 @@ describe('M3 module registration UI', () => {
       />,
     );
 
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-row-state-module-0')).toHaveTextContent('blocked');
     expect(screen.getByTestId('module-toggle-consumer')).toHaveTextContent('Отключить');
@@ -306,7 +309,7 @@ describe('M3 R03 UI — panels, actions and capability grants', () => {
     );
 
     expect(screen.getByTestId('module-panel-sidekick/rail')).toBeInTheDocument();
-    await user.click(screen.getByTestId('tab-modules'));
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     await user.click(screen.getByTestId('module-toggle-sidekick'));
     await settleToggle('sidekick');
@@ -367,7 +370,7 @@ describe('M3 R03 UI — panels, actions and capability grants', () => {
     expect(screen.queryByTestId('tab-module-greedy/main')).not.toBeInTheDocument();
     expect(screen.queryByTestId('module-panel-greedy/rail')).not.toBeInTheDocument();
 
-    await userEvent.setup().click(screen.getByTestId('tab-modules'));
+    await userEvent.setup().click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-errors-module-0')).toHaveTextContent(/not provided by the host/i);
   });
@@ -468,8 +471,8 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    expect(await screen.findByTestId('tab-modules')).toBeInTheDocument();
-    await user.click(screen.getByTestId('tab-modules'));
+    expect(await screen.findByTestId('nav-modules')).toBeInTheDocument();
+    await user.click(screen.getByTestId('nav-modules'));
     await settleLoad();
     expect(screen.getByTestId('module-row-state-module-1')).toHaveTextContent('disabled');
     expect(screen.queryByTestId('tab-module-ext1/welcome')).not.toBeInTheDocument();
@@ -491,7 +494,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
     await user.click(screen.getByTestId('module-toggle-ext1'));
     await settleToggle('ext1');
@@ -510,7 +513,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
     expect(await screen.findByTestId('modules-diagnostics')).toHaveTextContent('WSL gone');
     expect(screen.getByTestId('tab-module-demo/welcome')).toBeInTheDocument();
@@ -531,7 +534,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
     const diagnostics = await screen.findByTestId('modules-diagnostics');
     expect(diagnostics).toHaveTextContent('link.json: symlink rejected (not a regular file)');
@@ -555,7 +558,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
     expect(screen.queryByTestId('tab-module-greedy/main')).not.toBeInTheDocument();
     expect(screen.queryByTestId('module-panel-greedy/rail')).not.toBeInTheDocument();
@@ -584,6 +587,9 @@ describe('M3 R04 UI — external discovery and persistence', () => {
         return () => undefined;
       },
       onChatEvent: () => () => undefined,
+          getAppearance: async () => undefined,
+          saveAppearance: async () => undefined,
+          resetAppearance: async () => undefined,
     };
     render(<App api={api} />);
 
@@ -618,7 +624,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     const toggle = screen.getByTestId('module-toggle-demo');
     expect(toggle).toBeDisabled();
     expect(screen.getByTestId('modules-view')).toHaveAttribute('data-loading', 'true');
@@ -639,7 +645,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const user = userEvent.setup();
     render(<App api={apiWith(request)} />);
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
 
     await user.click(screen.getByTestId('module-toggle-demo'));
@@ -690,10 +696,13 @@ describe('M3 R04 UI — external discovery and persistence', () => {
         return () => undefined;
       },
       onChatEvent: () => () => undefined,
+          getAppearance: async () => undefined,
+          saveAppearance: async () => undefined,
+          resetAppearance: async () => undefined,
     };
     const user = userEvent.setup();
     render(<App api={api} />);
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
 
     // reconnect of the SAME distro: main/state.ts resets attempt to 0 on
@@ -739,7 +748,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     const select = await screen.findByRole('combobox');
     await user.selectOptions(select, 'Ubuntu中文');
 
-    await user.click(await screen.findByTestId('tab-modules'));
+    await user.click(await screen.findByTestId('nav-modules'));
     await settleLoad();
     await waitFor(() => expect(screen.getByTestId('modules-diagnostics')).toHaveTextContent('WSL gone'));
     // the previous environment's external registry is gone; demo-only remains
@@ -772,6 +781,9 @@ describe('M3 R04 UI — external discovery and persistence', () => {
         return () => undefined;
       },
       onChatEvent: () => () => undefined,
+          getAppearance: async () => undefined,
+          saveAppearance: async () => undefined,
+          resetAppearance: async () => undefined,
     };
     const user = userEvent.setup();
     render(<App api={api} />);
@@ -791,7 +803,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     await waitFor(() => expect(screen.getByTestId('modules-diagnostics')).toHaveTextContent('WSL gone'));
     expect(screen.queryByTestId('module-tab-ext1')).not.toBeInTheDocument();
     // review #3 P2: no orphaned view — the Modules nav button is active again
-    expect(screen.getByTestId('tab-modules')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('nav-modules')).toHaveAttribute('aria-current', 'true');
     expect(screen.getByTestId('modules-heading')).toBeInTheDocument();
   });
 

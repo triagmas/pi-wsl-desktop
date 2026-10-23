@@ -4,6 +4,8 @@
  * connection. Snapshots are pushed to renderers on `bridge:state`.
  */
 import { isAllowedRendererMethod } from '../shared/whitelist';
+import { loadAppearance, resetAppearance, saveAppearance } from './appearanceStore';
+import { migrateAppearance } from '../shared/appearance';
 
 export interface IpcLike {
   handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
@@ -21,6 +23,8 @@ export interface ConnectionLike {
 
 export interface IpcOptions {
   onDistroChange?: (distro: string) => void;
+  /** Directory for the appearance store (app userData in production). */
+  appearanceDir?: string;
 }
 
 export function registerIpc(
@@ -59,6 +63,19 @@ export function registerIpc(
     options.onDistroChange?.(distro);
     return conn.snapshot();
   });
+
+  // Appearance (§9.1 item 5): validate/migrate on the way in, fail-safe on read.
+  const appearanceDir = options.appearanceDir;
+  ipc.handle('appearance:get', () =>
+    appearanceDir ? loadAppearance(appearanceDir) : migrateAppearance(undefined),
+  );
+  ipc.handle('appearance:set', (_e, settings) => {
+    if (!appearanceDir) return migrateAppearance(settings);
+    return saveAppearance(appearanceDir, migrateAppearance(settings));
+  });
+  ipc.handle('appearance:reset', () =>
+    appearanceDir ? resetAppearance(appearanceDir) : migrateAppearance(undefined),
+  );
 
   const offState = conn.subscribe((snapshot) => send('bridge:state', snapshot));
   const offChat = conn.subscribeChat((payload) => send('bridge:chat', payload));

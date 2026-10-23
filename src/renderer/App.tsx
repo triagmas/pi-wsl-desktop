@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
-import { SessionsView } from './SessionsView';
+import { SessionDetail } from './SessionDetail';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
+import { SettingsView } from './SettingsView';
 import { ModulePanel } from './ModulePanel';
 import { ModuleTabView } from './ModuleTabView';
 import type { ModuleAction } from '../shared/m3Protocol';
 import { ListModulesResultSchema } from '../shared/m3Ipc';
 import { useConnection } from './useConnection';
+import { useChat } from './useChat';
 import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
 import {
   modulePanels,
@@ -18,6 +20,17 @@ import {
   setModuleEnabled,
   type ModuleEntry,
 } from './modules/registry';
+import { AppShell } from './shell/AppShell';
+import { LeftSidebar } from './shell/LeftSidebar';
+import { RightSidebar } from './shell/RightSidebar';
+import { StatusBar } from './shell/StatusBar';
+import { TerminalSlot } from './shell/TerminalSlot';
+import { applyTheme } from './design/applyTheme';
+import { applyTypography } from './design/applyTypography';
+import { THEME_PRESETS } from '../shared/design/presets';
+import { DEFAULT_APPEARANCE, migrateAppearance, type AppearanceSettings } from '../shared/appearance';
+import { m1 } from './m1api';
+import type { SessionInfoT } from './types';
 
 export interface AppProps {
   /** Injectable for tests; by default the preload contextBridge API is used. */
@@ -30,12 +43,18 @@ export interface AppProps {
   moduleDefinitions?: unknown[];
 }
 
-type View = 'status' | 'sessions' | 'resources' | 'modules' | `module:${string}`;
+type View = 'chat' | 'resources' | 'modules' | 'settings' | `module:${string}`;
+
+const RIGHT_PANEL_MIN = 240;
+const RIGHT_PANEL_MAX = 560;
+const LEFT_MIN = 200;
+const LEFT_MAX = 480;
 
 export function App({ api, moduleDefinitions }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
   const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
-  const [view, setView] = useState<View>('status');
+  /** §9.6 step 2: chat is the default workspace (details of the base screen). */
+  const [view, setView] = useState<View>('chat');
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
@@ -72,6 +91,128 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const confirmedRef = useRef(new Map<string, boolean>());
   /** Review #6: per-module persistence lock — one write op in flight at a time. */
   const [persistingIds, setPersistingIds] = useState<ReadonlySet<string>>(new Set());
+
+  /* ------------------------------------------------------------------ *
+   * Appearance (§9.1 item 5): loaded once, applied live, saved on change.
+   * Lives at the composition root so panels can be remounted at will.
+   * ------------------------------------------------------------------ */
+  const [appearance, setAppearance] = useState<AppearanceSettings>(DEFAULT_APPEARANCE);
+  const [appearanceLoaded, setAppearanceLoaded] = useState(false);
+  /** No API (tests/no preload) ⇒ defaults are already the final state. */
+  const appearanceReady = appearanceLoaded || effectiveApi === null;
+  const saveAppearanceRef = useRef<ReturnType<DesktopApi['saveAppearance']> | null>(null);
+
+  useEffect(() => {
+    if (!effectiveApi) return undefined;
+    let cancelled = false;
+    void effectiveApi
+      .getAppearance()
+      .then((raw) => {
+        if (cancelled) return;
+        const next = migrateAppearance(raw);
+        setAppearance(next);
+        setAppearanceLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setAppearanceLoaded(true); // fail-safe default, no crash
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApi]);
+
+  const themeTokens = appearance.theme.preset === 'custom' && appearance.theme.custom
+    ? appearance.theme.custom
+    : THEME_PRESETS[appearance.theme.preset === 'custom' ? 'dark' : appearance.theme.preset].tokens;
+
+  useLayoutEffect(() => {
+    applyTheme(document.documentElement, themeTokens);
+    applyTypography(document.documentElement, appearance.typography);
+  }, [themeTokens, appearance.typography]);
+
+  const persistAppearance = (next: AppearanceSettings): void => {
+    setAppearance(next);
+    if (!effectiveApi) return;
+    saveAppearanceRef.current = effectiveApi.saveAppearance(next).catch(() => undefined);
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Layout state: independent sidebars, persisted widths/collapse. §9.4.
+   * ------------------------------------------------------------------ */
+  // Layout is a single source of truth (persisted appearance) — panels read and
+  // write it directly, so no effect-driven state sync can ever drift.
+  const rightWidth = appearance.layout.rightWidth;
+  const leftWidth = appearance.layout.leftWidth;
+  const detailsOpen = appearance.layout.rightVisible;
+  const detailsRef = useRef<HTMLButtonElement | null>(null);
+
+  const openDetails = (): void => {
+    persistAppearance({
+      ...appearance,
+      layout: { ...appearance.layout, rightVisible: true },
+    });
+  };
+  const closeDetails = (): void => {
+    persistAppearance({
+      ...appearance,
+      layout: { ...appearance.layout, rightVisible: false },
+    });
+    // §8: focus returns to the button that opened the panel (it stays mounted).
+    detailsRef.current?.focus();
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Active session + chat controller (§9.1 item 4): above all panels.
+   * ------------------------------------------------------------------ */
+  const [activeSession, setActiveSession] = useState<SessionInfoT | null>(null);
+  const [pendingSession, setPendingSession] = useState<SessionInfoT | null>(null);
+  const chat = useChat(effectiveApi, activeSession?.file ?? '');
+  const [draft, setDraft] = useState('');
+  const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
+
+  const pickSession = (session: SessionInfoT): void => {
+    if (activeSession?.file === session.file) {
+      setView('chat');
+      return;
+    }
+    // Explicit write boundary: never silently switch away from a live chat.
+    if (chatBusy) {
+      setPendingSession(session);
+      setView('chat');
+      return;
+    }
+    setActiveSession(session);
+    setDraft('');
+    setView('chat');
+  };
+
+  const confirmSwitchSession = async (): Promise<void> => {
+    if (!pendingSession) return;
+    await chat.closeChat();
+    setActiveSession(pendingSession);
+    setPendingSession(null);
+    setDraft('');
+    setView('chat');
+  };
+
+  const newChat = (): void => {
+    // Bridge M1 has no create-session method (ALL_METHODS check): «Новый
+    // диалог» focuses the most recent real session instead of faking creation.
+    void (async () => {
+      if (!effectiveApi) return;
+      try {
+        const { sessions } = await m1.listSessions(effectiveApi);
+        if (sessions.length === 0) return;
+        const mostRecent = [...sessions].sort((a, b) =>
+          String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
+        )[0];
+        pickSession(mostRecent);
+        setView('chat');
+      } catch {
+        // sidebar shows the load error; nothing else to do
+      }
+    })();
+  };
 
   /**
    * R04 external discovery — default registrations only (tests that inject
@@ -168,7 +309,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     // Leaving a module tab when its module gets disabled keeps the app sane.
     if (!enabled) {
       setView((current) =>
-        current.startsWith(`module:${moduleId}/`) ? 'status' : current,
+        current.startsWith(`module:${moduleId}/`) ? 'chat' : current,
       );
     }
     // R04 persistence (default path only): optimistic update, then persist.
@@ -263,102 +404,172 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     }
   };
 
-  return (
-    <main data-testid="app-root" className="app">
-      <h1>Pi WSL Desktop</h1>
-      <p className="subtitle">Foundation &amp; Sessions &amp; Resources &amp; Modules · M0 + M1 + M2 + M3</p>
-      <nav className="main-tabs" data-testid="main-tabs">
-        <button
-          type="button"
-          data-testid="tab-status"
-          className={view === 'status' ? 'tab tab-active' : 'tab'}
-          aria-pressed={view === 'status'}
-          onClick={() => setView('status')}
-        >
-          Статус
-        </button>
-        <button
-          type="button"
-          data-testid="tab-sessions"
-          className={view === 'sessions' ? 'tab tab-active' : 'tab'}
-          aria-pressed={view === 'sessions'}
-          onClick={() => setView('sessions')}
-        >
-          Сессии
-        </button>
-        <button
-          type="button"
-          data-testid="tab-resources"
-          className={view === 'resources' ? 'tab tab-active' : 'tab'}
-          aria-pressed={view === 'resources'}
-          onClick={() => setView('resources')}
-        >
-          Ресурсы
-        </button>
-        <button
-          type="button"
-          data-testid="tab-modules"
-          className={view === 'modules' ? 'tab tab-active' : 'tab'}
-          aria-pressed={view === 'modules'}
-          onClick={() => setView('modules')}
-        >
-          Модули
-        </button>
-        {tabs.map(({ tabKey, tab }) => (
+  /* ------------------------------------------------------------------ *
+   * Center column content
+   * ------------------------------------------------------------------ */
+  const centerHeader =
+    view === 'chat' ? (
+      <header className="center-head" data-testid="chat-head">
+        <div className="center-title">
+          <span className="muted">
+            {activeSession ? activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект' : 'Pi Desktop'}
+          </span>
+          <span aria-hidden="true">/</span>
+          <strong>{activeSession ? activeSession.name ?? activeSession.id.slice(0, 8) : 'Диалог'}</strong>
+        </div>
+        <div className="center-actions">
           <button
-            key={tabKey}
             type="button"
-            data-testid={`tab-module-${tabKey}`}
-            className={view === `module:${tabKey}` ? 'tab tab-active' : 'tab'}
-            aria-pressed={view === `module:${tabKey}`}
-            onClick={() => setView(`module:${tabKey}`)}
+            className="icon-btn"
+            title="Подробнее"
+            aria-label="Дополнительные действия"
           >
-            {tab.title}
+            <span aria-hidden="true">⋯</span>
           </button>
-        ))}
-      </nav>
-      {panels.length > 0 && (
-        <section className="module-panels" aria-label="Панели модулей">
-          {panels.map((panel, index) => {
-            const manifest = panel.entry.manifest;
-            const ownsNoTab = !!manifest && !manifest.ui.some((ui) => ui.kind === 'tab');
-            const firstSurfaceOfModule =
-              panels.findIndex((other) => other.entry.key === panel.entry.key) === index;
-            return (
-              <ModulePanel
-                key={panel.tabKey}
-                panel={panel}
-                actions={
-                  ownsNoTab && firstSurfaceOfModule ? (manifest?.actions ?? []) : undefined
-                }
-                onAction={(action) => runModuleAction(panel.entry.id, action)}
-                onDisable={() => toggleModule(panel.entry.id, false)}
+          <button
+            type="button"
+            ref={detailsRef}
+            data-testid="open-details"
+            className={`icon-btn${detailsOpen ? ' icon-btn-active' : ''}`}
+            title="Показать детали"
+            aria-label="Показать панель деталей"
+            aria-pressed={detailsOpen}
+            onClick={openDetails}
+          >
+            <span aria-hidden="true">|›</span>
+          </button>
+        </div>
+      </header>
+    ) : (
+      <header className="center-head" data-testid="view-head">
+        <div className="center-title">
+          <strong>
+            {view === 'resources'
+              ? 'Ресурсы'
+              : view === 'modules' || view.startsWith('module:')
+                ? 'Модули'
+                : 'Настройки'}
+          </strong>
+        </div>
+      </header>
+    );
+
+  let centerBody: React.ReactNode;
+  if (view === 'chat') {
+    centerBody = (
+      <div className="chat-workspace" data-testid="view-chat">
+        {pendingSession && (
+          <div className="switch-guard" role="alert" data-testid="switch-guard">
+            <span>
+              Чат открыт — переключение на другой диалог прервёт его.
+            </span>
+            <div className="switch-guard-actions">
+              <button
+                type="button"
+                data-testid="switch-confirm"
+                onClick={() => void confirmSwitchSession()}
+              >
+                Закрыть чат и переключиться
+              </button>
+              <button type="button" data-testid="switch-cancel" onClick={() => setPendingSession(null)}>
+                Остаться
+              </button>
+            </div>
+          </div>
+        )}
+        {activeSession ? (
+          <div className="session-detail-wrap">
+            <SessionDetail
+              api={effectiveApi as DesktopApi}
+              session={activeSession}
+              chat={chat}
+              draft={draft}
+              onDraftChange={setDraft}
+            />
+          </div>
+        ) : (
+          <div className="empty-state" data-testid="chat-empty">
+            <h2>Выберите диалог слева</h2>
+            <p className="muted">
+              Проекты и чаты загружаются из Pi в WSL. Новый диалог открывает самую свежую сессию;
+              создание файлов сессий доступно в Pi CLI.
+            </p>
+            <button type="button" className="btn-primary" onClick={newChat}>
+              Новый диалог
+            </button>
+            <div className="empty-status">
+              <StatusPanel
+                snapshot={snapshot}
+                requestError={requestError}
+                api={effectiveApi}
+                onRetry={() => void retry()}
+                onRefresh={() => void refreshRuntime()}
+                onSelectDistro={(d) => void selectDistro(d)}
               />
-            );
-          })}
-        </section>
-      )}
-      {activeModuleTab ? (
-        <ModuleTabView
-          key={activeModuleTab.tabKey}
-          tab={activeModuleTab}
-          onDisable={(id) => toggleModule(id, false)}
-          onAction={(action) => runModuleAction(activeModuleTab.entry.id, action)}
-        />
-      ) : view === 'status' ? (
-        <StatusPanel
+            </div>
+          </div>
+        )}
+        <TerminalSlot height={appearance.layout.terminalSlotHeight} />
+      </div>
+    );
+  } else if (view === 'resources') {
+    centerBody = <div data-testid="view-resources"><ResourcesView api={effectiveApi} /></div>;
+  } else if (view === 'settings') {
+    centerBody = (
+      <div data-testid="view-settings">
+        <SettingsView
+          api={effectiveApi}
+          appearance={appearance}
+          ready={appearanceReady}
+          onChange={persistAppearance}
+          onReset={() => {
+            if (!effectiveApi) {
+              setAppearance(DEFAULT_APPEARANCE);
+              return;
+            }
+            void effectiveApi.resetAppearance().then((raw) => setAppearance(migrateAppearance(raw)));
+          }}
           snapshot={snapshot}
           requestError={requestError}
-          api={effectiveApi}
           onRetry={() => void retry()}
           onRefresh={() => void refreshRuntime()}
           onSelectDistro={(d) => void selectDistro(d)}
+          layout={{
+            leftWidth,
+            rightWidth,
+            leftCollapsed: appearance.layout.leftCollapsed,
+            onLeftWidth: (w) => {
+              const width = Math.min(LEFT_MAX, Math.max(LEFT_MIN, w));
+              persistAppearance({ ...appearance, layout: { ...appearance.layout, leftWidth: width } });
+            },
+            onRightWidth: (w) => {
+              const width = Math.min(RIGHT_PANEL_MAX, Math.max(RIGHT_PANEL_MIN, w));
+              persistAppearance({ ...appearance, layout: { ...appearance.layout, rightWidth: width } });
+            },
+            onToggleLeft: () => {
+              const next = !appearance.layout.leftCollapsed;
+              persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
+            },
+            onTerminalHeight: (h) => {
+              const height = Math.min(600, Math.max(120, h));
+              persistAppearance({ ...appearance, layout: { ...appearance.layout, terminalSlotHeight: height } });
+            },
+          }}
         />
-      ) : view === 'sessions' ? (
-        <SessionsView api={effectiveApi} />
-      ) : view === 'resources' ? (
-        <ResourcesView api={effectiveApi} />
-      ) : (
+      </div>
+    );
+  } else if (activeModuleTab) {
+    centerBody = (
+      <ModuleTabView
+        key={activeModuleTab.tabKey}
+        tab={activeModuleTab}
+        onDisable={(id) => toggleModule(id, false)}
+        onAction={(action) => runModuleAction(activeModuleTab.entry.id, action)}
+      />
+    );
+  } else if (view === 'modules') {
+    centerBody = (
+      <div data-testid="view-modules">
         <ModulesView
           entries={moduleEntries}
           diagnostics={loadDiagnostics}
@@ -366,17 +577,89 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           busyIds={persistingIds}
           onToggle={(id, enabled) => toggleModule(id, enabled)}
         />
-      )}
-      {persistError && (
-        <p className="request-error" role="alert" data-testid="modules-persist-error">
-          {persistError}
-        </p>
-      )}
-      {actionError && (
-        <p className="request-error" role="alert" data-testid="module-action-error">
-          {actionError}
-        </p>
-      )}
+      </div>
+    );
+  } else {
+    // Unreachable view union member — fall back to chat rather than blank.
+    centerBody = <div data-testid="view-chat" />;
+  }
+
+  return (
+    <main data-testid="app-root" className="app-root">
+    <AppShell
+      left={
+        <LeftSidebar
+          api={effectiveApi}
+          collapsed={appearance.layout.leftCollapsed}
+          width={leftWidth}
+          view={view}
+          activeFile={activeSession?.file ?? null}
+          onToggleCollapsed={() => {
+            const next = !appearance.layout.leftCollapsed;
+            persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
+          }}
+          onNewChat={newChat}
+          moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
+          onView={(v) => setView(v as View)}
+          onPickSession={pickSession}
+          onPickProject={() => undefined}
+        />
+      }
+      center={
+        <>
+          {centerHeader}
+          {panels.length > 0 && (
+            <section className="module-panels" aria-label="Панели модулей">
+              {panels.map((panel, index) => {
+                const manifest = panel.entry.manifest;
+                const ownsNoTab = !!manifest && !manifest.ui.some((ui) => ui.kind === 'tab');
+                const firstSurfaceOfModule =
+                  panels.findIndex((other) => other.entry.key === panel.entry.key) === index;
+                return (
+                  <ModulePanel
+                    key={panel.tabKey}
+                    panel={panel}
+                    actions={
+                      ownsNoTab && firstSurfaceOfModule ? (manifest?.actions ?? []) : undefined
+                    }
+                    onAction={(action) => runModuleAction(panel.entry.id, action)}
+                    onDisable={() => toggleModule(panel.entry.id, false)}
+                  />
+                );
+              })}
+            </section>
+          )}
+          <div className="center-body">{centerBody}</div>
+          {persistError && (
+            <p className="request-error" role="alert" data-testid="modules-persist-error">
+              {persistError}
+            </p>
+          )}
+          {actionError && (
+            <p className="request-error" role="alert" data-testid="module-action-error">
+              {actionError}
+            </p>
+          )}
+        </>
+      }
+      right={
+        detailsOpen && view === 'chat' ? (
+          <RightSidebar
+            width={rightWidth}
+            tools={chat.state.tools}
+            streaming={chat.state.status === 'sending'}
+            onClose={closeDetails}
+          />
+        ) : null
+      }
+      status={
+        <StatusBar
+          phase={snapshot.phase}
+          distro={snapshot.distro}
+          onOpenSettings={() => setView('settings')}
+        />
+      }
+    />
     </main>
   );
 }

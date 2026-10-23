@@ -7,7 +7,16 @@ import { HistoryView } from './HistoryView';
 import { ChatPane } from './ChatPane';
 import type { SessionInfoT } from './types';
 
-export function SessionDetail({ api, session }: { api: DesktopApi; session: SessionInfoT }) {
+export interface SessionDetailProps {
+  api: DesktopApi;
+  session: SessionInfoT;
+  /** Active chat controller + draft for the viewed session (§9.1 item 4). */
+  chat?: import('./useChat').ChatController;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
+}
+
+export function SessionDetail({ api, session, chat, draft = '', onDraftChange }: SessionDetailProps) {
   const [tab, setTab] = useState<'history' | 'chat'>('history');
   return (
     <section className="detail" data-testid="session-detail">
@@ -27,8 +36,12 @@ export function SessionDetail({ api, session }: { api: DesktopApi; session: Sess
       </div>
       {tab === 'history' ? (
         <HistoryView api={api} file={session.file} />
+      ) : chat && onDraftChange ? (
+        <ChatPane chat={chat} draft={draft} onDraftChange={onDraftChange} />
       ) : (
-        <ChatPane key={session.id} api={api} file={session.file} />
+        <p className="muted" data-testid="chat-unavailable">
+          Чат доступен для выбранного диалога в центральной области.
+        </p>
       )}
     </section>
   );

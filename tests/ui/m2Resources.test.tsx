@@ -52,6 +52,9 @@ function makeApi(route: Route = {}) {
     selectDistro: vi.fn(async () => READY),
     onStateChange: () => () => undefined,
     onChatEvent: () => () => undefined,
+        getAppearance: async () => undefined,
+        saveAppearance: async () => undefined,
+        resetAppearance: async () => undefined,
   };
   return { api, calls };
 }

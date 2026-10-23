@@ -55,7 +55,7 @@ test.describe('M3 module system E2E', () => {
       await expect(page.getByTestId('module-state-demo')).toHaveText('enabled');
 
       // 2. Modules view lists the registered module with an honest state.
-      await page.getByTestId('tab-modules').click();
+      await page.getByTestId('nav-modules').click();
       await expect(page.getByTestId('modules-view')).toHaveAttribute('data-loading', 'false');
       await expect(page.getByTestId('module-entry-module-0')).toBeVisible();
       await expect(page.getByTestId('module-row-state-module-0')).toHaveText('enabled');
@@ -69,7 +69,7 @@ test.describe('M3 module system E2E', () => {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/);
 
       // 4. Re-enable: the tab comes back — the whole cycle holds.
-      await page.getByTestId('tab-modules').click();
+      await page.getByTestId('nav-modules').click();
       await expect(page.getByTestId('modules-view')).toHaveAttribute('data-loading', 'false');
       await page.getByTestId('module-toggle-demo').click();
       await expect(page.getByTestId('module-toggle-demo')).toBeEnabled();

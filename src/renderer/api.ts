@@ -9,6 +9,10 @@ export interface DesktopApi {
   selectDistro(distro: string): Promise<RendererSnapshot>;
   onStateChange(callback: (snapshot: RendererSnapshot) => void): () => void;
   onChatEvent(callback: (payload: unknown) => void): () => void;
+  /** Versioned appearance settings (theme/typography/layout), §9.1 item 5. */
+  getAppearance(): Promise<unknown>;
+  saveAppearance(settings: unknown): Promise<unknown>;
+  resetAppearance(): Promise<unknown>;
 }
 
 declare global {

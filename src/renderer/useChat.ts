@@ -103,7 +103,15 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
   }
 }
 
-export function useChat(api: DesktopApi | null, file: string) {
+export interface ChatController {
+  state: ChatUiState;
+  open: () => Promise<void>;
+  send: (text: string) => Promise<void>;
+  interrupt: () => Promise<void>;
+  closeChat: () => Promise<void>;
+}
+
+export function useChat(api: DesktopApi | null, file: string): ChatController {
   const [state, setState] = useState<ChatUiState>(initialChatState);
   const mounted = useRef(true);
   useEffect(() => {
@@ -120,6 +128,12 @@ export function useChat(api: DesktopApi | null, file: string) {
       setState((s) => applyChatEvent(s, payload as ChatEventT));
     });
   }, [api]);
+
+  // Switching the active session resets the visible chat state — a draft or
+  // stream from another file must never leak into this one (§9.1 item 4).
+  useEffect(() => {
+    setState(initialChatState);
+  }, [file]);
 
   const open = useCallback(async () => {
     if (!api) return;

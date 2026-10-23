@@ -81,6 +81,7 @@ app.whenReady().then(() => {
       }
     },
     {
+      appearanceDir: userData,
       onDistroChange: (distro) => {
         try {
           saveSettings(userData, { distro });

@@ -187,6 +187,18 @@ writeFileSync(foreignSentinel, 'precious foreign content — must never be delet
 // NSIS requires /D= as the LAST argument
 const evil = await run(installer, ['/S', `/D=${foreignDir}`]);
 assert('installer /D= into existing foreign dir is REFUSED (non-zero exit)', !evil.ok, evil.detail);
+
+// Single-character entry bypass (review P1): a foreign dir whose only
+// entries are one-char names must be refused too.
+const shortDir = path.join(os.tmpdir(), `pi-lifecycle-short-${Date.now()}`);
+mkdirSync(path.join(shortDir, 'x'), { recursive: true });
+writeFileSync(path.join(shortDir, 'a'), 'lone file a', 'utf8');
+writeFileSync(path.join(shortDir, 'x', 'y'), 'nested under single-char dir', 'utf8');
+const evilShort = await run(installer, ['/S', `/D=${shortDir}`]);
+assert('installer /D= into dir with single-char entries is REFUSED', !evilShort.ok, evilShort.detail);
+assert('single-char-entry dir survives', existsSync(path.join(shortDir, 'a')));
+assert('nested content survives', readFileSync(path.join(shortDir, 'x', 'y'), 'utf8') === 'nested under single-char dir');
+rmSync(shortDir, { recursive: true, force: true });
 assert('foreign dir survives', existsSync(foreignDir), foreignDir);
 assert('foreign sentinel byte-identical', readFileSync(foreignSentinel, 'utf8') === 'precious foreign content — must never be deleted');
 assert('no app files landed in the foreign dir', !existsSync(path.join(foreignDir, `${pkg.build.productName}.exe`)));

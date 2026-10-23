@@ -110,17 +110,30 @@ describe('NSIS security guard contract', () => {
 
   it('only ever opens/writes the ownership marker file', () => {
     const src = readFileSync(guardPath, 'utf8');
-    const opens = [...src.matchAll(/\bFileOpen\s+(\$\w+)\s+"([^"]+)"/g)];
+    const opens = [...src.matchAll(/\bFileOpen\s+(\$\w+)\s+"([^"]+)"/gi)];
     expect(opens.length).toBeGreaterThan(0);
     for (const [, , operand] of opens) {
       expect(operand).toBe('$INSTDIR\\${INSTALL_MARKER}');
     }
     // every FileWrite must target a handle opened above (no path operand)
     const handles = new Set(opens.map((m) => m[1].toLowerCase()));
-    const writes = [...src.matchAll(/\bFileWrite\s+(\$\w+)\s+/g)];
+    const writes = [...src.matchAll(/\bFileWrite\s+(\$\w+)\s+/gi)];
     expect(writes.length).toBeGreaterThan(0);
     for (const [, handle] of writes) {
       expect(handles.has(handle.toLowerCase())).toBe(true);
+    }
+    // case-insensitive enforcement: NSIS commands are case-insensitive, so
+    // "fileopen $R7 \"...foreign...\" w" must be rejected as well
+    for (const bad of [
+      'fileopen $R7 "$INSTDIR\\foreign.txt" w',
+      'FILEOPEN $R7 "$INSTDIR\\foreign.txt" w',
+      'FileOpen $R7 "$TEMP\\foreign.txt" w',
+    ]) {
+      const mutated = src.replace('!macro customInstall', `${bad}\n!macro customInstall`);
+      expect(() => {
+        const m = [...mutated.matchAll(/\bFileOpen\s+(\$\w+)\s+"([^"]+)"/gi)];
+        for (const [, , operand] of m) expect(operand).toBe('$INSTDIR\\${INSTALL_MARKER}');
+      }, `must reject: ${bad}`).toThrow();
     }
   });
 

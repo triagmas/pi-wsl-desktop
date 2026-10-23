@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
@@ -81,13 +81,15 @@ describe('App shell', () => {
     expect(screen.getByTestId('terminal-slot')).toBeInTheDocument();
   });
 
-  it('registers the chat event subscription up front — M1 invariant (red)', () => {
+  it('registers the chat event subscription on ready — M1 invariant (red)', async () => {
     // Regression pin: subscribeEvents used to ride on the default SessionsView
     // mount; with chat as the default screen the bridge never forwards stream
-    // events unless App registers the subscription itself.
+    // events unless App registers the subscription once the connection is up.
     const api = makeApi();
     render(<App api={api} />);
-    expect(api._request).toHaveBeenCalledWith('subscribeEvents', { topic: 'chat' });
+    await waitFor(() =>
+      expect(api._request).toHaveBeenCalledWith('subscribeEvents', { topic: 'chat' }),
+    );
   });
 
   it('navigates to Resources and Modules from the sidebar without losing the chat state', async () => {

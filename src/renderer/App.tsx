@@ -102,13 +102,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const appearanceReady = appearanceLoaded || effectiveApi === null;
   const saveAppearanceRef = useRef<ReturnType<DesktopApi['saveAppearance']> | null>(null);
 
-  // M1 invariant: the chat topic subscription must be registered up front —
-  // it used to ride on the (formerly default) SessionsView mount, and without
-  // it the bridge forwards no stream events (silent chat).
+  // M1 invariant: the chat topic subscription must be registered exactly once
+  // the bridge is READY — it used to ride on the (formerly default)
+  // SessionsView mount; before ready the call would fail silently and no
+  // stream events could ever reach the renderer (silent chat).
   useEffect(() => {
-    if (!effectiveApi) return;
+    if (!effectiveApi || snapshot.phase !== 'ready') return;
     void m1.subscribeEvents(effectiveApi).catch(() => undefined);
-  }, [effectiveApi]);
+  }, [effectiveApi, snapshot.phase]);
 
   useEffect(() => {
     if (!effectiveApi) return undefined;

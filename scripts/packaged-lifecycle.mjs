@@ -164,24 +164,26 @@ if (existsSync(installDir)) {
 }
 assert('sentinels byte-identical after tamper scenario', sentinelsIntact());
 
-// 4. Uninstall (silent). runAfterFinish:false (contract-tested) guarantees
-// no instance of the app was auto-launched, so nothing pins the exe.
-const uninstallerRel = findUninstaller();
-assert('uninstaller present', uninstallerRel !== null, installDir);
-const un = uninstallerRel
-  ? await run(path.join(installDir, uninstallerRel), ['/S'])
-  : { ok: false, detail: 'no uninstaller' };
-assert('silent uninstall succeeds', un.ok, un.detail);
-// THE dir-level assertion: the whole install dir must go (not just the exe);
-// allow generous time on a loaded runner before declaring leftovers
-const deadline = Date.now() + 90_000;
-while (existsSync(installDir) && Date.now() < deadline) {
-  await new Promise((r) => setTimeout(r, 1000));
-}
+// 4. If the tamper scenario left a live install (fail-safe held and the
+// restore-branch has not run yet), finish the standard uninstall here.
 if (existsSync(installDir)) {
-  console.log(`diagnostic: leftovers in installDir: ${listDir(installDir)}`);
+  const uninstallerRel = findUninstaller();
+  assert('uninstaller present', uninstallerRel !== null, installDir);
+  const un = uninstallerRel
+    ? await run(path.join(installDir, uninstallerRel), ['/S'])
+    : { ok: false, detail: 'no uninstaller' };
+  assert('silent uninstall succeeds', un.ok, un.detail);
+  const deadline = Date.now() + 90_000;
+  while (existsSync(installDir) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (existsSync(installDir)) {
+    console.log(`diagnostic: leftovers in installDir: ${listDir(installDir)}`);
+  }
+  assert('install dir removed', !existsSync(installDir), installDir);
+} else {
+  console.log('info: install dir already removed by an earlier scenario step');
 }
-assert('install dir removed', !existsSync(installDir), installDir);
 assert('sentinels byte-identical after uninstall (user data preserved)', sentinelsIntact());
 
 // 5. Malicious /D= into an EXISTING foreign directory with foreign sentinels:

@@ -90,7 +90,7 @@ test.describe('M2 resources E2E', () => {
     const { app, page } = await launch();
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
-      await page.getByTestId('tab-resources').click();
+      await page.getByTestId('nav-resources').click();
 
       // Skills: fixture skill listed with provenance
       const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
@@ -118,7 +118,7 @@ test.describe('M2 resources E2E', () => {
     const { app, page } = await launch();
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
-      await page.getByTestId('tab-resources').click();
+      await page.getByTestId('nav-resources').click();
       const skillRow = page.getByTestId('skill-row').filter({ hasText: 'code-review' });
       await expect(skillRow).toBeVisible({ timeout: 15_000 });
 

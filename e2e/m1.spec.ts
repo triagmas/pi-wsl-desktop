@@ -53,12 +53,13 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc });
     try {
       await expect(page).toHaveTitle('Pi WSL Desktop');
-      // M0 status tab is still the default (regression) — and wait for the
-      // bridge to be genuinely READY (visible text alone ≠ ready on slow CI)
+      // UI-A: chat is the default screen with the real status visible in the
+      // empty state — wait for the bridge to be genuinely READY (visible text
+      // alone ≠ ready on slow CI)
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
 
-      await page.getByTestId('tab-sessions').click();
-      await expect(page.getByTestId('sessions-view')).toBeVisible({ timeout: 15_000 });
+      // M1 discovery: the sidebar lists the fixture project/session (§5)
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
 
       await page.getByText('E2E fixture session').click();
@@ -82,7 +83,7 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc, streamMs: '150' });
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
-      await page.getByTestId('tab-sessions').click();
+      await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();
 
@@ -136,7 +137,7 @@ test.describe('M1 sessions & chat E2E', () => {
     const { app, page } = await launch({ pi: fakePiRpc });
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
-      await page.getByTestId('tab-sessions').click();
+      await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();
       await page.getByRole('button', { name: /открыть чат/i }).click();

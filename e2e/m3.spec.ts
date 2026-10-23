@@ -65,7 +65,7 @@ test.describe('M3 module system E2E', () => {
       await expect(page.getByTestId('module-toggle-demo')).toBeEnabled();
       await expect(page.getByTestId('module-row-state-module-0')).toHaveText('disabled');
       await expect(page.getByTestId('tab-module-demo/welcome')).not.toBeVisible();
-      await page.getByTestId('tab-status').click();
+      await page.getByTestId('nav-chat').click();
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/);
 
       // 4. Re-enable: the tab comes back — the whole cycle holds.

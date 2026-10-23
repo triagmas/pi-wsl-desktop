@@ -175,6 +175,9 @@ test.describe('UI-A application shell E2E', () => {
     const { app, page } = await launch();
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      // Electron defaults to 800×600 — open the panel at desktop size first,
+      // then walk down through the three matrix viewports.
+      await page.setViewportSize({ width: 1440, height: 900 });
 
       const chatScreen = async (): Promise<void> => {
         // Always capture the CHAT workspace (the light shot used to stay on

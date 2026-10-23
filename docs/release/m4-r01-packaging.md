@@ -62,11 +62,18 @@ no network updates; the file is inert. Disclosed here for the security review.
   - `customUnInstall` quits BEFORE any deletion when the marker is missing
     (tampered/broken state) — the uninstaller never recursively deletes a
     directory it cannot prove it owns.
+  Directory entries are matched by EXACT full-string comparison against
+  `.` and `..` only — any other name (including one-character names such
+  as `a`, which a length-based shortcut would have skipped — review P1,
+  RED-proven on the real installer) makes the directory foreign.
   The guard is contract-pinned by `tests/unit/nsisGuardContract.test.ts`
-  (hook definitions, instruction allow-list: no Exec/nsExec/registry
-  writes, no deletion, no wsl/taskkill) and proven end-to-end by CI: a
-  refused `/D=` install exits 2 with foreign sentinels byte-identical and
-  the previous install untouched; a tampered uninstall keeps the dir and
+  (hook definitions plus a STRICT statement allow-list applied after
+  comment stripping: statements outside the sanctioned set — Exec, Delete,
+  WriteRegDWORD, nsExec, wsl, taskkill, ... — and non-marker FileOpen
+  paths are rejected, with mutation fixtures proving it) and proven
+  end-to-end by CI: a refused `/D=` install exits 2 with foreign sentinels
+  byte-identical and the previous install untouched; single-character
+  foreign entries are refused too; a tampered uninstall keeps the dir and
   files (fail-safe). Known minor quirk (disclosed): a SECOND uninstall run
   on the same install tree can leave the emptied folder behind — files and
   data are still removed; strict full-removal assertions apply to every

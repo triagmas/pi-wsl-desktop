@@ -56,9 +56,12 @@ statusBar — семейство/размер/строка/насыщеннос�
 ## Известные ограничения (disclosed)
 
 - Windows CPU/RAM: всегда `—` до реального монитора (UI-B/R02).
-- `makensis`/реальный рантайм в этой среде недоступен; E2E выполняются в CI
-  (Linux job: `xvfb-run -a npx playwright test`); локальный Windows-Electron несовместим
-  с bash-фикстурами — локальный полный E2E NOT RUN.
+- `makensis`/реальный рантайм в этой среде недоступны; локальный полный E2E выполняется
+  WSL-раннером (`node node_modules/@playwright/test/cli.js test` + linux-electron, 13/13
+  ×2 стабильно); `npx playwright test` здесь — Windows-нода и несовместим с bash-фикстурами.
+  CI gate: Linux job `xvfb-run -a npx playwright test` — 3/3 PASS на HEAD (Linux E2E,
+  Windows installer+packaged smoke, Documentation). Реальный Windows+WSL профиль-гейт
+  (запуск с настоящим Pi в рабочем профиле) — NOT RUN (consent обязателен).
 - jsdom не эмулирует `input[type=color]` для React onChange — editor tokens доказываются
   текстовым полем (radiusSmall); цветовые инпуты покрыты render/apply-ассертами.
 - Issue #19 (документационная синхронизация) не затрагивался; UI-B не начат.

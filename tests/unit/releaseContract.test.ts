@@ -98,10 +98,11 @@ describe('M4 R01 — electron-builder configuration contract', () => {
     // never deletes the user profile; the /D= CLI residual is disclosed,
     // not covered by this contract
     expect(build.nsis?.deleteAppDataOnUninstall).toBe(false);
-    // no custom NSIS hooks — nothing may run arbitrary install-time scripts;
-    // electron-builder also auto-loads build/installer.nsi|nsh when present
+    // Exactly ONE sanctioned NSIS extension: the security guard include
+    // (owner variant B), contract-pinned in nsisGuardContract.test.ts.
+    // Full script replacement and auto-loaded installer.nsi|nsh stay banned.
     expect(build.nsis?.script).toBeUndefined();
-    expect(build.nsis?.include).toBeUndefined();
+    expect(build.nsis?.include).toBe('nsis-guard.nsh');
     expect(existsSync(path.join(root, 'build', 'installer.nsi'))).toBe(false);
     expect(existsSync(path.join(root, 'build', 'installer.nsh'))).toBe(false);
   });

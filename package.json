@@ -88,7 +88,8 @@
       "artifactName": "PiWSLDesktop-${version}-setup.${ext}",
       "shortcutName": "Pi WSL Desktop",
       "uninstallDisplayName": "Pi WSL Desktop",
-      "runAfterFinish": false
+      "runAfterFinish": false,
+      "include": "nsis-guard.nsh"
     }
   }
 }

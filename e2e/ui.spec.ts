@@ -40,8 +40,17 @@ test.describe('UI-A application shell E2E', () => {
     const testInfo = test.info();
     const { app, page } = await launch();
     try {
+      // Electron defaults to 800×600 — §7 layout assertions need desktop size.
+      await page.setViewportSize({ width: 1440, height: 900 });
       await expect(page.getByTestId('app-shell')).toBeVisible();
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+
+      // Deterministic pre-state: the appearance store is shared with the
+      // working profile — close a previously-open details panel first.
+      const detailsBtn = page.getByTestId('open-details');
+      if ((await detailsBtn.getAttribute('aria-pressed')) === 'true') {
+        await page.getByRole('button', { name: 'Скрыть панель деталей' }).click();
+      }
 
       // §5: left sidebar expanded by default, details panel hidden, status bar present.
       const sidebar = page.getByRole('complementary').first();
@@ -86,6 +95,9 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
       await page.getByTestId('nav-settings').click();
       await expect(page.getByTestId('settings-root')).toBeVisible();
+      // Isolated start: previous runs persist their theme in userData — the
+      // baseline is established through the UI itself, not assumed.
+      await page.getByTestId('theme-card-dark').click();
 
       // §9.2: exactly four presets + custom.
       for (const id of ['dark', 'light', 'claude', 'codex', 'custom']) {
@@ -148,8 +160,10 @@ test.describe('UI-A application shell E2E', () => {
       await page.getByTestId('nav-settings').click();
       await page.getByTestId('theme-card-light').click();
       await page.setViewportSize({ width: 1280, height: 800 });
-      await page.getByTestId('nav-chat').click();
       await page.screenshot({ path: testInfo.outputPath('ui-chat-light-1280x800.png') });
+      // Leave the persisted store at the default theme (shared userData).
+      await page.getByTestId('nav-settings').click();
+      await page.getByTestId('theme-card-dark').click();
     } finally {
       await app.close();
     }

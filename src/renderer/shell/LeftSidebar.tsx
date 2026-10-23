@@ -108,7 +108,7 @@ export function LeftSidebar({
     <aside
       data-testid="left-sidebar"
       data-collapsed={collapsed ? '' : null}
-      className="left-sidebar"
+      className={`left-sidebar${collapsed ? ' sidebar-collapsed' : ''}`}
       style={collapsed ? undefined : { width: `${width}px` }}
       aria-label="Проекты и диалоги"
     >

@@ -102,6 +102,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const appearanceReady = appearanceLoaded || effectiveApi === null;
   const saveAppearanceRef = useRef<ReturnType<DesktopApi['saveAppearance']> | null>(null);
 
+  // M1 invariant: the chat topic subscription must be registered up front —
+  // it used to ride on the (formerly default) SessionsView mount, and without
+  // it the bridge forwards no stream events (silent chat).
+  useEffect(() => {
+    if (!effectiveApi) return;
+    void m1.subscribeEvents(effectiveApi).catch(() => undefined);
+  }, [effectiveApi]);
+
   useEffect(() => {
     if (!effectiveApi) return undefined;
     let cancelled = false;

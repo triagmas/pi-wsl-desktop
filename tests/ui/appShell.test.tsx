@@ -81,6 +81,15 @@ describe('App shell', () => {
     expect(screen.getByTestId('terminal-slot')).toBeInTheDocument();
   });
 
+  it('registers the chat event subscription up front — M1 invariant (red)', () => {
+    // Regression pin: subscribeEvents used to ride on the default SessionsView
+    // mount; with chat as the default screen the bridge never forwards stream
+    // events unless App registers the subscription itself.
+    const api = makeApi();
+    render(<App api={api} />);
+    expect(api._request).toHaveBeenCalledWith('subscribeEvents', { topic: 'chat' });
+  });
+
   it('navigates to Resources and Modules from the sidebar without losing the chat state', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);

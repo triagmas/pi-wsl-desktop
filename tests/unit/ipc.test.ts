@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { registerIpc, type IpcLike } from '../../src/main/ipc';
+import { registerIpc, type IpcLike, type IpcOptions } from '../../src/main/ipc';
 
 interface FakeConn {
   request: ReturnType<typeof vi.fn>;
@@ -11,7 +11,7 @@ interface FakeConn {
   subscribeChat: ReturnType<typeof vi.fn>;
 }
 
-function makeHarness() {
+function makeHarness(extraOptions: IpcOptions = {}) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const ipc: IpcLike = {
     handle: (channel, fn) => {
@@ -40,6 +40,7 @@ function makeHarness() {
   const sent: Array<{ channel: string; payload: unknown }> = [];
   const unsubscribe = registerIpc(ipc, conn as unknown as Parameters<typeof registerIpc>[1], (channel, payload) =>
     sent.push({ channel, payload }),
+    extraOptions,
   );
   return { handlers, conn, sent, unsubscribe, connCallbacks, chatCallbacks };
 }
@@ -112,6 +113,32 @@ describe('IPC chat event relay (M1)', () => {
     await expect(bridgeRequest({}, 'closeSession')).resolves.toBeTruthy();
     await expect(bridgeRequest({}, 'rm')).rejects.toThrow(/not allowed/);
     expect(conn.request).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Title bar overlay colors (UI-A R02 A1)', () => {
+  it('applies validated hex colors to the native caption overlay', () => {
+    const onTitleBarOverlay = vi.fn();
+    const { handlers } = makeHarness({ onTitleBarOverlay });
+    const set = handlers.get('window:setTitleBarOverlay');
+    expect(set).toBeTypeOf('function');
+    set!({}, { backgroundColor: '#191C19', textColor: '#E7EAE3' });
+    expect(onTitleBarOverlay).toHaveBeenCalledWith({
+      backgroundColor: '#191C19',
+      textColor: '#E7EAE3',
+    });
+  });
+
+  it('rejects invalid colors and never touches the overlay (fail-closed)', () => {
+    const onTitleBarOverlay = vi.fn();
+    const { handlers } = makeHarness({ onTitleBarOverlay });
+    const set = handlers.get('window:setTitleBarOverlay')!;
+    expect(() => set({}, { backgroundColor: 'red', textColor: '#E7EAE3' })).toThrow(/color/i);
+    expect(() => set({}, { backgroundColor: '#191C19', textColor: 'url(#x)' })).toThrow(/color/i);
+    expect(() => set({}, { backgroundColor: '#GGG', textColor: '#E7EAE3' })).toThrow(/color/i);
+    expect(() => set({}, { backgroundColor: '#191C19' })).toThrow(/color/i);
+    expect(() => set({}, null)).toThrow(/color/i);
+    expect(onTitleBarOverlay).not.toHaveBeenCalled();
   });
 });
 

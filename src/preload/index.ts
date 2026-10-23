@@ -18,6 +18,8 @@ export interface DesktopApi {
   getAppearance(): Promise<unknown>;
   saveAppearance(settings: unknown): Promise<unknown>;
   resetAppearance(): Promise<unknown>;
+  /** A1: native caption overlay colors follow the active theme. */
+  setTitleBarOverlay(colors: { backgroundColor: string; textColor: string }): Promise<unknown>;
 }
 
 const api: DesktopApi = {
@@ -44,6 +46,7 @@ const api: DesktopApi = {
   getAppearance: () => ipcRenderer.invoke('appearance:get'),
   saveAppearance: (settings) => ipcRenderer.invoke('appearance:set', settings),
   resetAppearance: () => ipcRenderer.invoke('appearance:reset'),
+  setTitleBarOverlay: (colors) => ipcRenderer.invoke('window:setTitleBarOverlay', colors),
 };
 
 contextBridge.exposeInMainWorld('piDesktop', api);

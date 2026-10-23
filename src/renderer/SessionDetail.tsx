@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { DesktopApi } from './api';
 import { HistoryView } from './HistoryView';
 import { ChatPane } from './ChatPane';
+import { sessionLabel } from './shell/LeftSidebar';
 import type { SessionInfoT } from './types';
 
 export interface SessionDetailProps {
@@ -17,11 +18,12 @@ export interface SessionDetailProps {
 }
 
 export function SessionDetail({ api, session, chat, draft = '', onDraftChange }: SessionDetailProps) {
-  const [tab, setTab] = useState<'history' | 'chat'>('history');
+  // R02 A3: a picked session opens straight into its chat — no extra hop.
+  const [tab, setTab] = useState<'history' | 'chat'>('chat');
   return (
     <section className="detail" data-testid="session-detail">
       <header className="detail-head">
-        <h3>{session.name ?? session.id.slice(0, 8)}</h3>
+        <h3>{sessionLabel(session)}</h3>
         <span className="muted">{session.file}</span>
         {session.activeWrite && <span className="badge badge-active">запись</span>}
         {session.availability !== 'ok' && <span className="badge badge-warn">⚠ {session.diagnostics ?? session.availability}</span>}

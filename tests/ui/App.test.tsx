@@ -74,6 +74,10 @@ describe('App UI (RTL)', () => {
   it('renders progress while discovering and swaps to error when the connection fails — no eternal spinner', async () => {
     const mock = makeApi({ phase: 'discovering', attempt: 0, distro: null, distros: null, runtime: null });
     render(<App api={mock.api} />);
+    // R02 A3: connection diagnostics live in Settings → Connection only.
+    await userEvent.click(await screen.findByTestId('nav-settings'));
+    // R02 A3: diagnostics live under Settings → Connection section.
+    await userEvent.click(await screen.findByTestId('settings-tab-connection'));
     expect(screen.getByTestId('status-phase')).toHaveTextContent(/поиск|подключени/i);
     expect(screen.queryByRole('button', { name: /повторить/i })).not.toBeInTheDocument();
 
@@ -88,6 +92,9 @@ describe('App UI (RTL)', () => {
   it('renders the ready state with real runtime versions', async () => {
     const mock = makeApi(READY);
     render(<App api={mock.api} />);
+    await userEvent.click(await screen.findByTestId('nav-settings'));
+    // R02 A3: diagnostics live under Settings → Connection section.
+    await userEvent.click(await screen.findByTestId('settings-tab-connection'));
     await waitFor(() => expect(screen.getByTestId('status-phase')).toHaveTextContent(/готово/i));
     expect(screen.getByText('9.9.9')).toBeInTheDocument();
     expect(screen.getByText('v22.23.2')).toBeInTheDocument();
@@ -98,6 +105,8 @@ describe('App UI (RTL)', () => {
     const user = userEvent.setup();
     const mock = makeApi({ phase: 'error', attempt: 5, distro: null, distros: null, runtime: null, lastError: { code: 'BRIDGE_TIMEOUT', message: 'timeout' } });
     render(<App api={mock.api} />);
+    await user.click(await screen.findByTestId('nav-settings'));
+    await user.click(await screen.findByTestId('settings-tab-connection'));
     const retryButton = await screen.findByRole('button', { name: /повторить/i });
     await user.click(retryButton);
     expect(mock.retry).toHaveBeenCalledTimes(1);
@@ -108,6 +117,8 @@ describe('App UI (RTL)', () => {
     const user = userEvent.setup();
     const mock = makeApi(READY);
     render(<App api={mock.api} />);
+    await user.click(await screen.findByTestId('nav-settings'));
+    await user.click(await screen.findByTestId('settings-tab-connection'));
     const select = await screen.findByRole('combobox');
     expect(select).toHaveDisplayValue('Ubuntu');
     await user.selectOptions(select, 'Ubuntu中文');
@@ -124,6 +135,8 @@ describe('App UI (RTL)', () => {
       return { ok: true };
     });
     render(<App api={mock.api} />);
+    await user.click(await screen.findByTestId('nav-settings'));
+    await user.click(await screen.findByTestId('settings-tab-connection'));
     await waitFor(() => expect(screen.getByTestId('status-phase')).toHaveTextContent(/готово/i));
     await user.click(screen.getByRole('button', { name: /обновить данные/i }));
     await waitFor(() => expect(screen.getByTestId('request-error')).toHaveTextContent(/method not allowed/));
@@ -133,6 +146,9 @@ describe('App UI (RTL)', () => {
 
   it('shows a hard error when the preload API is missing entirely', async () => {
     render(<App api={null} />);
+    await userEvent.click(await screen.findByTestId('nav-settings'));
+    // R02 A3: diagnostics live under Settings → Connection section.
+    await userEvent.click(await screen.findByTestId('settings-tab-connection'));
     expect(screen.getByTestId('status-phase')).toHaveTextContent(/ошибк/i);
     expect(screen.getByTestId('error-code')).toHaveTextContent('NO_API');
     expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();

@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
-import { StatusPanel } from './StatusPanel';
 import { SessionDetail } from './SessionDetail';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
@@ -24,12 +23,13 @@ import { AppShell } from './shell/AppShell';
 import { LeftSidebar } from './shell/LeftSidebar';
 import { RightSidebar } from './shell/RightSidebar';
 import { StatusBar } from './shell/StatusBar';
-import { TerminalSlot } from './shell/TerminalSlot';
+import { IconDetailsPanel } from './shell/icons';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
 import { THEME_PRESETS } from '../shared/design/presets';
 import { DEFAULT_APPEARANCE, migrateAppearance, type AppearanceSettings } from '../shared/appearance';
 import { m1 } from './m1api';
+import { sessionLabel } from './shell/LeftSidebar';
 import type { SessionInfoT } from './types';
 
 export interface AppProps {
@@ -138,6 +138,19 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     applyTheme(document.documentElement, themeTokens);
     applyTypography(document.documentElement, appearance.typography);
   }, [themeTokens, appearance.typography]);
+
+  /** A1: native caption buttons follow the active theme (optional API —
+   *  no-op in tests and with older preloads). */
+  useEffect(() => {
+    const overlay = effectiveApi?.setTitleBarOverlay;
+    if (!overlay) return;
+    void overlay
+      .call(effectiveApi, {
+        backgroundColor: themeTokens.titleBarBackgroundColor,
+        textColor: themeTokens.bodyTextColor,
+      })
+      .catch(() => undefined);
+  }, [effectiveApi, themeTokens]);
 
   const persistAppearance = (next: AppearanceSettings): void => {
     setAppearance(next);
@@ -429,17 +442,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             {activeSession ? activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект' : 'Pi Desktop'}
           </span>
           <span aria-hidden="true">/</span>
-          <strong>{activeSession ? activeSession.name ?? activeSession.id.slice(0, 8) : 'Диалог'}</strong>
+          <strong>{activeSession ? sessionLabel(activeSession) : 'Диалог'}</strong>
         </div>
         <div className="center-actions">
-          <button
-            type="button"
-            className="icon-btn"
-            title="Подробнее"
-            aria-label="Дополнительные действия"
-          >
-            <span aria-hidden="true">⋯</span>
-          </button>
           <button
             type="button"
             ref={detailsRef}
@@ -450,7 +455,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             aria-pressed={detailsOpen}
             onClick={openDetails}
           >
-            <span aria-hidden="true">|›</span>
+            <IconDetailsPanel />
           </button>
         </div>
       </header>
@@ -503,27 +508,36 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           </div>
         ) : (
           <div className="empty-state" data-testid="chat-empty">
+            <span className="empty-state-mark" aria-hidden="true">
+              π
+            </span>
             <h2>Выберите диалог слева</h2>
             <p className="muted">
-              Проекты и чаты загружаются из Pi в WSL. Новый диалог открывает самую свежую сессию;
-              создание файлов сессий доступно в Pi CLI.
+              Проекты и чаты загружаются из Pi в WSL. Откройте последний диалог или выберите
+              существующий — создание новых сессий доступно в Pi CLI.
             </p>
-            <button type="button" className="btn-primary" onClick={newChat}>
-              Новый диалог
+            <button
+              type="button"
+              className="btn-primary"
+              data-testid="empty-open-latest"
+              title="Создание новых сессий доступно в Pi CLI — здесь открывается самый свежий существующий диалог"
+              onClick={newChat}
+            >
+              Открыть последний диалог
             </button>
-            <div className="empty-status">
-              <StatusPanel
-                snapshot={snapshot}
-                requestError={requestError}
-                api={effectiveApi}
-                onRetry={() => void retry()}
-                onRefresh={() => void refreshRuntime()}
-                onSelectDistro={(d) => void selectDistro(d)}
-              />
-            </div>
+            {snapshot.phase === 'error' && (
+              <div className="empty-connection-error" role="alert" data-testid="empty-connection-error">
+                <strong>{snapshot.lastError?.code ?? 'CONNECTION_ERROR'}</strong>{' '}
+                — {snapshot.lastError?.message ?? 'Не удалось подключиться к Pi в WSL'}
+                <div>
+                  <button type="button" data-testid="empty-open-settings" onClick={() => setView('settings')}>
+                    Открыть настройки подключения
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
-        <TerminalSlot height={appearance.layout.terminalSlotHeight} />
       </div>
     );
   } else if (view === 'resources') {
@@ -608,6 +622,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           width={leftWidth}
           view={view}
           activeFile={activeSession?.file ?? null}
+          distro={snapshot.distro}
           onToggleCollapsed={() => {
             const next = !appearance.layout.leftCollapsed;
             persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });

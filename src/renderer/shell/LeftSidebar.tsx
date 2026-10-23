@@ -1,19 +1,46 @@
 /**
- * Left sidebar (Issue #21 §2): «Новый диалог», honest search over real
- * session data, projects with nested chats, bottom navigation and the
- * collapse toggle. Collapsed = 48px icon rail with tooltips; expanded width
- * and collapsed state are persisted via the appearance layout settings.
+ * Left sidebar (Issue #21 §2 / R02 A2): the honest «Открыть последний
+ * диалог» action (M1 has no create-session RPC — the label never promises
+ * creation), search over real session data, projects with nested chats,
+ * bottom navigation and the collapse toggle. Collapsed = 48px icon rail
+ * (same icon family everywhere, no emoji). Truthful labels: a session shows
+ * its real name or the readable file stem — never an opaque id fragment.
  */
 import { useEffect, useState } from 'react';
 import type { DesktopApi } from '../api';
 import { m1 } from '../m1api';
 import type { ProjectInfoT, SessionInfoT } from '../types';
+import {
+  IconChatBubble,
+  IconChevronDown,
+  IconChevronRight,
+  IconFolder,
+  IconModules,
+  IconPlus,
+  IconRailCollapse,
+  IconRailExpand,
+  IconResources,
+  IconSearch,
+  IconSettings,
+} from './icons';
 
 /** Project display label: the last path segment (ProjectInfoT has no name). */
 export function projectName(project: { id: string; path: string }): string {
   const trimmed = project.path.replace(/[\\/]+$/, '');
   const base = trimmed.split(/[\\/]/).pop();
   return base && base.length > 0 ? base : project.path;
+}
+
+/**
+ * Truthful session label: real name → readable file stem → last resort id
+ * prefix (only for files whose stem is empty, e.g. broken paths).
+ */
+export function sessionLabel(session: { name: string | null; file: string; id: string }): string {
+  const name = session.name?.trim();
+  if (name) return name;
+  const stem = session.file.replace(/[\\/]+$/, '').split(/[\\/]/).pop()?.replace(/\.jsonl$/i, '');
+  if (stem && stem.length > 0) return stem;
+  return session.id.slice(0, 8);
 }
 
 export interface SidebarModuleTab {
@@ -26,6 +53,8 @@ export interface LeftSidebarProps {
   /** Bridge connection readiness — the list reloads once it flips to true
    *  (the first attempt at mount may race the bridge startup). */
   connectionReady: boolean;
+  /** Real WSL distro from the live connection snapshot (status subtitle). */
+  distro: string | null;
   /** M3 module tabs stay reachable from the sidebar (§5 keeps the contract). */
   moduleTabs: SidebarModuleTab[];
   collapsed: boolean;
@@ -42,6 +71,7 @@ export interface LeftSidebarProps {
 export function LeftSidebar({
   api,
   connectionReady,
+  distro,
   moduleTabs,
   collapsed,
   width,
@@ -104,6 +134,9 @@ export function LeftSidebar({
       )
     : projects;
 
+  const newChatTitle =
+    'Создание новых сессий доступно в Pi CLI — здесь открывается самый свежий существующий диалог';
+
   return (
     <aside
       data-testid="left-sidebar"
@@ -122,23 +155,64 @@ export function LeftSidebar({
           aria-expanded={!collapsed}
           onClick={onToggleCollapsed}
         >
-          <span aria-hidden="true" className="collapse-glyph">
-            {collapsed ? '▮›' : '▮‹'}
+          {collapsed ? <IconRailExpand /> : <IconRailCollapse />}
+        </button>
+        <button
+          type="button"
+          data-testid="nav-chat"
+          className="icon-btn"
+          title="Чат"
+          aria-label="Чат"
+          aria-current={view === 'chat'}
+          onClick={() => onView('chat')}
+        >
+          <span className="brand-mark brand-mark-nav" aria-hidden="true">
+            π
           </span>
         </button>
-        <span className="app-wordmark" aria-hidden="true">
-          π
-        </span>
       </div>
+
+      {collapsed && (
+        <div className="rail-actions">
+          <button
+            type="button"
+            data-testid="rail-new-chat"
+            className="icon-btn"
+            title={newChatTitle}
+            aria-label="Открыть последний диалог"
+            onClick={onNewChat}
+          >
+            <IconPlus />
+          </button>
+          <button
+            type="button"
+            data-testid="rail-search"
+            className="icon-btn"
+            title="Показать проекты и поиск"
+            aria-label="Показать проекты и поиск"
+            onClick={onToggleCollapsed}
+          >
+            <IconSearch />
+          </button>
+        </div>
+      )}
 
       {!collapsed && (
         <div data-testid="sidebar-projects" className="sidebar-scroll">
-          <button type="button" className="btn-primary sidebar-new" onClick={onNewChat}>
-            <span aria-hidden="true">＋</span> Новый диалог
+          <button
+            type="button"
+            data-testid="sidebar-new-chat"
+            className="btn-primary sidebar-new"
+            title={newChatTitle}
+            onClick={onNewChat}
+          >
+            <IconPlus />
+            <span>Открыть последний диалог</span>
           </button>
 
           <label className="sidebar-search">
             <span className="visually-hidden">Поиск чатов</span>
+            <IconSearch className="sidebar-search-icon" />
             <input
               data-testid="sidebar-search-input"
               type="search"
@@ -184,11 +258,13 @@ export function LeftSidebar({
                       });
                     }}
                   >
-                    <span aria-hidden="true">🗀</span>
+                    <IconFolder className="row-icon" />
                     <span className="project-name">{projectName(p)}</span>
-                    <span aria-hidden="true" className="chevron">
-                      {open ? '⌄' : '›'}
-                    </span>
+                    {open ? (
+                      <IconChevronDown className="chevron" />
+                    ) : (
+                      <IconChevronRight className="chevron" />
+                    )}
                   </button>
                   {open && (
                     <ul className="session-list">
@@ -202,8 +278,8 @@ export function LeftSidebar({
                             aria-current={s.file === activeFile}
                             onClick={() => onPickSession(s)}
                           >
-                            <span aria-hidden="true">◦</span>
-                            <span className="session-row-name">{s.name ?? s.id.slice(0, 8)}</span>
+                            <IconChatBubble className="row-icon" />
+                            <span className="session-row-name">{sessionLabel(s)}</span>
                           </button>
                         </li>
                       ))}
@@ -220,18 +296,6 @@ export function LeftSidebar({
       )}
 
       <nav className="sidebar-nav" aria-label="Разделы">
-        <button
-          type="button"
-          data-testid="nav-chat"
-          className="nav-item"
-          title="Чат"
-          aria-label="Чат"
-          aria-current={view === 'chat'}
-          onClick={() => onView('chat')}
-        >
-          <span aria-hidden="true">💬</span>
-          {!collapsed && <span className="nav-label">Чат</span>}
-        </button>
         {moduleTabs.length > 0 && !collapsed && (
           <div className="module-tab-nav" data-testid="module-tab-nav">
             {moduleTabs.map(({ tabKey, title }) => (
@@ -243,7 +307,7 @@ export function LeftSidebar({
                 aria-current={view === `module:${tabKey}`}
                 onClick={() => onView(`module:${tabKey}`)}
               >
-                <span aria-hidden="true">◦</span>
+                <span aria-hidden="true" className="nav-dot" />
                 <span className="nav-label">{title}</span>
               </button>
             ))}
@@ -259,7 +323,7 @@ export function LeftSidebar({
           aria-current={view === 'resources'}
           onClick={() => onView('resources')}
         >
-          <span aria-hidden="true">⛃</span>
+          <IconResources className="nav-icon" />
           {!collapsed && <span className="nav-label">Ресурсы</span>}
         </button>
         <button
@@ -271,7 +335,7 @@ export function LeftSidebar({
           aria-current={view === 'modules' || view.startsWith('module:')}
           onClick={() => onView('modules')}
         >
-          <span aria-hidden="true">⚙</span>
+          <IconModules className="nav-icon" />
           {!collapsed && <span className="nav-label">Модули</span>}
         </button>
         <button
@@ -283,14 +347,20 @@ export function LeftSidebar({
           aria-current={view === 'settings'}
           onClick={() => onView('settings')}
         >
-          <span aria-hidden="true">⚙</span>
+          <IconSettings className="nav-icon" />
           {!collapsed && <span className="nav-label">Настройки</span>}
         </button>
         <div data-testid="sidebar-connection" className="sidebar-connection">
-          <span className={`conn-dot${connectionReady ? '' : ' conn-dot-pending'}`} aria-hidden="true" />
+          <span
+            className={`conn-dot${connectionReady ? '' : ' conn-dot-pending'}`}
+            aria-hidden="true"
+          />
           {!collapsed && (
-            <span className="nav-label muted">
+            <span className="nav-label muted connection-label">
               {connectionReady ? 'Pi подключён' : 'Подключение…'}
+              <span className="connection-sub">
+                {distro ? `${distro} · WSL` : 'WSL'}
+              </span>
             </span>
           )}
         </div>

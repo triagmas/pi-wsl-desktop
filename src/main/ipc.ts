@@ -25,7 +25,11 @@ export interface IpcOptions {
   onDistroChange?: (distro: string) => void;
   /** Directory for the appearance store (app userData in production). */
   appearanceDir?: string;
+  /** Push validated title-bar overlay colors onto the native caption (A1). */
+  onTitleBarOverlay?: (colors: { backgroundColor: string; textColor: string }) => void;
 }
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export function registerIpc(
   ipc: IpcLike,
@@ -76,6 +80,18 @@ export function registerIpc(
   ipc.handle('appearance:reset', () =>
     appearanceDir ? resetAppearance(appearanceDir) : migrateAppearance(undefined),
   );
+
+  // A1: renderer-driven caption colors, fail-closed — only exact #RRGGBB.
+  ipc.handle('window:setTitleBarOverlay', (_e, colors) => {
+    const payload = colors as { backgroundColor?: unknown; textColor?: unknown } | null;
+    const backgroundColor = typeof payload?.backgroundColor === 'string' ? payload.backgroundColor : '';
+    const textColor = typeof payload?.textColor === 'string' ? payload.textColor : '';
+    if (!HEX_COLOR.test(backgroundColor) || !HEX_COLOR.test(textColor)) {
+      throw new Error('titleBarOverlay colors must be #RRGGBB hex values');
+    }
+    options.onTitleBarOverlay?.({ backgroundColor, textColor });
+    return true;
+  });
 
   const offState = conn.subscribe((snapshot) => send('bridge:state', snapshot));
   const offChat = conn.subscribeChat((payload) => send('bridge:chat', payload));

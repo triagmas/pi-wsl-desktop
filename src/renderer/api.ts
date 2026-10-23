@@ -13,6 +13,9 @@ export interface DesktopApi {
   getAppearance(): Promise<unknown>;
   saveAppearance(settings: unknown): Promise<unknown>;
   resetAppearance(): Promise<unknown>;
+  /** A1: native caption overlay colors follow the active theme. Optional so
+   *  existing test doubles and older preloads stay compatible (no-op there). */
+  setTitleBarOverlay?(colors: { backgroundColor: string; textColor: string }): Promise<unknown>;
 }
 
 declare global {

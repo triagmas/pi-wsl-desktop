@@ -188,6 +188,8 @@ describe('SessionsView — history preview (read-only)', () => {
     });
     render(<SessionsView api={api} />);
     await userEvent.click(await screen.findByText('Refactor auth'));
+    // R02: a session opens into its chat tab; the read-only preview needs the История tab.
+    await userEvent.click(await screen.findByTestId('tab-history'));
     await screen.findByText('hello world');
     expect(screen.getByText('hi there!')).toBeTruthy();
   });
@@ -207,6 +209,8 @@ describe('SessionsView — history preview (read-only)', () => {
     });
     render(<SessionsView api={api} />);
     await userEvent.click(await screen.findByText('Refactor auth'));
+    // R02: a session opens into its chat tab; the read-only preview needs the История tab.
+    await userEvent.click(await screen.findByTestId('tab-history'));
     await screen.findByText('first message');
     const more = await screen.findByRole('button', { name: /загрузить продолжение/i });
     await userEvent.click(more);
@@ -227,6 +231,8 @@ describe('SessionsView — history preview (read-only)', () => {
     });
     const { container } = render(<SessionsView api={api} />);
     await userEvent.click(await screen.findByText('Refactor auth'));
+    // R02: a session opens into its chat tab; the read-only preview needs the История tab.
+    await userEvent.click(await screen.findByTestId('tab-history'));
     await screen.findByText(/onerror/);
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('script')).toBeNull();
@@ -241,6 +247,8 @@ describe('SessionsView — history preview (read-only)', () => {
     });
     render(<SessionsView api={api} />);
     await userEvent.click(await screen.findByText('Refactor auth'));
+    // R02: a session opens into its chat tab; the read-only preview needs the История tab.
+    await userEvent.click(await screen.findByTestId('tab-history'));
     await screen.findByText(/дописывается/i);
     expect(screen.getByText(/invalid json/)).toBeTruthy();
   });

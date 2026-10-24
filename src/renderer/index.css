@@ -603,18 +603,6 @@ input[type="range"] {
   border-top: 1px solid var(--pw-border-color);
 }
 
-.tabs {
-  display: flex;
-  gap: 4px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--pw-border-color);
-}
-
-.tabs button[aria-selected="true"] {
-  background: var(--pw-selected-background-color);
-  border-bottom-color: var(--pw-accent-color);
-}
-
 /* ------------------------------------------------------------------- Chat */
 
 .chat-workspace {
@@ -827,14 +815,6 @@ input[type="range"] {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 6px;
-}
-
-.chat-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
   margin-top: 6px;
 }
 

@@ -105,7 +105,10 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
 
 export interface ChatController {
   state: ChatUiState;
-  open: () => Promise<void>;
+  /** Explicit open (Issue #5 gate 5). Resolves `false` on failure so the
+   * send-driven open in ChatPane never prompts against a dead slot and the
+   * draft survives for the retry. */
+  open: () => Promise<boolean>;
   send: (text: string) => Promise<void>;
   interrupt: () => Promise<void>;
   closeChat: () => Promise<boolean>;
@@ -135,16 +138,18 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     setState(initialChatState);
   }, [file]);
 
-  const open = useCallback(async () => {
-    if (!api) return;
+  const open = useCallback(async (): Promise<boolean> => {
+    if (!api) return false;
     setState((s) => ({ ...s, status: 'opening', error: null, banner: null }));
     try {
       const r = await m1.openSession(api, file);
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       setState((s) => ({ ...s, status: 'open', state: r.state, error: null, banner: null }));
+      return true;
     } catch (err) {
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       setState((s) => ({ ...s, status: 'error', error: parseBridgeError(err) }));
+      return false;
     }
   }, [api, file]);
 

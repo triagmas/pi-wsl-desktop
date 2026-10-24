@@ -1,12 +1,15 @@
 /**
- * Chat pane (M1): the user-facing write boundary. The session is never
- * opened automatically — only an explicit button click calls openSession;
- * prompts, interrupt and close are explicit actions too (Issue #5 gate 5).
- * R02 A3: the composer is anchored at the bottom in every state (disabled
- * until the chat is opened); the message list scrolls independently above it.
+ * Chat pane (M1/R03 п.1): the user-facing write boundary. Selecting a session
+ * never opens it — the composer is usable at once and the explicit SEND is
+ * the explicit open action (Issue #5 gate 5: «starts only on explicit click
+ * or send»); prompts, interrupt and close stay explicit too. Stored history
+ * renders in the same scroll above the live entries; the composer is anchored
+ * at the bottom in every state.
  */
 import type { FormEvent } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
+import { HistoryBubbles, HistoryErrorBox, HistoryLoading, HistoryMore, HistoryNotices } from './historyFeed';
+import type { HistoryFeed } from './historyFeed';
 import { IconCheck, IconClock, IconXCircle } from './shell/icons';
 import type { ChatController } from './useChat';
 
@@ -16,25 +19,43 @@ export interface ChatPaneProps {
   chat: ChatController;
   draft: string;
   onDraftChange: (value: string) => void;
+  /** Stored conversation (loaded by SessionDetail). Omitted only in
+   * controller-level unit harnesses that exercise the write path alone. */
+  feed?: HistoryFeed;
 }
 
-export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
+export function ChatPane({ chat, draft, onDraftChange, feed }: ChatPaneProps) {
   const { state, open, send, interrupt, closeChat } = chat;
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();
-    if (draft.trim() === '' || state.status !== 'open') return;
-    void send(draft);
-    onDraftChange('');
+    const text = draft;
+    if (text.trim() === '') return;
+    if (state.status === 'opening' || state.status === 'sending') return;
+    if (state.status === 'open') {
+      void send(text);
+      onDraftChange('');
+      return;
+    }
+    // R03 п.1: the composer is always usable — an explicit send is the
+    // explicit action that opens the session first (open → prompt order),
+    // and a failed open keeps the draft for the retry below.
+    void (async () => {
+      const ok = await open();
+      if (!ok) return;
+      void send(text);
+      onDraftChange('');
+    })();
   };
 
   const isOpenLike = state.status === 'open' || state.status === 'sending';
+  const composerLocked = state.status === 'opening' || state.status === 'sending';
 
   return (
     <div className="chat" data-testid="chat-pane">
       {state.banner && (
         <div className="error-box" role="alert" data-testid="chat-banner">
-          <strong>{state.banner.code}</strong> — {state.banner.message}. Откройте чат заново, когда будет готовы.
+          <strong>{state.banner.code}</strong> — {state.banner.message}
         </div>
       )}
       {state.error && (
@@ -54,17 +75,6 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
         </div>
       )}
       {state.status === 'error' && !state.error && <div className="error-box" role="alert">Не удалось открыть чат</div>}
-
-      {!isOpenLike && state.status !== 'opening' && (
-        <div className="chat-actions">
-          <button type="button" className="btn-primary" data-testid="open-chat" onClick={() => void open()}>
-            Открыть чат
-          </button>
-          <p className="muted">
-            Чат пишет в сессию только через официальный Pi RPC — каждый шаг требует вашего действия.
-          </p>
-        </div>
-      )}
 
       {isOpenLike && (
         <div className="chat-status-row">
@@ -92,6 +102,21 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
       )}
 
       <div className="chat-entries" data-testid="chat-entries">
+        {feed && (
+          <>
+            {feed.error && <HistoryErrorBox feed={feed} />}
+            {!feed.result && feed.loading && <HistoryLoading />}
+            {feed.result && (
+              <>
+                <HistoryNotices feed={feed} />
+                <HistoryBubbles result={feed.result} />
+                {/* newer stored pages sit chronologically before the live
+                    run: history · load-more · live entries */}
+                <HistoryMore feed={feed} />
+              </>
+            )}
+          </>
+        )}
         {state.entries.map((entry) => (
           <div key={entry.key} className={`bubble bubble-${entry.kind}`}>
             <span className="bubble-role">{entry.kind}</span>
@@ -111,9 +136,9 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
           data-testid="chat-composer"
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
-          placeholder={state.status === 'open' ? 'Сообщение…' : 'Откройте чат, чтобы написать…'}
+          placeholder="Сообщение…"
           aria-label="Сообщение"
-          disabled={state.status !== 'open'}
+          disabled={composerLocked}
           onKeyDown={(e) => {
             // IME composition must never submit (R02 A3).
             if (e.nativeEvent.isComposing) return;
@@ -124,7 +149,7 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
           }}
         />
         <div className="chat-buttons">
-          <button type="submit" className="primary" disabled={state.status !== 'open' || draft.trim() === ''}>
+          <button type="submit" className="primary" disabled={composerLocked || draft.trim() === ''}>
             Отправить
           </button>
           {state.status === 'sending' && (

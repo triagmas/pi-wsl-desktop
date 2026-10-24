@@ -1,9 +1,11 @@
 /**
- * Session detail: История (read-only preview) | Чат (explicit write path).
+ * Session detail (R03 п.1): the conversation-first surface — the stored
+ * history renders immediately in the SAME scroll as the composer, there is
+ * no История/Чат tab framing, and selecting a session never opens a write
+ * session (read-only; Issue #5 gate 5: open only on explicit click/send).
  */
-import { useState } from 'react';
 import type { DesktopApi } from './api';
-import { HistoryView } from './HistoryView';
+import { HistoryFeedView, useHistoryFeed } from './historyFeed';
 import { ChatPane } from './ChatPane';
 import type { SessionInfoT } from './types';
 
@@ -17,28 +19,20 @@ export interface SessionDetailProps {
 }
 
 export function SessionDetail({ api, session, chat, draft = '', onDraftChange }: SessionDetailProps) {
-  // R02 A3: a picked session opens straight into its chat — no extra hop.
-  // The session NAME lives in the chat header breadcrumb (App) — no second
-  // duplicated title block here; only the tabs and the content remain.
-  const [tab, setTab] = useState<'history' | 'chat'>('chat');
+  const feed = useHistoryFeed(api, session.file);
   return (
     <section className="detail" data-testid="session-detail">
-      <div className="tabs" role="tablist">
-        <button type="button" role="tab" data-testid="tab-history" aria-selected={tab === 'history'} onClick={() => setTab('history')}>
-          История
-        </button>
-        <button type="button" role="tab" data-testid="tab-chat" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>
-          Чат
-        </button>
-      </div>
-      {tab === 'history' ? (
-        <HistoryView api={api} file={session.file} />
-      ) : chat && onDraftChange ? (
-        <ChatPane chat={chat} draft={draft} onDraftChange={onDraftChange} />
+      {chat && onDraftChange ? (
+        <ChatPane chat={chat} draft={draft} onDraftChange={onDraftChange} feed={feed} />
       ) : (
-        <p className="muted" data-testid="chat-unavailable">
-          Чат доступен для выбранного диалога в центральной области.
-        </p>
+        <>
+          <div className="history" data-testid="history">
+            <HistoryFeedView feed={feed} />
+          </div>
+          <p className="muted" data-testid="chat-unavailable">
+            Чат доступен для выбранного диалога в центральной области.
+          </p>
+        </>
       )}
     </section>
   );

@@ -321,9 +321,8 @@ test.describe('UI-A R02 application shell E2E', () => {
     try {
       await waitForReady(page);
       await openFixtureChat(page);
-      const openBtn = page.getByRole('button', { name: /открыть чат/i });
-      await expect(openBtn).toBeVisible();
-      await openBtn.click();
+      // R03 п.1: no open-button — the composer is enabled immediately and the
+      // explicit send opens the session itself.
       const input = page.getByPlaceholder(/сообщение/i);
       await expect(input).toBeVisible({ timeout: 20_000 });
       await expect(input).toBeEnabled();
@@ -335,9 +334,10 @@ test.describe('UI-A R02 application shell E2E', () => {
       await input.fill('populate the visual matrix');
       await page.getByRole('button', { name: /отправить/i }).click();
       await expect(page.getByText('Hello 🌍 — done')).toBeVisible({ timeout: 20_000 });
-      // Both the user prompt and the assistant reply are on screen.
-      await expect(page.locator('.bubble-user')).toContainText('populate the visual matrix');
-      await expect(page.locator('.bubble-assistant')).toContainText('Hello 🌍 — done');
+      // Both the user prompt and the assistant reply are on screen (the last
+      // bubbles — stored history renders above the live run, R03 п.1).
+      await expect(page.locator('.bubble-user').last()).toContainText('populate the visual matrix');
+      await expect(page.locator('.bubble-assistant').last()).toContainText('Hello 🌍 — done');
       await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
 
       // The composer is still enabled after the run and stays bottom-anchored:

@@ -48,9 +48,8 @@ test.describe('M1 sessions & chat E2E', () => {
 
       await page.getByText('E2E fixture session').click();
       await expect(page.getByTestId('session-detail')).toBeVisible();
-      // R02: the chat tab is the default — the read-only preview needs История.
-      await page.getByTestId('tab-history').click();
-      await expect(page.getByText('Привет из фикстуры')).toBeVisible();
+      // R03 п.1: the stored conversation renders immediately (no tab hop).
+      await expect(page.getByText('Привет из фикстуры')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByText('Ответ фикстуры: всё читается без изменений')).toBeVisible();
 
       // renderer stays isolated inside the sessions surface
@@ -72,16 +71,20 @@ test.describe('M1 sessions & chat E2E', () => {
       await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
-      await page.getByTestId('tab-chat').click();
 
-      // write boundary: nothing opens by itself
-      const openBtn = page.getByRole('button', { name: /открыть чат/i });
-      await expect(openBtn).toBeVisible();
-      await expect(page.getByPlaceholder(/сообщение/i)).toHaveCount(0);
-
-      await openBtn.click();
+      // R03 п.1 write boundary: the composer is visible and enabled at once,
+      // but no session opens by itself — only the explicit send below.
       const input = page.getByPlaceholder(/сообщение/i);
       await expect(input).toBeVisible({ timeout: 20_000 });
+      await expect(input).toBeEnabled();
+      await expect(page.getByTestId('chat-status')).toHaveCount(0);
+
+      // streaming: deltas render as they arrive, then message_end finalizes
+      await input.fill('привет e2e');
+      await page.getByRole('button', { name: /отправить/i }).click();
+      await expect(page.getByText(/Hello 🌍/)).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText('Hello 🌍 — done')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
 
       // review round 3 (#5): a second explicit open while a chat is open is
       // rejected with RESOURCE_BUSY (single chat slot, no zombie process)
@@ -98,14 +101,7 @@ test.describe('M1 sessions & chat E2E', () => {
         .catch(() => 'rejected');
       expect(busy).toContain('RESOURCE_BUSY');
       // the already-open chat keeps working after the rejected attempt
-      await expect(page.getByPlaceholder(/сообщение/i)).toBeVisible();
-
-      // streaming: deltas render as they arrive, then message_end finalizes
-      await input.fill('привет e2e');
-      await page.getByRole('button', { name: /отправить/i }).click();
-      await expect(page.getByText(/Hello 🌍/)).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByText('Hello 🌍 — done')).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
+      await expect(page.getByPlaceholder(/сообщение/i)).toBeEnabled();
 
       // interrupt: a second run is stopped explicitly and state recovers
       await input.fill('ещё раз');
@@ -125,12 +121,14 @@ test.describe('M1 sessions & chat E2E', () => {
       await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
-      await page.getByTestId('tab-chat').click();
-      // deterministic "live CLI" state: bump the mtime immediately before
-      // open so the 10s active-window check cannot race the READY waits
-      // (R03: operates on the per-launch copy, never the repo fixture).
+      // history settles first, so the no-spinner assertion below is stable
+      await expect(page.getByText('Привет из фикстуры')).toBeVisible({ timeout: 15_000 });
+      // deterministic "live CLI" state: bump the mtime immediately before the
+      // explicit send whose open must observe the 10s active window
+      // (R03: operates on the per-launch tmp copy, never the repo fixture).
       utimesSync(fixtureSession, new Date(), new Date());
-      await page.getByRole('button', { name: /открыть чат/i }).click();
+      await page.getByPlaceholder(/сообщение/i).fill('open attempt');
+      await page.getByRole('button', { name: /отправить/i }).click();
       const alert = page.getByTestId('chat-error');
       await expect(alert).toBeVisible({ timeout: 20_000 });
       await expect(alert).toContainText('SESSION_CONFLICT');

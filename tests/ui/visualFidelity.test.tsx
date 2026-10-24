@@ -52,15 +52,29 @@ const SESSION_NEWER = session({
 interface Route {
   listProjects?: unknown;
   listSessions?: unknown;
+  readSession?: unknown;
 }
+
+const EMPTY_READ = {
+  header: null,
+  entries: [],
+  leafId: null,
+  nextCursor: null,
+  truncated: false,
+  partialTrailing: false,
+  diagnostics: [],
+  availability: 'ok',
+};
 
 function makeRoutedApi(route: Route = {}): { api: DesktopApi; request: ReturnType<typeof vi.fn> } {
   const request = vi.fn(async (method: string) => {
     if (method === 'listProjects') return route.listProjects ?? { projects: [], diagnostics: [] };
     if (method === 'listSessions') return route.listSessions ?? { sessions: [], diagnostics: [] };
+    if (method === 'readSession') return route.readSession ?? EMPTY_READ;
     if (method === 'openSession') return { state: null };
     if (method === 'closeSession') return { closed: true };
     if (method === 'getState') return { state: null };
+    if (method === 'subscribeEvents') return { subscribed: true };
     return {};
   });
   const base = makeApi(READY);
@@ -146,22 +160,55 @@ describe('T3 center chat workspace (A3/A6)', () => {
     expect(screen.queryByTestId('terminal-dock')).not.toBeInTheDocument();
   });
 
-  it('opens a picked session directly into the chat tab with a bottom composer', async () => {
+  it('opens a picked session straight into its conversation with a live composer (R03 п.1)', async () => {
     const { api } = makeRoutedApi({
       listProjects: { projects: [PROJECT], diagnostics: [] },
       listSessions: { sessions: [SESSION_OLDER], diagnostics: [] },
+      readSession: {
+        header: { type: 'session', version: 3, id: 'x', timestamp: 'T', cwd: '/work/repo' },
+        entries: [
+          {
+            type: 'message',
+            id: 'm1',
+            parentId: null,
+            timestamp: 'T',
+            raw: { type: 'message', id: 'm1', parentId: null, message: { role: 'user', content: 'stored line', timestamp: 1 } },
+          },
+        ],
+        leafId: null,
+        nextCursor: null,
+        truncated: false,
+        partialTrailing: false,
+        diagnostics: [],
+        availability: 'ok',
+      },
     });
     render(<App api={api} moduleDefinitions={[]} />);
     await userEvent.click(await screen.findByTestId('session-sess-older'));
-    // No extra hop: the chat is already the active tab of the detail view.
-    const pane = await screen.findByTestId('chat-pane');
-    expect(pane).toBeInTheDocument();
-    // The composer is anchored at the bottom of the pane, disabled until the
-    // chat is actually opened — drafts survive view/theme switches (App state).
-    const composer = screen.getByTestId('chat-composer');
-    expect(composer).toBeInTheDocument();
-    expect(composer).toHaveAttribute('disabled');
-    expect(screen.getByTestId('open-chat')).toBeInTheDocument();
+    // R03 п.1: the conversation IS the chat — no История/Чат tab framing and
+    // no invitation block; the stored history is visible at once …
+    await screen.findByText('stored line');
+    expect(screen.queryByTestId('tab-history')).toBeNull();
+    expect(screen.queryByTestId('tab-chat')).toBeNull();
+    expect(screen.queryByTestId('open-chat')).toBeNull();
+    expect(screen.queryByText(/официальный Pi RPC/i)).toBeNull();
+    // … and the composer is usable immediately (its draft survives switches).
+    expect(screen.getByTestId('chat-composer')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-composer')).toBeEnabled();
+  });
+
+  it('keeps the Pi RPC write-boundary explanation in Settings → Connection, not in the workspace (R03 п.1)', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi(READY)} moduleDefinitions={[]} />);
+    await user.click(await screen.findByTestId('nav-settings'));
+    await user.click(await screen.findByTestId('settings-tab-connection'));
+    // the technical explanation lives with the connection diagnostics …
+    await screen.findByTestId('rpc-write-boundary-note');
+    expect(screen.getByTestId('rpc-write-boundary-note')).toHaveTextContent(/официальный Pi RPC/);
+    // … and the chat workspace carries no diagnostic lecture copy
+    await user.click(await screen.findByTestId('nav-chat'));
+    expect(screen.queryByTestId('rpc-write-boundary-note')).toBeNull();
+    expect(screen.queryByText(/каждый шаг требует вашего действия/i)).toBeNull();
   });
 });
 

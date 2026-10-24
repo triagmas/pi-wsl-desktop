@@ -643,6 +643,11 @@ export function SettingsView(props: SettingsViewProps) {
             onRefresh={props.onRefresh}
             onSelectDistro={props.onSelectDistro}
           />
+          {/* R03 п.1: the write-boundary explanation lives here, not as a
+              lecture in the chat workspace. */}
+          <p className="muted" data-testid="rpc-write-boundary-note">
+            Чат пишет в сессию только через официальный Pi RPC — каждый шаг требует вашего действия.
+          </p>
         </div>
       )}
     </section>

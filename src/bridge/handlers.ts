@@ -25,6 +25,8 @@ import {
   ListProjectsResultSchema,
   ListSessionsParamsSchema,
   ListSessionsResultSchema,
+  NewSessionParamsSchema,
+  NewSessionResultSchema,
   OpenSessionParamsSchema,
   OpenSessionResultSchema,
   ReadSessionParamsSchema,
@@ -33,6 +35,7 @@ import {
   SearchResultSchema,
   SendPromptParamsSchema,
   SubscribeParamsSchema,
+  type SessionInfoT,
 } from '../shared/m1Protocol';
 import {
   ApplyResourceOpParamsSchema,
@@ -57,7 +60,7 @@ import { probePi, type PiProbe, type SpawnFn } from './probe';
 import { buildSessionIndex, inodeMatches, nodeFs, resolveSessionRoots, type FsLike } from './sessions';
 import { readSessionFile } from './sessionReader';
 import { searchSessions } from './search';
-import { ChatSessionManager } from './chatSession';
+import { ChatSessionManager, NEW_DIALOG_NAME } from './chatSession';
 import { loadAgentConfig, type AgentConfig } from './resources/agentConfig';
 import { discoverMcp } from './resources/mcp';
 import { ResourceOps } from './resources/ops';
@@ -362,6 +365,36 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
       } finally {
         await opened.handle.close().catch(() => undefined); // R1d: keep the original error
       }
+    },
+    // R03 п.2 — real session creation (documented M1 extension): params are
+    // schema-validated (no NUL, absolute path, strict object), the spawn cwd
+    // is bridge-owned, and the record mirrors Pi persistence semantics —
+    // PROVISIONAL (size 0, availability 'empty', createdAt null) until the
+    // first message materializes the file; the session index never claims a
+    // file that does not exist.
+    newSession: async (params) => {
+      const p = parseParams(NewSessionParamsSchema, params, 'newSession');
+      const created = await getChat().create(p.projectPath);
+      const file = created.state.sessionFile ?? '';
+      const { roots } = await resolveSessionRoots({ fs: nodeFs, env: ctx.env, home: ctx.home });
+      const root =
+        roots.find((r) => file === r || file.startsWith(r.endsWith('/') ? r : `${r}/`)) ?? path.posix.dirname(file);
+      const session: SessionInfoT = {
+        id: created.state.sessionId ?? '',
+        file,
+        root,
+        projectId: created.cwd,
+        projectPath: created.cwd,
+        name: NEW_DIALOG_NAME,
+        createdAt: null,
+        updatedAt: new Date(now()).toISOString(),
+        sizeBytes: 0,
+        version: 1,
+        availability: 'empty',
+        activeWrite: false,
+        diagnostics: null,
+      };
+      return assertOut(NewSessionResultSchema, { state: created.state, session }, 'newSession');
     },
     sendPrompt: async (params) => {
       const p = parseParams(SendPromptParamsSchema, params, 'sendPrompt');

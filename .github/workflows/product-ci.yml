@@ -57,6 +57,18 @@ jobs:
       - name: Playwright Electron E2E
         run: xvfb-run -a npx playwright test
 
+      # R03 п.6 (owner-requested): reviewed screenshots must be downloadable
+      # as CI artifacts, not only present in a local test-results dir. The
+      # hygiene gate (e2e/hygiene.ts) runs before every PNG is written.
+      - name: Upload UI screenshot artifacts (owner visual review)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: uia-r03-screenshots-${{ github.sha }}
+          path: test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
   windows:
     name: Windows — typecheck, lint, unit+contract, build, installer, packaged smoke
     runs-on: windows-latest # Standard GitHub-hosted runner: free for public repos.

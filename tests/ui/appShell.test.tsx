@@ -73,12 +73,12 @@ describe('App shell', () => {
     expect(within(bar).queryByText(/\d+\s*%/)).not.toBeInTheDocument();
   });
 
-  it('renders NO fake terminal content in UI-A — slot only, explicitly deferred', () => {
+  it('renders NO fake terminal content and NO reserved strip in UI-A', () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     expect(screen.queryByTestId('terminal-dock')).not.toBeInTheDocument();
     expect(screen.queryByText(/bash|zsh|PS C:/i)).not.toBeInTheDocument();
-    // the composer still reserves the space above the status bar (layout slot)
-    expect(screen.getByTestId('terminal-slot')).toBeInTheDocument();
+    // R02 A6: closed/unimplemented dock reserves ZERO height — no strip.
+    expect(screen.queryByTestId('terminal-slot')).not.toBeInTheDocument();
   });
 
   it('registers the chat event subscription on ready — M1 invariant (red)', async () => {
@@ -123,8 +123,11 @@ describe('App shell', () => {
     });
     render(<App api={api} moduleDefinitions={[]} />);
     await user.click(await screen.findByTestId('session-s1'));
-    await user.click(await screen.findByTestId('tab-chat'));
-    await user.click(screen.getByRole('button', { name: 'Открыть чат' }));
+    // R03 п.1: the composer is live immediately — an explicit send opens the
+    // chat itself (no tab strip, no «Открыть чат» button).
+    const input = await screen.findByTestId('chat-composer');
+    await user.type(input, 'open the slot');
+    await user.click(screen.getByRole('button', { name: 'Отправить' }));
     await waitFor(() => expect(screen.getByTestId('chat-status')).toBeInTheDocument());
     await user.click(screen.getByTestId('session-s2'));
     expect(screen.getByTestId('switch-confirm')).toBeInTheDocument();

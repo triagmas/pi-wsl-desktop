@@ -745,6 +745,9 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     // switch distro (B) whose discovery FAILS: the previous environment's
     // registry must not stay on screen — toggles would persist into B.
     mode = 'fail';
+    // R02: the distro selector lives in Settings → Connection.
+    await user.click(await screen.findByTestId('nav-settings'));
+    await user.click(await screen.findByTestId('settings-tab-connection'));
     const select = await screen.findByRole('combobox');
     await user.selectOptions(select, 'Ubuntu中文');
 

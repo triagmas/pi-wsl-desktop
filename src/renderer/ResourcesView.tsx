@@ -7,13 +7,14 @@
  * plain text (hostile names/diagnostics stay inert) and MCP env VALUES never
  * arrive in the first place (keys only, enforced by the bridge contract).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DesktopApi } from './api';
 import { parseBridgeError } from './m1api';
 import { m2, type PreviewOpInput } from './m2api';
+import { IconModules, IconResources, IconSearch, IconTerminal } from './shell/icons';
 import type { BuiltinInfoT, McpServerInfoT, PackageInfoT, ResourceOpPlanT, SkillInfoT } from './types';
 
-type ResTab = 'skills' | 'packages' | 'mcp';
+export type ResTab = 'skills' | 'packages' | 'mcp';
 
 interface OpResult {
   ok: boolean;
@@ -23,8 +24,17 @@ interface OpResult {
   verified: boolean;
 }
 
-export function ResourcesView({ api }: { api: DesktopApi | null }) {
-  const [tab, setTab] = useState<ResTab>('skills');
+export function ResourcesView({
+  api,
+  tab,
+  onTabChange,
+}: {
+  api: DesktopApi | null;
+  /** R03 п.3: controlled so the window-titlebar can render the live
+   * «Секция / Подсекция» path (ref3/ref4) — state lifted to App. */
+  tab: ResTab;
+  onTabChange: (next: ResTab) => void;
+}) {
   const [skills, setSkills] = useState<SkillInfoT[] | null>(null);
   const [packages, setPackages] = useState<{ packages: PackageInfoT[]; builtins: BuiltinInfoT[]; settingsExtensions: string[] } | null>(null);
   const [mcp, setMcp] = useState<{ servers: McpServerInfoT[]; builtinEnabled: boolean; logDiagnostics: string[] } | null>(null);
@@ -33,6 +43,10 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
   const [plan, setPlan] = useState<ResourceOpPlanT | null>(null);
   const [opResult, setOpResult] = useState<OpResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // R02 A5: reference-style inventory filtering (client-side, over real data).
+  const [skillQuery, setSkillQuery] = useState('');
+  const [skillSource, setSkillSource] = useState('all');
 
   // Install/add form state (cleared as soon as a plan is produced — secrets
   // must not linger in the renderer after the preview request).
@@ -138,8 +152,38 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
 
   const excluded = (s: SkillInfoT): boolean => s.status === 'excluded';
 
+  /** Russian plural for the inventory meta line (1 навык / 2 навыка / 5 навыков). */
+  const skillsWord = (n: number): string => {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'навык';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'навыка';
+    return 'навыков';
+  };
+
+  const skillSources = useMemo(
+    () => (skills === null ? [] : [...new Set(skills.map((s) => s.source))].sort()),
+    [skills],
+  );
+  const visibleSkills = useMemo(() => {
+    if (skills === null) return [];
+    const q = skillQuery.trim().toLowerCase();
+    return skills.filter(
+      (s) =>
+        (skillSource === 'all' || s.source === skillSource) &&
+        (q === '' ||
+          s.name.toLowerCase().includes(q) ||
+          (s.description ?? '').toLowerCase().includes(q)),
+    );
+  }, [skills, skillQuery, skillSource]);
+
   return (
     <section data-testid="resources-view" className="resources">
+      <header className="view-intro">
+        <h1>Ресурсы</h1>
+        <p className="muted">Навыки, расширения и подключения вашего Pi</p>
+      </header>
+
       <nav className="main-tabs" data-testid="res-tabs">
         {(
           [
@@ -154,7 +198,7 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
             data-testid={`res-tab-${key}`}
             className={tab === key ? 'tab tab-active' : 'tab'}
             aria-pressed={tab === key}
-            onClick={() => setTab(key)}
+            onClick={() => onTabChange(key)}
           >
             {label}
           </button>
@@ -224,52 +268,90 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
 
       {tab === 'skills' && (
         <div className="res-panel" data-testid="panel-skills">
+          <div className="res-toolbar">
+            <label className="res-search">
+              <IconSearch className="res-search-icon" />
+              <input
+                data-testid="skills-search"
+                type="search"
+                placeholder="Найти навык..."
+                aria-label="Найти навык"
+                value={skillQuery}
+                onChange={(e) => setSkillQuery(e.target.value)}
+              />
+            </label>
+            <label className="res-source-filter">
+              <span className="visually-hidden">Источник</span>
+              <select
+                data-testid="skills-source-filter"
+                aria-label="Источник"
+                value={skillSource}
+                onChange={(e) => setSkillSource(e.target.value)}
+              >
+                <option value="all">Все источники</option>
+                {skillSources.map((source) => (
+                  <option key={source} value={source}>
+                    {source}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           {skills === null ? (
             <p className="muted">Загрузка…</p>
           ) : (
-            <table className="res-table" data-testid="skills-table">
-              <thead>
-                <tr>
-                  <th>Имя</th>
-                  <th>Источник</th>
-                  <th>Статус</th>
-                  <th>Описание</th>
-                  <th>Действие</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skills.map((s) => (
-                  <tr key={`${s.source}:${s.dir}`} data-testid="skill-row">
-                    <td>{s.name}</td>
-                    <td>{s.source}</td>
-                    <td data-testid="skill-status">{s.status}</td>
-                    <td>{s.description ?? '—'}</td>
-                    <td>
-                      <button
-                        type="button"
-                        data-testid="skill-toggle"
-                        disabled={s.status === 'missing' || s.status === 'invalid'}
-                        onClick={() =>
-                          startPreview({
-                            kind: 'skill-set',
-                            source: s.dir,
-                            disable: !excluded(s),
-                          })
-                        }
-                      >
-                        {excluded(s) ? 'Включить' : 'Отключить'}
-                      </button>
-                    </td>
-                  </tr>
+            <>
+              <p className="res-meta muted" data-testid="skills-meta">
+                {visibleSkills.length} {skillsWord(visibleSkills.length)}
+              </p>
+              <ul className="res-skill-list" data-testid="skills-list">
+                {visibleSkills.length === 0 && <li className="muted sidebar-empty">Навыки не найдены</li>}
+                {visibleSkills.map((s) => (
+                  <li key={`${s.source}:${s.dir}`} data-testid="skill-row" className="res-skill-row">
+                    <span className="res-row-tile" aria-hidden="true">
+                      <IconResources />
+                    </span>
+                    <span className="res-row-main">
+                      <span className="res-row-name">{s.name}</span>
+                      <span className="res-row-desc muted">{s.description ?? 'Описание не указано'}</span>
+                    </span>
+                    <span className="res-row-source muted" data-testid="skill-source">
+                      {s.source}
+                    </span>
+                    {s.status !== 'ok' && (
+                      <span className="badge badge-warn" data-testid="skill-status">
+                        {s.status}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="skill-toggle"
+                      className="res-row-action"
+                      disabled={s.status === 'missing' || s.status === 'invalid'}
+                      onClick={() =>
+                        startPreview({
+                          kind: 'skill-set',
+                          source: s.dir,
+                          disable: !excluded(s),
+                        })
+                      }
+                    >
+                      {excluded(s) ? 'Включить' : 'Отключить'}
+                    </button>
+                  </li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            </>
           )}
         </div>
       )}
 
       {tab === 'packages' && (
         <div className="res-panel" data-testid="panel-packages">
+          <div className="res-tile-head" aria-hidden="true">
+            <IconModules />
+          </div>
           <form
             className="res-form"
             data-testid="install-form"
@@ -352,6 +434,9 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
 
       {tab === 'mcp' && (
         <div className="res-panel" data-testid="panel-mcp">
+          <div className="res-tile-head" aria-hidden="true">
+            <IconTerminal />
+          </div>
           <form
             className="res-form"
             data-testid="mcp-form"

@@ -192,6 +192,12 @@ export interface SettingsViewProps {
   api: DesktopApi | null;
   appearance: AppearanceSettings;
   ready: boolean;
+  /** Section to land on when Settings opens (R02: the connection-recovery
+   * shortcut in the chat empty state opens Connection, not Appearance). */
+  initialSection?: Section;
+  /** R03 п.3: live section for the window-titlebar path — state lifted to
+   * App without changing Settings' own internal navigation. */
+  onSectionChange?: (next: Section) => void;
   onChange: (next: AppearanceSettings) => void;
   onReset: () => void;
   snapshot: RendererSnapshot;
@@ -202,11 +208,11 @@ export interface SettingsViewProps {
   layout: LayoutControls;
 }
 
-type Section = 'appearance' | 'typography' | 'workspace' | 'connection';
+export type Section = 'appearance' | 'typography' | 'workspace' | 'connection';
 
 export function SettingsView(props: SettingsViewProps) {
-  const { appearance, ready, onChange, onReset, layout } = props;
-  const [section, setSection] = useState<Section>('appearance');
+  const { appearance, ready, onChange, onReset, layout, onSectionChange } = props;
+  const [section, setSection] = useState<Section>(props.initialSection ?? 'appearance');
 
   /* Custom editor state (§9.2): opened only under the fifth card. */
   const [editorOpen, setEditorOpen] = useState(false);
@@ -320,7 +326,10 @@ export function SettingsView(props: SettingsViewProps) {
             role="tab"
             data-testid={`settings-tab-${id}`}
             aria-selected={section === id}
-            onClick={() => setSection(id)}
+            onClick={() => {
+              setSection(id);
+              onSectionChange?.(id);
+            }}
           >
             {label}
           </button>
@@ -521,7 +530,7 @@ export function SettingsView(props: SettingsViewProps) {
                 </span>
               </div>
 
-              <div className="theme-editor-actions">
+              <div className="theme-editor-actions" data-testid="theme-editor-actions">
                 <button type="button" className="btn-primary" data-testid="theme-apply" onClick={applyCustom}>
                   Apply
                 </button>
@@ -640,6 +649,11 @@ export function SettingsView(props: SettingsViewProps) {
             onRefresh={props.onRefresh}
             onSelectDistro={props.onSelectDistro}
           />
+          {/* R03 п.1: the write-boundary explanation lives here, not as a
+              lecture in the chat workspace. */}
+          <p className="muted" data-testid="rpc-write-boundary-note">
+            Чат пишет в сессию только через официальный Pi RPC — каждый шаг требует вашего действия.
+          </p>
         </div>
       )}
     </section>

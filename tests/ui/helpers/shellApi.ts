@@ -19,6 +19,9 @@ export interface ShellMockApi extends DesktopApi {
   _retry: ReturnType<typeof vi.fn>;
   _request: ReturnType<typeof vi.fn>;
   _getStatus: ReturnType<typeof vi.fn>;
+  /** R03 review P1-7: App-level tests drive the chat stream by pushing
+   * real event frames through the same subscription bus. */
+  _pushChatEvent: (payload: unknown) => void;
 }
 
 /** Shared UI-test API double for the App Shell suites. */
@@ -35,6 +38,7 @@ export function makeApi(initial: RendererSnapshot = READY_SNAPSHOT): ShellMockAp
     for (const cb of subs) cb(current);
     return current;
   });
+  const chatSubs: Array<(p: unknown) => void> = [];
   const request = vi.fn(async (method: string) => {
     if (method === 'listProjects') return { projects: [], diagnostics: [] };
     if (method === 'listSessions') return { sessions: [], diagnostics: [] };
@@ -57,13 +61,20 @@ export function makeApi(initial: RendererSnapshot = READY_SNAPSHOT): ShellMockAp
       subs.push(cb);
       return () => undefined;
     },
-    onChatEvent: () => () => undefined,
+    onChatEvent: (cb) => {
+      chatSubs.push(cb);
+      return () => {
+        const i = chatSubs.indexOf(cb);
+        if (i >= 0) chatSubs.splice(i, 1);
+      };
+    },
     getAppearance: async () => undefined,
     saveAppearance: async () => undefined,
     resetAppearance: async () => undefined,
     _retry: retry,
     _request: request,
     _getStatus: getStatus,
+    _pushChatEvent: (payload: unknown) => [...chatSubs].forEach((cb) => cb(payload)),
   };
   return api;
 }

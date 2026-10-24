@@ -6,9 +6,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ResourcesView } from '../../src/renderer/ResourcesView';
+import { useState } from 'react';
+import { ResourcesView, type ResTab } from '../../src/renderer/ResourcesView';
 import type { DesktopApi } from '../../src/renderer/api';
 import type { RendererSnapshot } from '../../src/renderer/types';
+
+/** R03 п.3: ResourcesView's tab is now controlled (the window-titlebar path
+ * renders it) — the harness keeps the tests' local switching semantics. */
+function ResourcesHarness({ api }: { api: DesktopApi | null }) {
+  const [tab, setTab] = useState<ResTab>('skills');
+  return <ResourcesView api={api} tab={tab} onTabChange={setTab} />;
+}
 
 const READY: RendererSnapshot = { phase: 'ready', attempt: 0, distro: 'Ubuntu', distros: null, runtime: null };
 
@@ -100,7 +108,7 @@ const SKILLS = {
 describe('ResourcesView — skills inventory', () => {
   it('renders rows with provenance/status and keeps hostile content inert', async () => {
     const { api } = makeApi({ listSkills: SKILLS });
-    render(<ResourcesView api={api} />);
+    render(<ResourcesHarness api={api} />);
     const rows = await screen.findAllByTestId('skill-row');
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent('code-review');
@@ -117,7 +125,7 @@ describe('ResourcesView — skills inventory', () => {
 
   it('toggling previews a skill-set op (no apply before explicit confirm)', async () => {
     const { api, calls } = makeApi({ listSkills: SKILLS });
-    render(<ResourcesView api={api} />);
+    render(<ResourcesHarness api={api} />);
     const btns = await screen.findAllByTestId('skill-toggle');
     await userEvent.click(btns[0] as HTMLElement);
     await screen.findByTestId('op-plan');
@@ -144,7 +152,7 @@ describe('ResourcesView — packages write flow', () => {
         diagnostics: [],
       },
     });
-    render(<ResourcesView api={api} />);
+    render(<ResourcesHarness api={api} />);
     await userEvent.click(await screen.findByTestId('res-tab-packages'));
     await screen.findByTestId('packages-table');
     expect(screen.getByTestId('builtins-list')).toHaveTextContent('mcp — включено');
@@ -220,7 +228,7 @@ describe('ResourcesView — MCP tab', () => {
         return { plan: { ...dummyPlan, command: ['pi', 'mcp', 'add', 'newbox', '--env', 'NEW_TOKEN=***'], commandRedacted: true, description: 'pi mcp add newbox' } };
       },
     });
-    render(<ResourcesView api={api} />);
+    render(<ResourcesHarness api={api} />);
     await userEvent.click(await screen.findByTestId('res-tab-mcp'));
     await screen.findByTestId('mcp-table');
     expect(screen.getAllByTestId('mcp-envkeys')[0]).toHaveTextContent('BOX_TOKEN');
@@ -253,7 +261,7 @@ describe('ResourcesView — MCP tab', () => {
 
   it('surfaces bridge errors with their stable code', async () => {
     const { api } = makeApi({ errors: { listMcpServers: new Error('INVALID_REQUEST: mcp.json: malformed JSON (ignored)') } });
-    render(<ResourcesView api={api} />);
+    render(<ResourcesHarness api={api} />);
     await userEvent.click(await screen.findByTestId('res-tab-mcp'));
     const box = await screen.findByTestId('res-error');
     expect(box).toHaveTextContent('INVALID_REQUEST');
@@ -266,7 +274,7 @@ describe('ResourcesView — MCP tab', () => {
       preview: () => ({ plan: dummyPlan }),
       apply: () => ({ ok: false, opId: 'op-1', output: 'cli failed: boom', backupId: 'b-1', filesTouched: dummyPlan.filesTouched, verified: false }),
     });
-    render(<ResourcesView api={api} />);
+    render(<ResourcesHarness api={api} />);
     const toggles = await screen.findAllByTestId('skill-toggle');
     await userEvent.click(toggles[0] as HTMLElement);
     await screen.findByTestId('op-plan');

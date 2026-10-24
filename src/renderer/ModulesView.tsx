@@ -30,6 +30,9 @@ export function ModulesView({
 }: ModulesViewProps) {
   return (
     <section className="panel" aria-label="Модули" data-testid="modules-view" data-loading={loading ? 'true' : 'false'}>
+      {/* Owner п.3 lists ONLY Ресурсы/Настройки — the M3-contract heading
+          stays (restore R03: heading-less views would break п.4's
+          accessibility requirement). */}
       <header className="panel-header">
         <h2 data-testid="modules-heading">Модули</h2>
       </header>

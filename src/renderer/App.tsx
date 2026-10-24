@@ -1,17 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
-import { StatusPanel } from './StatusPanel';
 import { SessionDetail } from './SessionDetail';
-import { ResourcesView } from './ResourcesView';
+import { ResourcesView, type ResTab } from './ResourcesView';
 import { ModulesView } from './ModulesView';
-import { SettingsView } from './SettingsView';
+import { SettingsView, type Section } from './SettingsView';
 import { ModulePanel } from './ModulePanel';
 import { ModuleTabView } from './ModuleTabView';
 import type { ModuleAction } from '../shared/m3Protocol';
 import { ListModulesResultSchema } from '../shared/m3Ipc';
 import { useConnection } from './useConnection';
 import { useChat } from './useChat';
+import { useHistoryFeed } from './historyFeed';
 import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
 import {
   modulePanels,
@@ -24,12 +24,13 @@ import { AppShell } from './shell/AppShell';
 import { LeftSidebar } from './shell/LeftSidebar';
 import { RightSidebar } from './shell/RightSidebar';
 import { StatusBar } from './shell/StatusBar';
-import { TerminalSlot } from './shell/TerminalSlot';
+import { IconDetailsPanel } from './shell/icons';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
 import { THEME_PRESETS } from '../shared/design/presets';
 import { DEFAULT_APPEARANCE, migrateAppearance, type AppearanceSettings } from '../shared/appearance';
-import { m1 } from './m1api';
+import { m1, parseBridgeError } from './m1api';
+import { sessionLabel } from './shell/LeftSidebar';
 import type { SessionInfoT } from './types';
 
 export interface AppProps {
@@ -50,11 +51,25 @@ const RIGHT_PANEL_MAX = 560;
 const LEFT_MIN = 200;
 const LEFT_MAX = 480;
 
+/** R03 п.3: window-titlebar path labels (ref3/ref4 — «Секция / Подсекция»). */
+const RES_TAB_LABELS: Record<ResTab, string> = { skills: 'Skills', packages: 'Extensions', mcp: 'MCP' };
+const SETTINGS_SECTION_LABELS: Record<Section, string> = {
+  appearance: 'Внешний вид',
+  typography: 'Типографика',
+  workspace: 'Рабочее пространство',
+  connection: 'Подключение',
+};
+
 export function App({ api, moduleDefinitions }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
   const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
   /** §9.6 step 2: chat is the default workspace (details of the base screen). */
   const [view, setView] = useState<View>('chat');
+  /** Which Settings section to land on when Settings opens (R02 review P2:
+   * the connection-recovery shortcut must reach Connection, not Appearance). */
+  const [settingsSection, setSettingsSection] = useState<Section>('appearance');
+  /** R03 п.3: live resources tab for the window-titlebar path. */
+  const [resourcesTab, setResourcesTab] = useState<ResTab>('skills');
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
@@ -139,6 +154,19 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     applyTypography(document.documentElement, appearance.typography);
   }, [themeTokens, appearance.typography]);
 
+  /** A1: native caption buttons follow the active theme (optional API —
+   *  no-op in tests and with older preloads). */
+  useEffect(() => {
+    const overlay = effectiveApi?.setTitleBarOverlay;
+    if (!overlay) return;
+    void overlay
+      .call(effectiveApi, {
+        backgroundColor: themeTokens.titleBarBackgroundColor,
+        textColor: themeTokens.bodyTextColor,
+      })
+      .catch(() => undefined);
+  }, [effectiveApi, themeTokens]);
+
   const persistAppearance = (next: AppearanceSettings): void => {
     setAppearance(next);
     if (!effectiveApi) return;
@@ -175,9 +203,35 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * ------------------------------------------------------------------ */
   const [activeSession, setActiveSession] = useState<SessionInfoT | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionInfoT | null>(null);
+  /** R03 п.2: create-while-busy needs the same fail-closed confirm as switch. */
+  const [pendingNewDialog, setPendingNewDialog] = useState(false);
+  /** Files created via newSession that have not materialized on disk yet. */
+  const [provisional, setProvisional] = useState<ReadonlySet<string>>(() => new Set());
+  const [newChatError, setNewChatError] = useState<{ code: string; message: string } | null>(null);
+  // Review P1-3 (renderer): a SYNCHRONOUS create reservation — rapid repeat
+  // activations cannot start a second newSession while the first is in flight.
+  const creatingDialogRef = useRef(false);
+  const [creatingDialog, setCreatingDialog] = useState(false);
+  /** Bumped when a provisional session materializes — the sidebar refetches. */
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const chat = useChat(effectiveApi, activeSession?.file ?? '');
+  // Review P1-2: the conversation feed is app-lifetime — it must survive
+  // leaving/returning the chat view so a re-entry cannot refetch persisted
+  // history on top of the controller's retained live entries.
+  const historyFeed = useHistoryFeed(effectiveApi, activeSession?.file ?? '');
   const [draft, setDraft] = useState('');
   const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
+
+  /** Review P1-4: retiring ABANDONED provisional records on the transition
+   * itself (never in an effect) — a dialog left un-materialized when the
+   * user switches away must not drive reconciliation churn. */
+  const retireOtherProvisional = (file: string): void =>
+    setProvisional((prev) => {
+      if (prev.size === 0 || prev.has(file)) return prev;
+      const next = new Set(prev);
+      for (const f of prev) next.delete(f);
+      return next;
+    });
 
   const pickSession = (session: SessionInfoT): void => {
     if (activeSession?.file === session.file) {
@@ -190,8 +244,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       setView('chat');
       return;
     }
+    retireOtherProvisional(session.file);
     setActiveSession(session);
     setDraft('');
+    setNewChatError(null);
     setView('chat');
   };
 
@@ -203,15 +259,64 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       // confirm dialog up and do not present another session as active.
       return;
     }
+    retireOtherProvisional(pendingSession.file);
     setActiveSession(pendingSession);
     setPendingSession(null);
     setDraft('');
     setView('chat');
   };
 
+  /** R03 п.2 — REAL session creation over the bridge (single-slot, fail-closed). */
+  const createDialog = async (): Promise<void> => {
+    if (!effectiveApi) return;
+    if (creatingDialogRef.current) return; // review P1-3: one create at a time
+    creatingDialogRef.current = true;
+    setCreatingDialog(true);
+    setNewChatError(null);
+    try {
+      const r = await m1.newSession(
+        effectiveApi,
+        activeSession?.projectPath ? { projectPath: activeSession.projectPath } : {},
+      );
+      // The new dialog replaces any abandoned provisional sibling (review P1-4).
+      retireOtherProvisional(r.session.file);
+      setProvisional((prev) => new Set(prev).add(r.session.file));
+      setActiveSession(r.session);
+      chat.adoptOpen(r.state, r.session.file);
+      setDraft('');
+      setView('chat');
+    } catch (err) {
+      setNewChatError(parseBridgeError(err));
+    } finally {
+      creatingDialogRef.current = false;
+      setCreatingDialog(false);
+    }
+  };
+
+  const confirmPendingNewDialog = async (): Promise<void> => {
+    const closed = await chat.closeChat();
+    if (!closed) {
+      // Fail-closed: the old session may still be live — keep the guard up.
+      return;
+    }
+    setPendingNewDialog(false);
+    await createDialog();
+  };
+
   const newChat = (): void => {
-    // Bridge M1 has no create-session method (ALL_METHODS check): «Новый
-    // диалог» focuses the most recent real session instead of faking creation.
+    if (!effectiveApi) return;
+    // Never auto-close a live chat: ask first, exactly like session switching.
+    if (chatBusy) {
+      setPendingNewDialog(true);
+      setView('chat');
+      return;
+    }
+    void createDialog();
+  };
+
+  /** Honest secondary action (never relabelled as creation): opens the most
+   * recent EXISTING session — kept for the empty state only. */
+  const openLatestDialog = (): void => {
     void (async () => {
       if (!effectiveApi) return;
       try {
@@ -227,6 +332,54 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       }
     })();
   };
+
+  /* R03 п.2 lifecycle: a created session exists in the Pi process only until
+   * its first message materializes the JSONL file (Pi _hasConversation). The
+   * index is the single source of truth — once the file appears the real
+   * record replaces the provisional one and the sidebar refreshes; if the
+   * chat is closed first, the never-persisted dialog is honestly dropped. */
+  useEffect(() => {
+    // Review P1-4: only an ACTIVE provisional file is reconciled — records
+    // for other sessions are outside this effect's ownership (retired above).
+    if (!effectiveApi || provisional.size === 0 || !activeSession) return undefined;
+    if (!provisional.has(activeSession.file)) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { sessions } = await m1.listSessions(effectiveApi);
+        if (cancelled) return;
+        const file = activeSession.file;
+        const real = sessions.find((s) => s.file === file);
+        const drop = (): void =>
+          setProvisional((prev) => {
+            const next = new Set(prev);
+            next.delete(file);
+            return next;
+          });
+        if (real) {
+          drop();
+          // Identity-stable replace: unchanged data keeps the same object →
+          // effect deps settle instead of spawning another refetch (review P1-4).
+          setActiveSession((prev) =>
+            prev && prev.file === real.file && prev.updatedAt === real.updatedAt && prev.availability === real.availability && prev.name === real.name
+              ? prev
+              : real,
+          );
+          setSidebarRefreshKey((k) => k + 1);
+        } else if (chat.state.status === 'closed') {
+          drop();
+          // Identity-stable null transition as well.
+          setActiveSession((prev) => (prev && prev.file === file ? null : prev));
+          setSidebarRefreshKey((k) => k + 1);
+        }
+      } catch {
+        // discovery errors are surfaced by the sidebar; the next transition retries
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApi, activeSession, provisional, chat.state.status]);
 
   /**
    * R04 external discovery — default registrations only (tests that inject
@@ -428,18 +581,18 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           <span className="muted">
             {activeSession ? activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект' : 'Pi Desktop'}
           </span>
-          <span aria-hidden="true">/</span>
-          <strong>{activeSession ? activeSession.name ?? activeSession.id.slice(0, 8) : 'Диалог'}</strong>
+          <span className="center-slash" aria-hidden="true">/</span>
+          <strong title={activeSession ? sessionLabel(activeSession) : undefined}>
+            {activeSession ? sessionLabel(activeSession) : 'Диалог'}
+          </strong>
+          {activeSession?.activeWrite && <span className="badge badge-active">запись</span>}
+          {activeSession &&
+            activeSession.availability !== 'ok' &&
+            activeSession.availability !== 'empty' && (
+              <span className="badge badge-warn">⚠ {activeSession.diagnostics ?? activeSession.availability}</span>
+            )}
         </div>
         <div className="center-actions">
-          <button
-            type="button"
-            className="icon-btn"
-            title="Подробнее"
-            aria-label="Дополнительные действия"
-          >
-            <span aria-hidden="true">⋯</span>
-          </button>
           <button
             type="button"
             ref={detailsRef}
@@ -450,20 +603,43 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             aria-pressed={detailsOpen}
             onClick={openDetails}
           >
-            <span aria-hidden="true">|›</span>
+            <IconDetailsPanel />
           </button>
         </div>
       </header>
     ) : (
       <header className="center-head" data-testid="view-head">
         <div className="center-title">
-          <strong>
-            {view === 'resources'
-              ? 'Ресурсы'
-              : view === 'modules' || view.startsWith('module:')
-                ? 'Модули'
-                : 'Настройки'}
-          </strong>
+          {/* R03 п.3: the titlebar carries the PATH («Секция / Подсекция»,
+              ref3/ref4) — never a bare repeat of the content heading. */}
+          {view === 'resources' && (
+            <>
+              <strong>Ресурсы</strong>
+              <span className="center-slash">{" / "}</span>
+              <span className="muted">{RES_TAB_LABELS[resourcesTab]}</span>
+            </>
+          )}
+          {view === 'settings' && (
+            <>
+              <strong>Настройки</strong>
+              <span className="center-slash">{" / "}</span>
+              <span className="muted">{SETTINGS_SECTION_LABELS[settingsSection]}</span>
+            </>
+          )}
+          {(view === 'modules' || view.startsWith('module:')) && (
+            <>
+              <strong>Модули</strong>
+              {view.startsWith('module:') && (() => {
+                const tab = tabs.find((t) => t.tabKey === view.slice('module:'.length));
+                return tab ? (
+                  <>
+                    <span className="center-slash">{" / "}</span>
+                    <span className="muted">{tab.tab.title}</span>
+                  </>
+                ) : null;
+              })()}
+            </>
+          )}
         </div>
       </header>
     );
@@ -472,20 +648,48 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   if (view === 'chat') {
     centerBody = (
       <div className="chat-workspace" data-testid="view-chat">
-        {pendingSession && (
+        {newChatError && (
+          <div className="error-box" role="alert" data-testid="new-chat-error">
+            <strong>{newChatError.code}</strong> — {newChatError.message}
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewChatError(null);
+                  newChat();
+                }}
+              >
+                Повторить
+              </button>
+            </div>
+          </div>
+        )}
+        {(pendingSession || pendingNewDialog) && (
           <div className="switch-guard" role="alert" data-testid="switch-guard">
             <span>
-              Чат открыт — переключение на другой диалог прервёт его.
+              {pendingNewDialog
+                ? 'Чат открыт — новый диалог закроет текущую сессию.'
+                : 'Чат открыт — переключение на другой диалог прервёт его.'}
             </span>
             <div className="switch-guard-actions">
               <button
                 type="button"
                 data-testid="switch-confirm"
-                onClick={() => void confirmSwitchSession()}
+                onClick={() => {
+                  if (pendingNewDialog) void confirmPendingNewDialog();
+                  else void confirmSwitchSession();
+                }}
               >
-                Закрыть чат и переключиться
+                {pendingNewDialog ? 'Закрыть чат и создать новый' : 'Закрыть чат и переключиться'}
               </button>
-              <button type="button" data-testid="switch-cancel" onClick={() => setPendingSession(null)}>
+              <button
+                type="button"
+                data-testid="switch-cancel"
+                onClick={() => {
+                  setPendingSession(null);
+                  setPendingNewDialog(false);
+                }}
+              >
                 Остаться
               </button>
             </div>
@@ -494,8 +698,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         {activeSession ? (
           <div className="session-detail-wrap">
             <SessionDetail
-              api={effectiveApi as DesktopApi}
-              session={activeSession}
+              feed={historyFeed}
               chat={chat}
               draft={draft}
               onDraftChange={setDraft}
@@ -503,38 +706,65 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           </div>
         ) : (
           <div className="empty-state" data-testid="chat-empty">
+            <span className="empty-state-mark" aria-hidden="true">
+              π
+            </span>
             <h2>Выберите диалог слева</h2>
             <p className="muted">
-              Проекты и чаты загружаются из Pi в WSL. Новый диалог открывает самую свежую сессию;
-              создание файлов сессий доступно в Pi CLI.
+              Проекты и чаты загружаются из Pi в WSL. Создайте новый диалог или выберите
+              существующий.
             </p>
-            <button type="button" className="btn-primary" onClick={newChat}>
+            <button
+              type="button"
+              className="btn-primary"
+              data-testid="empty-new-chat"
+              title="Создать новый диалог через Pi RPC"
+              onClick={newChat}
+              disabled={creatingDialog}
+            >
               Новый диалог
             </button>
-            <div className="empty-status">
-              <StatusPanel
-                snapshot={snapshot}
-                requestError={requestError}
-                api={effectiveApi}
-                onRetry={() => void retry()}
-                onRefresh={() => void refreshRuntime()}
-                onSelectDistro={(d) => void selectDistro(d)}
-              />
-            </div>
+            <button
+              type="button"
+              data-testid="empty-open-latest"
+              title="Открыть самый свежий существующий диалог"
+              onClick={openLatestDialog}
+            >
+              Открыть последний диалог
+            </button>
+            {snapshot.phase === 'error' && (
+              <div className="empty-connection-error" role="alert" data-testid="empty-connection-error">
+                <strong>{snapshot.lastError?.code ?? 'CONNECTION_ERROR'}</strong>{' '}
+                — {snapshot.lastError?.message ?? 'Не удалось подключиться к Pi в WSL'}
+                <div>
+                  <button
+                    type="button"
+                    data-testid="empty-open-settings"
+                    onClick={() => {
+                      setSettingsSection('connection');
+                      setView('settings');
+                    }}
+                  >
+                    Открыть настройки подключения
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
-        <TerminalSlot height={appearance.layout.terminalSlotHeight} />
       </div>
     );
   } else if (view === 'resources') {
-    centerBody = <div data-testid="view-resources"><ResourcesView api={effectiveApi} /></div>;
+    centerBody = <div className="view-pane" data-testid="view-resources"><ResourcesView api={effectiveApi} tab={resourcesTab} onTabChange={setResourcesTab} /></div>;
   } else if (view === 'settings') {
     centerBody = (
-      <div data-testid="view-settings">
+      <div className="view-pane" data-testid="view-settings">
         <SettingsView
           api={effectiveApi}
           appearance={appearance}
           ready={appearanceReady}
+          initialSection={settingsSection}
+          onSectionChange={setSettingsSection}
           onChange={persistAppearance}
           onReset={() => {
             if (!effectiveApi) {
@@ -583,7 +813,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     );
   } else if (view === 'modules') {
     centerBody = (
-      <div data-testid="view-modules">
+      <div className="view-pane" data-testid="view-modules">
         <ModulesView
           entries={moduleEntries}
           diagnostics={loadDiagnostics}
@@ -608,14 +838,20 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           width={leftWidth}
           view={view}
           activeFile={activeSession?.file ?? null}
+          distro={snapshot.distro}
           onToggleCollapsed={() => {
             const next = !appearance.layout.leftCollapsed;
             persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
           }}
           onNewChat={newChat}
+          newChatPending={creatingDialog}
+          refreshKey={sidebarRefreshKey}
           connectionReady={snapshot.phase === 'ready'}
           moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
-          onView={(v) => setView(v as View)}
+          onView={(v) => {
+            if (v === 'settings') setSettingsSection('appearance');
+            setView(v as View);
+          }}
           onPickSession={pickSession}
           onPickProject={() => undefined}
         />
@@ -663,6 +899,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             width={rightWidth}
             tools={chat.state.tools}
             streaming={chat.state.status === 'sending'}
+            title={activeSession ? sessionLabel(activeSession) : null}
             onClose={closeDetails}
           />
         ) : null

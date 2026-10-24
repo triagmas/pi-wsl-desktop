@@ -4,7 +4,7 @@
  * and the byte+mtime no-mutation guarantee across the whole session.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -69,6 +69,12 @@ function ok(result: ResponseOkFrameT): unknown {
 }
 function errCode(e: ResponseErrorFrameT): string {
   return e.error.code;
+}
+/** Discriminates a response frame without relying on a literal union:
+ * both ok/error frames are `{type:'response'}`; an error carries `.error`. */
+function verdictOf(frame: unknown): string {
+  const f = frame as { type?: string; error?: { code?: string } } | null;
+  return f && f.type === 'response' && f.error ? (f.error.code ?? 'unknown') : 'ok';
 }
 
 afterAll(async () => {
@@ -241,6 +247,248 @@ describe('bridge M1 chat lifecycle (real subprocess, fake pi RPC)', () => {
     utimesSync(fx.sessionFile, T0, T0);
     expect(createHash('sha256').update(readFileSync(fx.sessionFile)).digest('hex')).toBe(fx.sha);
     expect(statSync(fx.sessionFile).mtimeMs).toBe(fx.mtime);
+  });
+});
+
+describe('bridge M1 newSession — real creation over bare Pi RPC (R03 п.2)', () => {
+  it('creates a named provisional session, enforces the single slot, validates params', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+
+      // contract: unsafe params are rejected before any spawn
+      child.stdin.write(req('bad1', 'newSession', { projectPath: 'relative/dir' }) + '\n');
+      expect(errCode((await reader.waitForResponse('bad1')).frame as ResponseErrorFrameT)).toBe(
+        'INVALID_REQUEST',
+      );
+      child.stdin.write(req('bad2', 'newSession', { exec: 'anything' }) + '\n');
+      expect(errCode((await reader.waitForResponse('bad2')).frame as ResponseErrorFrameT)).toBe(
+        'INVALID_REQUEST',
+      );
+
+      // real creation: bare `--mode rpc` spawn → get_state → concrete file
+      child.stdin.write(req('n1', 'newSession', { projectPath: fx.projectDir }) + '\n');
+      const created = ok((await reader.waitForResponse('n1')).frame as ResponseOkFrameT) as {
+        state: { sessionId: string | null; sessionFile: string | null; messageCount: number };
+        session: {
+          id: string;
+          file: string;
+          root: string;
+          projectId: string;
+          projectPath: string;
+          name: string | null;
+          createdAt: string | null;
+          updatedAt: string;
+          sizeBytes: number;
+          version: number;
+          availability: string;
+          activeWrite: boolean;
+          diagnostics: string | null;
+        };
+      };
+      // the file path comes from Pi's own get_state — under the session root,
+      // never the fixture file, never outside the env session dir
+      expect(created.state.sessionFile).toBeTruthy();
+      expect(created.state.sessionFile?.startsWith(fx.root)).toBe(true);
+      expect(created.state.sessionFile).not.toBe(fx.sessionFile);
+      expect(created.state.sessionFile?.endsWith('.jsonl')).toBe(true);
+      // honest provisional record: real id from state, no invented history
+      expect(created.session).toMatchObject({
+        id: created.state.sessionId ?? '',
+        file: created.state.sessionFile ?? '',
+        root: fx.root,
+        projectId: fx.projectDir,
+        projectPath: fx.projectDir,
+        name: 'Новый диалог',
+        createdAt: null,
+        sizeBytes: 0,
+        version: 1,
+        availability: 'empty',
+        activeWrite: false,
+        diagnostics: null,
+      });
+      expect(typeof created.session.updatedAt).toBe('string');
+
+      // single chat slot: no auto-close, second create → RESOURCE_BUSY
+      child.stdin.write(req('n2', 'newSession', {}) + '\n');
+      expect(errCode((await reader.waitForResponse('n2')).frame as ResponseErrorFrameT)).toBe(
+        'RESOURCE_BUSY',
+      );
+
+      // mirrors Pi (_hasConversation): nothing hits the disk before the first
+      // message — and the index therefore does not claim the session yet
+      expect(existsSync(created.state.sessionFile ?? '/definitely/missing')).toBe(false);
+      child.stdin.write(req('sl', 'listSessions', {}) + '\n');
+      const listed = ok((await reader.waitForResponse('sl')).frame as ResponseOkFrameT) as {
+        sessions: Array<{ file: string }>;
+      };
+      expect(listed.sessions.map((s) => s.file)).not.toContain(created.state.sessionFile);
+
+      // close releases the slot; a param-less create still resolves a file
+      child.stdin.write(req('cl', 'closeSession') + '\n');
+      expect(ok((await reader.waitForResponse('cl')).frame as ResponseOkFrameT)).toEqual({ closed: true });
+      child.stdin.write(req('n3', 'newSession', {}) + '\n');
+      const created2 = ok((await reader.waitForResponse('n3')).frame as ResponseOkFrameT) as {
+        state: { sessionFile: string | null };
+      };
+      expect(created2.state.sessionFile).toBeTruthy();
+      expect(created2.state.sessionFile).not.toBe(created.state.sessionFile);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('sendPrompt survives the un-materialized file, then the run persists it honestly', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    const chatEvent = (kind: string, name?: string) =>
+      reader.waitFor((f) => {
+        const fr = f.frame;
+        if (!fr || fr.type !== 'event' || fr.event !== 'chat') return false;
+        const payload = fr.payload as { kind: string; name?: string };
+        return payload.kind === kind && (name === undefined || payload.name === name);
+      }, 8_000);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('sub', 'subscribeEvents', { topic: 'chat' }) + '\n');
+      expect(ok((await reader.waitForResponse('sub')).frame as ResponseOkFrameT)).toEqual({ subscribed: true });
+
+      child.stdin.write(req('nc', 'newSession', { projectPath: fx.projectDir }) + '\n');
+      const created = ok((await reader.waitForResponse('nc')).frame as ResponseOkFrameT) as {
+        state: { sessionFile: string | null };
+      };
+      const newFile = created.state.sessionFile ?? '';
+      expect(newFile).toBeTruthy();
+
+      // the idle-time external-writer stat must NOT fail the first prompt on
+      // the not-yet-existing file (no external writer can touch nothing)
+      child.stdin.write(req('pr', 'sendPrompt', { message: 'первый реплике' }) + '\n');
+      const prompt = ok((await reader.waitForResponse('pr')).frame as ResponseOkFrameT) as {
+        disposition: string;
+      };
+      expect(prompt.disposition).toBe('started');
+      await chatEvent('pi', 'agent_settled');
+
+      // fake mirrors Pi: the first message materializes the file with the
+      // durable session_info name queued by set_session_name
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(existsSync(newFile)).toBe(true);
+      child.stdin.write(req('rd', 'readSession', { file: newFile }) + '\n');
+      const read = ok((await reader.waitForResponse('rd')).frame as ResponseOkFrameT) as {
+        header: { cwd: string } | null;
+        entries: Array<{
+          type: string;
+          raw: { name?: string; message?: { role: string; content: unknown } };
+        }>;
+        availability: string;
+      };
+      expect(read.header?.cwd).toBe(fx.projectDir);
+      expect(read.availability).toBe('ok');
+      const info = read.entries.find((e) => e.type === 'session_info');
+      expect(info?.raw.name).toBe('Новый диалог');
+      const roles = read.entries.filter((e) => e.type === 'message').map((e) => e.raw.message?.role);
+      expect(roles).toContain('user');
+      expect(roles).toContain('assistant');
+
+      // the session now exists for discovery, in the same project
+      child.stdin.write(req('sl', 'listSessions', {}) + '\n');
+      const listed = ok((await reader.waitForResponse('sl')).frame as ResponseOkFrameT) as {
+        sessions: Array<{ file: string; name: string | null; projectPath: string }>;
+      };
+      const row = listed.sessions.find((s) => s.file === newFile);
+      expect(row).toBeTruthy();
+      expect(row?.name).toBe('Новый диалог');
+      expect(row?.projectPath).toBe(fx.projectDir);
+
+      // second prompt: the post-run idle baseline accepts our own append
+      child.stdin.write(req('pr2', 'sendPrompt', { message: 'второй' }) + '\n');
+      const prompt2 = ok((await reader.waitForResponse('pr2')).frame as ResponseOkFrameT) as {
+        disposition: string;
+      };
+      expect(prompt2.disposition).toBe('started');
+      await chatEvent('pi', 'agent_settled');
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // review P2-8: BOTH user prompts persist — the created session keeps
+      // accepting turns (the transcript is two complete turns end to end)
+      child.stdin.write(req('rd2', 'readSession', { file: newFile }) + '\n');
+      const read2 = ok((await reader.waitForResponse('rd2')).frame as ResponseOkFrameT) as {
+        entries: Array<{ type: string; raw: { message?: { role: string } } }>;
+      };
+      const roleSeq = read2.entries.filter((e) => e.type === 'message').map((e) => e.raw.message?.role);
+      expect(roleSeq).toEqual(['user', 'assistant', 'user', 'assistant']);
+    } finally {
+      child.kill();
+    }
+  });
+});
+
+describe('bridge M1 review fixes — slot reservation and fail-closed stat (R03)', () => {
+  it('review P1-3: concurrent newSession/newSession resolves exactly one RESOURCE_BUSY', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      // both requests are IN FLIGHT before either handler finishes
+      child.stdin.write(req('q1', 'newSession', {}) + '\n');
+      child.stdin.write(req('q2', 'newSession', {}) + '\n');
+      const [r1, r2] = await Promise.all([reader.waitForResponse('q1'), reader.waitForResponse('q2')]);
+      const verdict = [r1, r2].map((r) => verdictOf(r.frame));
+      expect(verdict.filter((v) => v === 'RESOURCE_BUSY')).toHaveLength(1);
+      expect(verdict.filter((v) => v === 'ok')).toHaveLength(1);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('review P1-3: concurrent newSession/openSession share the single slot', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('q1', 'newSession', {}) + '\n');
+      child.stdin.write(req('q2', 'openSession', { file: fx.sessionFile }) + '\n');
+      const [r1, r2] = await Promise.all([reader.waitForResponse('q1'), reader.waitForResponse('q2')]);
+      const verdict = [r1, r2].map((r) => verdictOf(r.frame));
+      expect(verdict.filter((v) => v === 'RESOURCE_BUSY')).toHaveLength(1);
+      expect(verdict.filter((v) => v === 'ok')).toHaveLength(1);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('review P1-6: pending-materialization stat tolerates ONLY ENOENT — EACCES fails closed before any prompt', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('nc', 'newSession', {}) + '\n');
+      const created = ok((await reader.waitForResponse('nc')).frame as ResponseOkFrameT) as {
+        state: { sessionFile: string | null };
+      };
+      const newFile = created.state.sessionFile ?? '';
+      expect(newFile).toBeTruthy();
+      expect(existsSync(newFile)).toBe(false);
+
+      // make the SESSION DIR unreadable: stat(file) now fails with EACCES
+      // (not ENOENT) — an indeterminate state must block the prompt
+      chmodSync(fx.root, 0o000);
+      child.stdin.write(req('pr', 'sendPrompt', { message: 'не должен уйти' }) + '\n');
+      const resp = await reader.waitForResponse('pr');
+      expect(verdictOf(resp.frame)).toBe('SESSION_CONFLICT');
+      chmodSync(fx.root, 0o755);
+      // no prompt was transmitted: nothing ever materialized on disk
+      expect(existsSync(newFile)).toBe(false);
+    } finally {
+      chmodSync(fx.root, 0o755); // idempotent restore keeps the fixture reusable
+      child.kill();
+    }
   });
 });
 

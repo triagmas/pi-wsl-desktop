@@ -1,21 +1,24 @@
 /**
- * Right details sidebar (Issue #21 §4): hidden by default, opened from the
- * chat header, ~340px, independent size. Shows REAL tool activity from the
- * active Pi session — no invented files or checks: the «Файлы» tab only
- * appears when the session actually reports file paths (currently the M1
- * event stream carries none, so the tab stays hidden — honest absence).
+ * Right details sidebar (Issue #21 §4 / R02 A4): hidden by default, opened
+ * from the chat header, ~340px, independent size. Shows REAL tool activity
+ * from the active Pi session — no invented files or checks: the «Файлы» tab
+ * only appears when the session actually reports file paths (currently the
+ * M1 event stream carries none, so the tab stays hidden — honest absence).
  */
 import type { ChatTool } from '../useChat';
+import { IconCheck, IconChevronRight, IconClock, IconXCircle } from './icons';
 
 export interface RightSidebarProps {
   width: number;
   tools: ChatTool[];
   streaming: boolean;
+  /** Active session label for the header (truthful name/file stem). */
+  title?: string | null;
   onClose: () => void;
   onCloseTargetRef?: (el: HTMLElement | null) => void;
 }
 
-export function RightSidebar({ width, tools, streaming, onClose }: RightSidebarProps) {
+export function RightSidebar({ width, tools, streaming, title, onClose }: RightSidebarProps) {
   const doneCount = tools.filter((t) => t.done && !t.error).length;
   const errorCount = tools.filter((t) => t.error).length;
   return (
@@ -35,9 +38,17 @@ export function RightSidebar({ width, tools, streaming, onClose }: RightSidebarP
           aria-label="Скрыть панель деталей"
           onClick={onClose}
         >
-          <span aria-hidden="true">›</span>
+          <IconChevronRight />
         </button>
       </header>
+
+      <div className="right-tabs" role="tablist" aria-label="Разделы деталей">
+        <button type="button" role="tab" data-testid="details-tab-overview" aria-selected="true" className="tab tab-active">
+          Обзор
+        </button>
+        {/* «Файлы» is intentionally absent: M1 events carry no file paths
+            and Issue #21 §4 forbids inventing changed files. */}
+      </div>
 
       <div className="right-sidebar-body" data-testid="details-body">
         <section aria-label="Обзор">
@@ -53,17 +64,21 @@ export function RightSidebar({ width, tools, streaming, onClose }: RightSidebarP
             )}
           </div>
 
+          {title && (
+            <h3 className="details-title" data-testid="details-session-title">
+              {title}
+            </h3>
+          )}
+
           <h3 className="details-heading">Инструменты</h3>
-          {tools.length === 0 ? (
-            <p className="muted" data-testid="details-empty">
-              Инструменты появятся по мере работы Pi — здесь реальные события текущей сессии.
-            </p>
-          ) : (
+          {tools.length > 0 && (
             <ul className="tool-details-list" data-testid="tool-details">
               {tools.map((t) => (
                 <li key={t.id} className="tool-detail-row">
-                  <span aria-hidden="true">{t.error ? '✗' : t.done ? '✓' : '⏳'}</span>
-                  <span className="tool-detail-name">{t.name}</span>
+                  <span className={`tool-state tool-state-${t.error ? 'error' : t.done ? 'done' : 'running'}`} aria-hidden="true">
+                    {t.error ? <IconXCircle /> : t.done ? <IconCheck /> : <IconClock />}
+                  </span>
+                  <span className="tool-detail-name" title={t.name}>{t.name}</span>
                   <span className="muted">
                     {t.error ? 'ошибка' : t.done ? 'готово' : 'выполняется'}
                   </span>
@@ -72,8 +87,6 @@ export function RightSidebar({ width, tools, streaming, onClose }: RightSidebarP
             </ul>
           )}
         </section>
-        {/* «Файлы» tab is intentionally absent: M1 events carry no file paths
-            and Issue #21 §4 forbids inventing changed files. */}
       </div>
 
       <footer className="right-sidebar-foot muted" data-testid="details-summary">

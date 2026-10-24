@@ -185,6 +185,40 @@ export const OpenSessionResultSchema = z.object({
 });
 export type OpenSessionResultT = z.infer<typeof OpenSessionResultSchema>;
 
+/**
+ * newSession (R03 п.2, documented M1 extension): REAL session creation over
+ * Pi's own RPC. `projectPath` is a project cwd discovered by the bridge
+ * (listProjects/header cwd) — the bridge defaults it to its own resource
+ * cwd, validates the shape here and never executes it as a path outside the
+ * spawn call. Result: the live RpcState (with a concrete sessionFile — the
+ * bridge fails closed without one) plus the SessionInfo record the renderer
+ * treats as PROVISIONAL until the first message materializes the file
+ * (mirrors Pi: no user/assistant message ⇒ no file on disk).
+ */
+export const NewSessionParamsSchema = z
+  .object({
+    projectPath: z.string().min(1).max(4096).optional(),
+  })
+  .strict()
+  .refine((p) => p.projectPath === undefined || isSpawnCwd(p.projectPath), {
+    message: 'projectPath must be an absolute POSIX or Windows path without NUL',
+    path: ['projectPath'],
+  });
+export type NewSessionParamsT = z.infer<typeof NewSessionParamsSchema>;
+
+function isSpawnCwd(value: string): boolean {
+  if (value.includes('\u0000')) return false;
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value);
+}
+
+export const NewSessionResultSchema = z.object({
+  state: RpcStateSchema.refine((s) => s.sessionFile !== null, {
+    message: 'newSession must resolve a concrete sessionFile',
+  }),
+  session: SessionInfoSchema,
+});
+export type NewSessionResultT = z.infer<typeof NewSessionResultSchema>;
+
 export const SendPromptParamsSchema = z.object({
   message: z.string().min(1).max(100_000),
   /** Required by Pi when the agent is already streaming (verified docs). */

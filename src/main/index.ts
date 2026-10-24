@@ -5,7 +5,7 @@
  * nodeIntegration off, no renderer-driven command execution, navigation and
  * window.open denied, CSP delivered via the document head.
  */
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import path from 'node:path';
 import { WslConnection } from './connection';
 import { resolveBridgeWinPath } from './paths';
@@ -18,6 +18,10 @@ export function createWindow(): BrowserWindow {
     width: 1000,
     height: 720,
     show: false,
+    // A1: slim custom header in the renderer; the native Windows caption
+    // buttons stay (overlay) so snapping/accessibility keep working.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#191C19', symbolColor: '#E7EAE3', height: 48 },
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.cjs'),
       nodeIntegration: false,
@@ -31,6 +35,21 @@ export function createWindow(): BrowserWindow {
   win.once('ready-to-show', () => win.show());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
+  // A1: no application menu (File/Edit/View/Window chrome removed); the
+  // developer diagnostics it used to carry stay on explicit keys.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = input.key.toLowerCase();
+    if (input.key === 'F12' || (input.control && input.shift && key === 'i')) {
+      win.webContents.toggleDevTools();
+      event.preventDefault();
+      return;
+    }
+    if (input.key === 'F5' || (input.control && key === 'r')) {
+      win.webContents.reload();
+      event.preventDefault();
+    }
+  });
   void win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   return win;
 }
@@ -46,6 +65,8 @@ if (userDataOverride) {
 }
 
 app.whenReady().then(() => {
+  // A1: the default File/Edit/View/Window application menu is never shown.
+  Menu.setApplicationMenu(null);
   const userData = app.getPath('userData');
   const settings = loadSettings(userData);
 
@@ -80,16 +101,28 @@ app.whenReady().then(() => {
   });
   connection = conn;
 
+  const win = createWindow();
   registerIpc(
     ipcMain,
     conn,
     (channel, payload) => {
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send(channel, payload);
+      for (const w of BrowserWindow.getAllWindows()) {
+        w.webContents.send(channel, payload);
       }
     },
     {
       appearanceDir: userData,
+      onTitleBarOverlay: (colors) => {
+        try {
+          win.setTitleBarOverlay({
+            color: colors.backgroundColor,
+            symbolColor: colors.textColor,
+            height: 48,
+          });
+        } catch {
+          // overlay is cosmetic; never let it break the window
+        }
+      },
       onDistroChange: (distro) => {
         try {
           saveSettings(userData, { distro });
@@ -100,7 +133,6 @@ app.whenReady().then(() => {
     },
   );
 
-  createWindow();
   conn.start();
 
   // Optional smoke-report sink (env-gated like the other test hooks):

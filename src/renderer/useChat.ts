@@ -26,6 +26,10 @@ export interface ChatTool {
   error: boolean;
 }
 export interface ChatUiState {
+  /** File this state belongs to — guards the switch-reset so an adopted
+   * newly-created session (file set + open in one batch) is not wiped by the
+   * effect below (R03 п.2). */
+  file: string;
   status: ChatStatus;
   state: RpcStateT | null;
   entries: ChatEntry[];
@@ -36,6 +40,7 @@ export interface ChatUiState {
 }
 
 export const initialChatState: ChatUiState = {
+  file: '',
   status: 'closed',
   state: null,
   entries: [],
@@ -105,10 +110,16 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
 
 export interface ChatController {
   state: ChatUiState;
-  open: () => Promise<void>;
+  /** Explicit open (Issue #5 gate 5). Resolves `false` on failure so the
+   * send-driven open in ChatPane never prompts against a dead slot and the
+   * draft survives for the retry. */
+  open: () => Promise<boolean>;
   send: (text: string) => Promise<void>;
   interrupt: () => Promise<void>;
   closeChat: () => Promise<boolean>;
+  /** R03 п.2: adopt a bridge-created session (newSession result) as the live
+   * open chat without a second RPC round — paired with the file-guarded reset. */
+  adoptOpen: (rpcState: RpcStateT, file: string) => void;
 }
 
 export function useChat(api: DesktopApi | null, file: string): ChatController {
@@ -131,20 +142,30 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
 
   // Switching the active session resets the visible chat state — a draft or
   // stream from another file must never leak into this one (§9.1 item 4).
+  // Same-file adoption (newSession) skips the reset: the state already
+  // belongs to this file, so wiping it would close a just-opened chat.
   useEffect(() => {
-    setState(initialChatState);
+    setState((s) => (s.file === file ? s : { ...initialChatState, file }));
   }, [file]);
 
-  const open = useCallback(async () => {
-    if (!api) return;
+  const adoptOpen = useCallback((rpcState: RpcStateT, f: string) => {
+    // Review P1-1: adoption starts the NEW dialog empty — inheriting the
+    // previous session's live entries would render them under the new title.
+    setState({ ...initialChatState, file: f, status: 'open', state: rpcState });
+  }, []);
+
+  const open = useCallback(async (): Promise<boolean> => {
+    if (!api) return false;
     setState((s) => ({ ...s, status: 'opening', error: null, banner: null }));
     try {
       const r = await m1.openSession(api, file);
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       setState((s) => ({ ...s, status: 'open', state: r.state, error: null, banner: null }));
+      return true;
     } catch (err) {
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       setState((s) => ({ ...s, status: 'error', error: parseBridgeError(err) }));
+      return false;
     }
   }, [api, file]);
 
@@ -189,5 +210,5 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     return true;
   }, [api]);
 
-  return { state, open, send, interrupt, closeChat };
+  return { state, open, send, interrupt, closeChat, adoptOpen };
 }

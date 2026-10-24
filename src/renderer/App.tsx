@@ -28,7 +28,7 @@ import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
 import { THEME_PRESETS } from '../shared/design/presets';
 import { DEFAULT_APPEARANCE, migrateAppearance, type AppearanceSettings } from '../shared/appearance';
-import { m1 } from './m1api';
+import { m1, parseBridgeError } from './m1api';
 import { sessionLabel } from './shell/LeftSidebar';
 import type { SessionInfoT } from './types';
 
@@ -191,6 +191,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * ------------------------------------------------------------------ */
   const [activeSession, setActiveSession] = useState<SessionInfoT | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionInfoT | null>(null);
+  /** R03 п.2: create-while-busy needs the same fail-closed confirm as switch. */
+  const [pendingNewDialog, setPendingNewDialog] = useState(false);
+  /** Files created via newSession that have not materialized on disk yet. */
+  const [provisional, setProvisional] = useState<ReadonlySet<string>>(() => new Set());
+  const [newChatError, setNewChatError] = useState<{ code: string; message: string } | null>(null);
+  /** Bumped when a provisional session materializes — the sidebar refetches. */
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const chat = useChat(effectiveApi, activeSession?.file ?? '');
   const [draft, setDraft] = useState('');
   const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
@@ -208,6 +215,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     }
     setActiveSession(session);
     setDraft('');
+    setNewChatError(null);
     setView('chat');
   };
 
@@ -225,9 +233,49 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     setView('chat');
   };
 
+  /** R03 п.2 — REAL session creation over the bridge (single-slot, fail-closed). */
+  const createDialog = async (): Promise<void> => {
+    if (!effectiveApi) return;
+    setNewChatError(null);
+    try {
+      const r = await m1.newSession(
+        effectiveApi,
+        activeSession?.projectPath ? { projectPath: activeSession.projectPath } : {},
+      );
+      setProvisional((prev) => new Set(prev).add(r.session.file));
+      setActiveSession(r.session);
+      chat.adoptOpen(r.state, r.session.file);
+      setDraft('');
+      setView('chat');
+    } catch (err) {
+      setNewChatError(parseBridgeError(err));
+    }
+  };
+
+  const confirmPendingNewDialog = async (): Promise<void> => {
+    const closed = await chat.closeChat();
+    if (!closed) {
+      // Fail-closed: the old session may still be live — keep the guard up.
+      return;
+    }
+    setPendingNewDialog(false);
+    await createDialog();
+  };
+
   const newChat = (): void => {
-    // Bridge M1 has no create-session method (ALL_METHODS check): «Новый
-    // диалог» focuses the most recent real session instead of faking creation.
+    if (!effectiveApi) return;
+    // Never auto-close a live chat: ask first, exactly like session switching.
+    if (chatBusy) {
+      setPendingNewDialog(true);
+      setView('chat');
+      return;
+    }
+    void createDialog();
+  };
+
+  /** Honest secondary action (never relabelled as creation): opens the most
+   * recent EXISTING session — kept for the empty state only. */
+  const openLatestDialog = (): void => {
     void (async () => {
       if (!effectiveApi) return;
       try {
@@ -243,6 +291,44 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       }
     })();
   };
+
+  /* R03 п.2 lifecycle: a created session exists in the Pi process only until
+   * its first message materializes the JSONL file (Pi _hasConversation). The
+   * index is the single source of truth — once the file appears the real
+   * record replaces the provisional one and the sidebar refreshes; if the
+   * chat is closed first, the never-persisted dialog is honestly dropped. */
+  useEffect(() => {
+    if (!effectiveApi || provisional.size === 0 || !activeSession) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { sessions } = await m1.listSessions(effectiveApi);
+        if (cancelled) return;
+        const file = activeSession.file;
+        const real = sessions.find((s) => s.file === file);
+        const drop = (): void =>
+          setProvisional((prev) => {
+            const next = new Set(prev);
+            next.delete(file);
+            return next;
+          });
+        if (real) {
+          drop();
+          setActiveSession(real); // durable metadata replaces the provisional record
+          setSidebarRefreshKey((k) => k + 1);
+        } else if (chat.state.status === 'closed') {
+          drop();
+          setActiveSession(null); // no first message ⇒ no session (mirrors Pi)
+          setSidebarRefreshKey((k) => k + 1);
+        }
+      } catch {
+        // discovery errors are surfaced by the sidebar; the next transition retries
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApi, activeSession, provisional, chat.state.status]);
 
   /**
    * R04 external discovery — default registrations only (tests that inject
@@ -447,9 +533,11 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           <span className="center-slash" aria-hidden="true">/</span>
           <strong>{activeSession ? sessionLabel(activeSession) : 'Диалог'}</strong>
           {activeSession?.activeWrite && <span className="badge badge-active">запись</span>}
-          {activeSession && activeSession.availability !== 'ok' && (
-            <span className="badge badge-warn">⚠ {activeSession.diagnostics ?? activeSession.availability}</span>
-          )}
+          {activeSession &&
+            activeSession.availability !== 'ok' &&
+            activeSession.availability !== 'empty' && (
+              <span className="badge badge-warn">⚠ {activeSession.diagnostics ?? activeSession.availability}</span>
+            )}
         </div>
         <div className="center-actions">
           <button
@@ -484,20 +572,48 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   if (view === 'chat') {
     centerBody = (
       <div className="chat-workspace" data-testid="view-chat">
-        {pendingSession && (
+        {newChatError && (
+          <div className="error-box" role="alert" data-testid="new-chat-error">
+            <strong>{newChatError.code}</strong> — {newChatError.message}
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewChatError(null);
+                  newChat();
+                }}
+              >
+                Повторить
+              </button>
+            </div>
+          </div>
+        )}
+        {(pendingSession || pendingNewDialog) && (
           <div className="switch-guard" role="alert" data-testid="switch-guard">
             <span>
-              Чат открыт — переключение на другой диалог прервёт его.
+              {pendingNewDialog
+                ? 'Чат открыт — новый диалог закроет текущую сессию.'
+                : 'Чат открыт — переключение на другой диалог прервёт его.'}
             </span>
             <div className="switch-guard-actions">
               <button
                 type="button"
                 data-testid="switch-confirm"
-                onClick={() => void confirmSwitchSession()}
+                onClick={() => {
+                  if (pendingNewDialog) void confirmPendingNewDialog();
+                  else void confirmSwitchSession();
+                }}
               >
-                Закрыть чат и переключиться
+                {pendingNewDialog ? 'Закрыть чат и создать новый' : 'Закрыть чат и переключиться'}
               </button>
-              <button type="button" data-testid="switch-cancel" onClick={() => setPendingSession(null)}>
+              <button
+                type="button"
+                data-testid="switch-cancel"
+                onClick={() => {
+                  setPendingSession(null);
+                  setPendingNewDialog(false);
+                }}
+              >
                 Остаться
               </button>
             </div>
@@ -520,15 +636,23 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             </span>
             <h2>Выберите диалог слева</h2>
             <p className="muted">
-              Проекты и чаты загружаются из Pi в WSL. Откройте последний диалог или выберите
-              существующий — создание новых сессий доступно в Pi CLI.
+              Проекты и чаты загружаются из Pi в WSL. Создайте новый диалог или выберите
+              существующий.
             </p>
             <button
               type="button"
               className="btn-primary"
-              data-testid="empty-open-latest"
-              title="Создание новых сессий доступно в Pi CLI — здесь открывается самый свежий существующий диалог"
+              data-testid="empty-new-chat"
+              title="Создать новый диалог через Pi RPC"
               onClick={newChat}
+            >
+              Новый диалог
+            </button>
+            <button
+              type="button"
+              data-testid="empty-open-latest"
+              title="Открыть самый свежий существующий диалог"
+              onClick={openLatestDialog}
             >
               Открыть последний диалог
             </button>
@@ -643,6 +767,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
           }}
           onNewChat={newChat}
+          refreshKey={sidebarRefreshKey}
           connectionReady={snapshot.phase === 'ready'}
           moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
           onView={(v) => {

@@ -6,7 +6,7 @@
 import { expect, test } from '@playwright/test';
 import { launchApp } from './launchApp';
 import type { LaunchedApp } from './launchApp';
-import { existsSync, utimesSync } from 'node:fs';
+import { existsSync, readdirSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 
 const repoRoot = path.join(__dirname, '..');
@@ -109,6 +109,62 @@ test.describe('M1 sessions & chat E2E', () => {
       await expect(page.getByTestId('chat-status')).toHaveText('Генерация…', { timeout: 5_000 });
       await page.getByTestId('interrupt').click();
       await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 15_000 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('«Новый диалог» creates a REAL session end-to-end: materializes on the first message, persists (R03 п.2)', async () => {
+    const { app, page, sessionsRoot } = await launch({ activeWindow: '0', pi: fakePiRpc, streamMs: '150' });
+    try {
+      await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
+
+      // honest primary action — real creation over Pi RPC, not a relabelled
+      // open-latest fallback
+      const newBtn = page.getByTestId('sidebar-new-chat');
+      await expect(newBtn).toHaveText('Новый диалог');
+      await expect(newBtn).toHaveAttribute('title', /Pi RPC/);
+      await newBtn.click();
+
+      // provisional dialog: label from the bridge record, conversation-first
+      // surface (no tabs), empty WITHOUT any error, live composer
+      await expect(page.getByTestId('chat-head')).toContainText('Новый диалог');
+      await expect(page.getByTestId('tab-chat')).toHaveCount(0);
+      await expect(page.getByTestId('chat-composer')).toBeEnabled();
+      await expect(page.getByTestId('chat-error')).toHaveCount(0);
+      await expect(page.getByTestId('history-error')).toHaveCount(0);
+      // no warning badge on an honest 'empty' provisional record
+      await expect(page.getByTestId('chat-head')).not.toContainText('⚠');
+      // no fake row in the index — the file does not exist yet (mirrors Pi)
+      await expect(page.locator('button[data-testid^="session-"]').filter({ hasText: 'Новый диалог' })).toHaveCount(0);
+
+      // the first explicit send materializes the file (fake mirrors
+      // session-manager._persist: header + queued session_info + messages)
+      await page.getByPlaceholder(/сообщение/i).fill('первый реплике нового диалога');
+      await page.getByRole('button', { name: /отправить/i }).click();
+      await expect(page.getByText('Hello 🌍 — done')).toBeVisible({ timeout: 20_000 });
+
+      // real file under the session root (per-launch tmp copy — repo untouched)
+      const materialized = readdirSync(sessionsRoot).some((f) => f.endsWith('.jsonl') && f.includes('fake-session-0001'));
+      expect(materialized).toBe(true);
+
+      // the sidebar picks up the REAL session under its synthetic project and
+      // the durable session_info name
+      const project = page.getByTestId('project-list').getByRole('button', { name: 'Pi Desktop' });
+      await expect(project).toBeVisible({ timeout: 15_000 });
+      await project.click();
+      const row = page.locator('button[data-testid^="session-"]').filter({ hasText: 'Новый диалог' });
+      await expect(row).toHaveCount(1);
+
+      // persistence round-trip: switch away and back, close the chat — the
+      // stored conversation is still there (the session lives on disk)
+      await page.getByRole('button', { name: /закрыть чат/i }).click();
+      await expect(page.getByText('E2E fixture session')).toBeVisible();
+      await page.getByText('E2E fixture session').click();
+      await expect(page.getByText('Привет из фикстуры')).toBeVisible();
+      await row.click();
+      await expect(page.getByText('первый реплике нового диалога')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText('Hello 🌍 — done')).toBeVisible();
     } finally {
       await app.close();
     }

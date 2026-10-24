@@ -53,6 +53,13 @@ export interface ChatSessionManagerDeps {
   headerMaxBytes?: number;
 }
 
+/** Durable display name queued for a created session (R03 п.2): Pi accepts
+ * it via `set_session_name` and persists it with the first flushed message
+ * (session-manager appendSessionInfo → _persist → _hasConversation —
+ * source-verified); if the session never gets a message, no file exists and
+ * the name is never claimed anywhere. */
+export const NEW_DIALOG_NAME = 'Новый диалог';
+
 export function mapRpcState(raw: unknown): RpcStateT {
   const r = (raw ?? {}) as Record<string, unknown>;
   const model = r.model as { id?: unknown; name?: unknown; provider?: unknown } | undefined | null;
@@ -87,6 +94,10 @@ export class ChatSessionManager {
   private file: string | null = null;
   private idleMtimeMs = 0;
   private runActive = false;
+  /** True from create() until the first run materializes the file on disk:
+   * the idle external-writer gate must not SESSION_NOT_FOUND a session whose
+   * file Pi has not written yet (and nothing external can have touched). */
+  private pendingMaterialization = false;
   private readonly now: () => number;
   private readonly window: number;
 
@@ -176,12 +187,85 @@ export class ChatSessionManager {
     this.client = client;
     this.file = file;
     this.runActive = false;
+    this.pendingMaterialization = false;
     // After the initial load (which may legitimately rewrite legacy files via
     // the official API), snapshot the idle baseline.
     const post = await this.statOrThrow(file).catch(() => meta);
     this.idleMtimeMs = post.mtimeMs;
     this.emit({ kind: 'opened', state });
     return state;
+  }
+
+  /**
+   * R03 п.2 — REAL session creation over Pi's own RPC (probe-verified):
+   * spawn a bare `pi --mode rpc`, let get_state resolve the future session
+   * file, then queue the durable display name. Same single-slot policy as
+   * open(): a live chat is never auto-closed (RESOURCE_BUSY). No prompt and
+   * no fake content — without a first user message Pi keeps no file at all
+   * (mirrors _hasConversation), so callers must treat the record as
+   * provisional until it appears in the index.
+   */
+  async create(projectPath?: string): Promise<{ state: RpcStateT; cwd: string }> {
+    if (this.client) {
+      if (this.client.alive) {
+        throw new BridgeError('RESOURCE_BUSY', 'A chat session is already open — close it before creating a new one');
+      }
+      this.client = null; // stale dead handle (exit event not yet observed)
+    }
+
+    const piPath = await this.deps.resolvePi();
+    if (!piPath) throw new BridgeError('PI_NOT_FOUND', 'Pi executable not found for chat spawn');
+    // The bridge owns the default cwd (its own resource cwd); projectPath is
+    // a bridge-discovered project path validated by NewSessionParamsSchema.
+    const cwd = projectPath ?? this.deps.env.PI_WS_DESKTOP_AGENT_CWD ?? process.cwd();
+
+    const client = new PiRpcClient({
+      spawn: () =>
+        this.deps.spawnRpc({
+          piPath,
+          args: ['--mode', 'rpc'],
+          cwd,
+          env: { ...this.deps.env, PATH: buildProbePath(this.deps.home) },
+        }),
+      ...this.deps.rpcOptions,
+      onEvent: (name, record) => this.emit({ kind: 'pi', name, data: record }),
+      onExit: () => {
+        if (this.client !== client) return;
+        this.client = null;
+        this.file = null;
+        this.runActive = false;
+        this.pendingMaterialization = false;
+        this.emit({ kind: 'closed', code: 'DISCONNECTED', message: 'Pi RPC process exited' });
+      },
+    });
+    client.connect();
+
+    let state: RpcStateT;
+    try {
+      const raw = await client.request('get_state');
+      state = mapRpcState(raw);
+      if (!state.sessionFile || !state.sessionId) {
+        // Fail closed: without a concrete file/id there is no honest record.
+        throw new BridgeError('PROTOCOL_ERROR', `Pi did not resolve a new sessionFile (${state.sessionFile ?? 'none'})`);
+      }
+      await client.request('set_session_name', { name: NEW_DIALOG_NAME });
+    } catch (err) {
+      // Teardown BEFORE rethrow — a failed create never leaves a zombie RPC.
+      await client.close().catch(() => undefined);
+      if (err instanceof BridgeError) throw err;
+      if (err instanceof RpcTimeoutError) throw new BridgeError('BRIDGE_TIMEOUT', err.message);
+      if (err instanceof RpcCommandError) throw new BridgeError('PROTOCOL_ERROR', err.message);
+      if (err instanceof RpcDisconnectedError) throw new BridgeError('BRIDGE_TIMEOUT', `Pi RPC exited during create: ${err.message}`);
+      throw new BridgeError('BRIDGE_TIMEOUT', err instanceof Error ? err.message : String(err));
+    }
+
+    this.client = client;
+    this.file = state.sessionFile;
+    this.runActive = false;
+    this.pendingMaterialization = true;
+    this.idleMtimeMs = 0;
+    this.emit({ kind: 'opened', state });
+    return { state, cwd };
   }
 
   async sendPrompt(message: string, streamingBehavior?: 'steer' | 'followUp'): Promise<{ disposition: string }> {
@@ -192,8 +276,12 @@ export class ChatSessionManager {
 
     // Idle-time external-writer gate (skip while OUR run owns the file).
     if (!this.runActive && this.file) {
-      const meta = await this.statOrThrow(this.file);
-      if (meta.mtimeMs > this.idleMtimeMs) {
+      const meta = this.pendingMaterialization
+        ? await this.deps.fs.stat(this.file).catch(() => null)
+        : await this.statOrThrow(this.file);
+      // meta === null ⇔ created but not yet persisted by the first message:
+      // nothing external can have written a file that does not exist yet.
+      if (meta && meta.mtimeMs > this.idleMtimeMs) {
         throw new BridgeError(
           'SESSION_CONFLICT',
           'Session file changed while the chat was idle — another writer (CLI?) appended to it. Reload the history before prompting.',
@@ -223,7 +311,10 @@ export class ChatSessionManager {
         void this.deps.fs
           .stat(file)
           .then((m) => {
-            if (this.file === file) this.idleMtimeMs = m.mtimeMs;
+            if (this.file === file) {
+              this.idleMtimeMs = m.mtimeMs;
+              this.pendingMaterialization = false; // first run persisted the file
+            }
           })
           .catch(() => undefined);
       },

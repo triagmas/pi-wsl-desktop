@@ -31,10 +31,36 @@ if (process.argv.includes('--help')) {
 const MODE = process.env.FAKE_PI_MODE || 'ok';
 const STREAM_MS = Number(process.env.FAKE_PI_STREAM_MS || 0);
 
+const { appendFileSync, existsSync, mkdirSync, writeFileSync } = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
 let buf = '';
 let streaming = false;
 let sessionFile = null;
+let sessionName = null;
+let flushed = false;
+let msgSeq = 0;
+let lastLeaf = null;
 let streamTimer = null;
+
+// R03 п.2: an explicit `--mode rpc` WITHOUT `--session` is a NEW session —
+// mirror Pi: get_state resolves the future file under the session dir (env
+// dir when set, otherwise a tmp bucket). Nothing is written before the first
+// message (Pi: _persist gates on _hasConversation). A bare argv (no --mode)
+// is the unit-level no-session handshake fixture — it keeps sessionFile
+// absent exactly like Pi's `--no-session` handshake.
+if (
+  process.argv.includes('--mode') &&
+  !process.argv.includes('--session') &&
+  !process.argv.includes('--no-session') &&
+  !process.argv.includes('--version') &&
+  !process.argv.includes('--help')
+) {
+  const dir = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(os.tmpdir(), 'fake-pi-sessions');
+  mkdirSync(dir, { recursive: true });
+  sessionFile = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}_fake-session-0001.jsonl`);
+}
 
 const send = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
 const delay = (fn) => {
@@ -57,6 +83,10 @@ if (MODE === 'ext-ui') {
 
 function streamPrompt(id, message) {
   streaming = true;
+  // Mirror of Pi's first flush (session-manager._persist): the user message
+  // materializes header + queued session_info name + the entry; appends from
+  // there on («keeps the prompt on disk if the first turn never completes»).
+  materializePrompt(message);
   send({ id, type: 'response', command: 'prompt', success: true, data: { disposition: 'started' } });
   if (MODE === 'crash-on-prompt') {
     send({ type: 'agent_start' });
@@ -83,10 +113,70 @@ function streamPrompt(id, message) {
     const step = steps[i];
     i += 1;
     send(step);
+    if (step.type === 'message_end' && step.message && step.message.role === 'assistant') {
+      appendAssistant(step.message);
+    }
     if (step.type === 'agent_settled') streaming = false;
     delay(next);
   };
   delay(next);
+}
+
+function materializePrompt(message) {
+  // Existing sessions (fixture files opened via switch_session) are never
+  // rewritten — they belong to the fixture; only a CREATED session (file does
+  // not exist yet) gets Pi's first-flush treatment below.
+  if (!sessionFile || existsSync(sessionFile)) return;
+  const iso = new Date().toISOString();
+  msgSeq += 1;
+  const userEntry = {
+    type: 'message',
+    id: `m${msgSeq}`,
+    parentId: lastLeaf,
+    timestamp: iso,
+    message: { role: 'user', content: message, timestamp: Date.now() },
+  };
+  if (!flushed) {
+    mkdirSync(path.dirname(sessionFile), { recursive: true });
+    const lines = [
+      JSON.stringify({ type: 'session', version: 3, id: 'fake-session-0001', timestamp: iso, cwd: process.cwd() }),
+    ];
+    if (sessionName) {
+      lines.push(JSON.stringify({ type: 'session_info', id: 'n1', parentId: null, timestamp: iso, name: sessionName }));
+    }
+    lines.push(JSON.stringify(userEntry));
+    writeFileSync(sessionFile, `${lines.join('\n')}\n`);
+    flushed = true;
+  } else {
+    appendFileSync(sessionFile, `${JSON.stringify(userEntry)}\n`);
+  }
+  lastLeaf = userEntry.id;
+}
+
+function appendAssistant(message) {
+  if (!flushed || !sessionFile) return;
+  msgSeq += 1;
+  const text = Array.isArray(message.content)
+    ? message.content.map((c) => (typeof c.text === 'string' ? c.text : '')).join('')
+    : String(message.content ?? '');
+  const entry = {
+    type: 'message',
+    id: `m${msgSeq}`,
+    parentId: lastLeaf,
+    timestamp: new Date().toISOString(),
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      api: 'fake',
+      provider: 'fake',
+      model: 'fake-model',
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: 'stop',
+      timestamp: Date.now(),
+    },
+  };
+  appendFileSync(sessionFile, `${JSON.stringify(entry)}\n`);
+  lastLeaf = entry.id;
 }
 
 function handle(cmd) {
@@ -119,6 +209,16 @@ function handle(cmd) {
       }
       sessionFile = typeof cmd.sessionPath === 'string' ? cmd.sessionPath : null;
       send({ id: cmd.id, type: 'response', command: 'switch_session', success: true, data: { cancelled: false } });
+      return;
+    }
+    case 'set_session_name': {
+      const name = typeof cmd.name === 'string' ? cmd.name.trim() : '';
+      if (!name) {
+        send({ id: cmd.id, type: 'response', command: 'set_session_name', success: false, error: 'Session name cannot be empty' });
+        return;
+      }
+      sessionName = name; // durable at the first flush, exactly like Pi
+      send({ id: cmd.id, type: 'response', command: 'set_session_name', success: true });
       return;
     }
     case 'prompt': {

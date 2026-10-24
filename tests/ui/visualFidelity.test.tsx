@@ -49,10 +49,37 @@ const SESSION_NEWER = session({
   createdAt: '2026-10-19T09:30:00.000Z',
 });
 
+/** R03 п.2: honest provisional new-session contract (bridge-shaped). */
+const NEW_DIALOG = {
+  id: 'fake-session-0001',
+  file: '/root/sessions/2026-10-24T08-00-00-000Z_new-dialog.jsonl',
+  root: '/root',
+  projectId: '/work/repo',
+  projectPath: '/work/repo',
+  name: 'Новый диалог',
+  createdAt: null,
+  updatedAt: '2026-10-24T08:00:00.000Z',
+  sizeBytes: 0,
+  version: 1,
+  availability: 'empty',
+  activeWrite: false,
+  diagnostics: null,
+};
+const NEW_STATE = {
+  sessionId: NEW_DIALOG.id,
+  sessionFile: NEW_DIALOG.file,
+  isStreaming: false,
+  isCompacting: false,
+  messageCount: 0,
+  model: null,
+  thinkingLevel: 'medium',
+};
+
 interface Route {
   listProjects?: unknown;
   listSessions?: unknown;
   readSession?: unknown;
+  newSession?: unknown;
 }
 
 const EMPTY_READ = {
@@ -71,6 +98,7 @@ function makeRoutedApi(route: Route = {}): { api: DesktopApi; request: ReturnTyp
     if (method === 'listProjects') return route.listProjects ?? { projects: [], diagnostics: [] };
     if (method === 'listSessions') return route.listSessions ?? { sessions: [], diagnostics: [] };
     if (method === 'readSession') return route.readSession ?? EMPTY_READ;
+    if (method === 'newSession') return route.newSession ?? { state: null, session: null };
     if (method === 'openSession') return { state: null };
     if (method === 'closeSession') return { closed: true };
     if (method === 'getState') return { state: null };
@@ -95,19 +123,61 @@ describe('T1 window chrome (A1)', () => {
 });
 
 describe('T2 left sidebar truthfulness (A2)', () => {
-  it('labels the new-chat action honestly — it opens the most recent real session', async () => {
+  it('labels the new-chat action honestly — it creates a REAL dialog over Pi RPC (R03 п.2)', async () => {
     const user = userEvent.setup();
-    const { api } = makeRoutedApi({
+    const { api, request } = makeRoutedApi({
       listProjects: { projects: [PROJECT], diagnostics: [] },
       listSessions: { sessions: [SESSION_OLDER, SESSION_NEWER], diagnostics: [] },
+      newSession: { state: NEW_STATE, session: NEW_DIALOG },
     });
     render(<App api={api} moduleDefinitions={[]} />);
     const button = await screen.findByTestId('sidebar-new-chat');
-    expect(button).toHaveAttribute('title', expect.stringContaining('Pi CLI'));
+    expect(button).toHaveTextContent('Новый диалог');
+    expect(button).toHaveAttribute('title', expect.stringContaining('Pi RPC'));
     await user.click(button);
-    // The most recent REAL session (by createdAt) becomes the active chat.
+    // REAL creation is called — no relabelled open-latest fallback
+    await waitFor(() => expect(request.mock.calls.some((c) => c[0] === 'newSession')).toBe(true));
     await waitFor(() => expect(screen.getByTestId('chat-head')).toBeInTheDocument());
-    expect(screen.getByTestId('chat-head')).toHaveTextContent('newer-chat');
+    expect(screen.getByTestId('chat-head')).toHaveTextContent('Новый диалог');
+    // the provisional record wears no warning badge and no tab framing
+    expect(screen.queryByText(/⚠/)).toBeNull();
+    expect(screen.queryByTestId('tab-chat')).toBeNull();
+    expect(screen.getByTestId('chat-composer')).toBeEnabled();
+  });
+
+  it('never closes a live chat implicitly — creating while busy asks first (R03 п.2)', async () => {
+    const user = userEvent.setup();
+    const { api, request } = makeRoutedApi({
+      listProjects: { projects: [PROJECT], diagnostics: [] },
+      listSessions: { sessions: [SESSION_OLDER], diagnostics: [] },
+      newSession: { state: NEW_STATE, session: NEW_DIALOG },
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+    await user.click(await screen.findByTestId('session-sess-older'));
+    const input = await screen.findByTestId('chat-composer');
+    await user.type(input, 'busy first');
+    await user.click(screen.getByRole('button', { name: 'Отправить' }));
+    // chat slot live (open/sending) — creation must ask, never auto-close
+    await waitFor(() => expect(screen.getByTestId('chat-status')).toBeInTheDocument());
+    expect(request.mock.calls.some((c) => c[0] === 'closeSession')).toBe(false);
+    await user.click(screen.getByTestId('sidebar-new-chat'));
+    const guard = await screen.findByTestId('switch-guard');
+    expect(guard).toHaveTextContent(/новый диалог/i);
+    expect(screen.getByTestId('switch-confirm')).toHaveTextContent(/создать/i);
+    // cancel: nothing is closed, nothing is created
+    await user.click(screen.getByTestId('switch-cancel'));
+    expect(screen.queryByTestId('switch-guard')).toBeNull();
+    expect(request.mock.calls.some((c) => c[0] === 'newSession')).toBe(false);
+    expect(request.mock.calls.some((c) => c[0] === 'closeSession')).toBe(false);
+    // confirm: fail-closed close FIRST, then create
+    await user.click(screen.getByTestId('sidebar-new-chat'));
+    await screen.findByTestId('switch-confirm');
+    await user.click(screen.getByTestId('switch-confirm'));
+    await waitFor(() => expect(request.mock.calls.some((c) => c[0] === 'newSession')).toBe(true));
+    const methods = request.mock.calls.map((c) => c[0]);
+    expect(methods.indexOf('closeSession')).toBeGreaterThan(-1);
+    expect(methods.indexOf('newSession')).toBeGreaterThan(methods.indexOf('closeSession'));
+    await waitFor(() => expect(screen.getByTestId('chat-head')).toHaveTextContent('Новый диалог'));
   });
 
   it('falls back to the session file stem instead of an opaque id fragment', async () => {
@@ -142,13 +212,18 @@ describe('T2 left sidebar truthfulness (A2)', () => {
 });
 
 describe('T3 center chat workspace (A3/A6)', () => {
-  it('shows a quiet empty state: no diagnostics card, one honest CTA', async () => {
+  it('shows a quiet empty state with a REAL create action and an honest secondary CTA', async () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     const empty = await screen.findByTestId('chat-empty');
     // Owner diagnosis: the giant StatusPanel card must be gone from chat.
     expect(screen.queryByTestId('status-phase')).not.toBeInTheDocument();
     expect(screen.queryByTestId('runtime')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Новый диалог' })).not.toBeInTheDocument();
+    // R03 п.2: creation is REAL — the primary CTA says exactly what it does
+    const create = screen.getByTestId('empty-new-chat');
+    expect(create).toHaveTextContent('Новый диалог');
+    expect(create).toHaveAttribute('title', expect.stringContaining('Pi RPC'));
+    expect(empty).toContainElement(create);
+    // The old fallback keeps ITS OWN honest label — never relabelled as create
     const cta = screen.getByTestId('empty-open-latest');
     expect(empty).toContainElement(cta);
     expect(cta).toHaveTextContent('Открыть последний диалог');

@@ -63,6 +63,8 @@ export interface LeftSidebarProps {
   activeFile: string | null;
   onToggleCollapsed: () => void;
   onNewChat: () => void;
+  /** R03 п.2: bumped when a created session materializes — refetch the list. */
+  refreshKey?: number;
   onView: (view: string) => void;
   onPickSession: (session: SessionInfoT) => void;
   onPickProject: (project: ProjectInfoT) => void;
@@ -79,6 +81,7 @@ export function LeftSidebar({
   activeFile,
   onToggleCollapsed,
   onNewChat,
+  refreshKey = 0,
   onView,
   onPickSession,
   onPickProject,
@@ -114,7 +117,7 @@ export function LeftSidebar({
     return () => {
       cancelled = true;
     };
-  }, [api, connectionReady]);
+  }, [api, connectionReady, refreshKey]);
 
   const q = query.trim().toLowerCase();
   const visibleSessions = q
@@ -134,8 +137,7 @@ export function LeftSidebar({
       )
     : projects;
 
-  const newChatTitle =
-    'Создание новых сессий доступно в Pi CLI — здесь открывается самый свежий существующий диалог';
+  const newChatTitle = 'Создать новый диалог через Pi RPC';
 
   return (
     <aside
@@ -179,7 +181,7 @@ export function LeftSidebar({
             data-testid="rail-new-chat"
             className="icon-btn"
             title={newChatTitle}
-            aria-label="Открыть последний диалог"
+            aria-label="Новый диалог"
             onClick={onNewChat}
           >
             <IconPlus />
@@ -207,7 +209,7 @@ export function LeftSidebar({
             onClick={onNewChat}
           >
             <IconPlus />
-            <span>Открыть последний диалог</span>
+            <span>Новый диалог</span>
           </button>
 
           <label className="sidebar-search">

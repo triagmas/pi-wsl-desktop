@@ -104,12 +104,13 @@ test.describe('UI-A R02 application shell E2E', () => {
       const topbarBox = await topbar.boundingBox();
       expect(Math.round(topbarBox?.height ?? 0)).toBe(48);
 
-      // A2: expanded sidebar geometry and the honest new-chat action.
+      // A2: expanded sidebar geometry and the honest new-chat action (R03 п.2:
+      // real creation over Pi RPC — labelled exactly as what it does).
       const sidebar = page.getByTestId('left-sidebar');
       const sidebarBox = await sidebar.boundingBox();
       expect(Math.round(sidebarBox?.width ?? 0)).toBe(260);
-      await expect(page.getByTestId('sidebar-new-chat')).toHaveText('Открыть последний диалог');
-      await expect(page.getByTestId('sidebar-new-chat')).toHaveAttribute('title', /Pi CLI/);
+      await expect(page.getByTestId('sidebar-new-chat')).toHaveText('Новый диалог');
+      await expect(page.getByTestId('sidebar-new-chat')).toHaveAttribute('title', /Pi RPC/);
 
       // A2: fixture hierarchy — real sessions with truthful labels: real
       // names where session_info provides one, readable file stems otherwise.

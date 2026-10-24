@@ -35,6 +35,12 @@ export const M1_METHODS = [
   // Extension beyond the SPEC §4.1 minimum: explicit escape hatch from
   // RESOURCE_BUSY (no auto-close — the write boundary stays user-driven).
   'closeSession',
+  // Extension beyond the SPEC §4.1 minimum (R03 п.2): REAL session creation
+  // over Pi's own RPC (bare `--mode rpc` spawn → get_state → sessionFile →
+  // set_session_name). Same single-slot + explicit-action gates as
+  // openSession; the renderer record stays provisional until the first
+  // message materializes the file (mirrors Pi persistence semantics).
+  'newSession',
 ] as const;
 export type M1Method = (typeof M1_METHODS)[number];
 

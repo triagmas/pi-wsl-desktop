@@ -17,6 +17,8 @@ import {
   SendPromptParamsSchema,
   SendPromptResultSchema,
   OpenSessionResultSchema,
+  NewSessionParamsSchema,
+  NewSessionResultSchema,
   ChatEventSchema,
   SessionHeaderSchema,
 } from '../../src/shared/m1Protocol';
@@ -28,6 +30,10 @@ describe('M1 method allowlist', () => {
     // closeSession is a documented extension beyond the SPEC §4.1 minimum:
     // RESOURCE_BUSY needs an explicit user-driven escape hatch (lifecycle
     // necessity; no auto-close — write boundary stays explicit).
+    // newSession is a documented extension too (R03 п.2): REAL session
+    // creation over Pi's own RPC — honest «Новый диалог» instead of a
+    // mislabelled open-latest fallback; still single-slot + explicit-action
+    // gated like openSession.
     expect([...M1_METHODS].sort()).toEqual(
       [
         'closeSession',
@@ -35,6 +41,7 @@ describe('M1 method allowlist', () => {
         'interrupt',
         'listProjects',
         'listSessions',
+        'newSession',
         'openSession',
         'readSession',
         'searchSessions',
@@ -64,6 +71,51 @@ describe('M1 method allowlist', () => {
 });
 
 describe('project and session schemas', () => {
+  it('validates newSession params and rejects unsafe project paths (R03 п.2)', () => {
+    expect(NewSessionParamsSchema.parse({})).toEqual({});
+    expect(NewSessionParamsSchema.parse({ projectPath: '/home/e2e/Pi Desktop' })).toEqual({
+      projectPath: '/home/e2e/Pi Desktop',
+    });
+    expect(NewSessionParamsSchema.safeParse({ projectPath: '' }).success).toBe(false);
+    expect(NewSessionParamsSchema.safeParse({ projectPath: 'relative/dir' }).success).toBe(false);
+    expect(NewSessionParamsSchema.safeParse({ projectPath: '/tmp/evil\u0000dir' }).success).toBe(false);
+    expect(NewSessionParamsSchema.safeParse({ projectPath: `/tmp/${'x'.repeat(5000)}` }).success).toBe(false);
+    // extra keys stay unknown (bridge defaults the cwd itself)
+    expect(NewSessionParamsSchema.safeParse({ exec: 'rm -rf /' }).success).toBe(false);
+  });
+
+  it('requires newSession to return a live RpcState plus a provisional-annotated session record', () => {
+    const state = {
+      sessionId: '01a153aa-c11c-728d-ad52-1c1cff70d227',
+      sessionFile: '/home/e2e/sessions/2026-10-24T00-00-00-000Z_new.jsonl',
+      isStreaming: false,
+      isCompacting: false,
+      messageCount: 0,
+      model: null,
+      thinkingLevel: 'medium',
+    };
+    const session = {
+      id: '01a153aa-c11c-728d-ad52-1c1cff70d227',
+      file: '/home/e2e/sessions/2026-10-24T00-00-00-000Z_new.jsonl',
+      root: '/home/e2e/sessions',
+      projectId: '/home/e2e/Pi Desktop',
+      projectPath: '/home/e2e/Pi Desktop',
+      name: 'Новый диалог',
+      createdAt: null,
+      updatedAt: '2026-10-24T00:00:00.000Z',
+      sizeBytes: 0,
+      version: 1,
+      availability: 'empty',
+      activeWrite: false,
+      diagnostics: null,
+    };
+    expect(NewSessionResultSchema.parse({ state, session })).toEqual({ state, session });
+    // no sessionFile ⇒ the bridge must have failed closed, not returned a record
+    expect(NewSessionResultSchema.safeParse({ state: { ...state, sessionFile: null }, session }).success).toBe(
+      false,
+    );
+  });
+
   it('accepts a well-formed project record', () => {
     const project = { id: 'p1', path: '/home/user/repo', sessionCount: 3, lastActivityAt: '2026-10-19T00:00:00.000Z' };
     expect(ProjectInfoSchema.parse(project)).toEqual(project);

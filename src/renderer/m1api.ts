@@ -15,6 +15,13 @@ export const m1 = {
     params: { file: string; sinceEntryId?: string; limit?: number },
   ): Promise<ReadSessionResultT> => call(api, 'readSession', params),
   openSession: (api: DesktopApi, file: string): Promise<{ state: RpcStateT | null }> => call(api, 'openSession', { file }),
+  /** R03 п.2: REAL new session over Pi's RPC — returns the live state plus
+   * the provisional SessionInfo record (real until the first message
+   * materializes the file in the session index). */
+  newSession: (
+    api: DesktopApi,
+    params: { projectPath?: string } = {},
+  ): Promise<{ state: RpcStateT; session: SessionInfoT }> => call(api, 'newSession', params),
   sendPrompt: (api: DesktopApi, message: string): Promise<{ disposition: string }> => call(api, 'sendPrompt', { message }),
   interrupt: (api: DesktopApi): Promise<{ interrupted: boolean }> => call(api, 'interrupt'),
   getState: (api: DesktopApi): Promise<{ state: RpcStateT | null }> => call(api, 'getState'),

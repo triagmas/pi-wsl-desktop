@@ -94,12 +94,27 @@ function streamPrompt(id, message) {
     setTimeout(() => process.exit(7), 5);
     return;
   }
+  // R03 п.5: representative multi-tool turn — gated so existing runs stay
+  // byte-identical; the populated visual test opts in. States: two ok,
+  // one error (right-panel «multi-tool states/results» evidence).
+  const toolSteps =
+    process.env.FAKE_PI_TOOLS === '1'
+      ? [
+          { type: 'tool_execution_start', toolCallId: 'fc-read-1', toolName: 'read_file' },
+          { type: 'tool_execution_start', toolCallId: 'fc-bash-1', toolName: 'bash' },
+          { type: 'tool_execution_end', toolCallId: 'fc-read-1', isError: false },
+          { type: 'tool_execution_end', toolCallId: 'fc-bash-1', isError: true },
+          { type: 'tool_execution_start', toolCallId: 'fc-grep-1', toolName: 'grep' },
+          { type: 'tool_execution_end', toolCallId: 'fc-grep-1', isError: false },
+        ]
+      : [];
   const steps = [
     { type: 'agent_start' },
     { type: 'turn_start' },
     { type: 'message_start', message: { role: 'user', content: message, timestamp: 1 } },
     { type: 'message_end', message: { role: 'user', content: message, timestamp: 1 } },
     { type: 'message_start', message: { role: 'assistant', content: [], stopReason: 'pending', timestamp: 2 } },
+    ...toolSteps,
     { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Hello 🌍' } },
     { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: ' — done' } },
     { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello 🌍 — done' }], stopReason: 'stop', timestamp: 3 } },

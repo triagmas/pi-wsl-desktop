@@ -424,3 +424,40 @@ describe('T5 typography & responsiveness (п.4)', () => {
     expect(await screen.findByTestId('chat-head')).toHaveTextContent('Новый диалог');
   });
 });
+
+describe('T6 representative populated behavior (п.5)', () => {
+  it('panel and theme switches never remount the active session or draft', async () => {
+    // Owner п.5: «Verify no remount of active session/stream/abort/draft
+    // across panel/theme changes» — a verification gate «in addition to
+    // existing green tests» (the draft lives above ChatPane, §9.1 item 4).
+    const user = userEvent.setup();
+    const { api } = makeRoutedApi({
+      listProjects: { projects: [PROJECT], diagnostics: [] },
+      listSessions: { sessions: [SESSION_OLDER], diagnostics: [] },
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+
+    // open a real session and start a draft
+    await user.click(await screen.findByTestId('session-sess-older'));
+    const input = await screen.findByPlaceholderText(/сообщение/i);
+    await user.type(input, 'черновик перед переключениями');
+
+    // right-panel toggle round trip
+    await user.click(screen.getByTestId('open-details'));
+    expect(screen.getByTestId('right-sidebar')).toBeInTheDocument();
+    await user.click(screen.getByTestId('close-details'));
+
+    // theme switch through Settings (view leaves chat and comes back)
+    await user.click(screen.getByTestId('nav-settings'));
+    await user.click(screen.getByTestId('theme-card-light'));
+    await user.click(screen.getByTestId('nav-chat'));
+
+    // same active session, draft alive, composer ready — no remount/reset
+    expect(screen.getByTestId('chat-head')).toHaveTextContent('Старый диалог');
+    expect(screen.getByPlaceholderText(/сообщение/i)).toHaveValue('черновик перед переключениями');
+    expect(screen.getByTestId('chat-composer')).toBeEnabled();
+    // no accidental auto-reopen or error surfaced by the switches
+    expect(screen.queryByTestId('chat-error')).toBeNull();
+    expect(screen.queryByTestId('new-chat-error')).toBeNull();
+  });
+});

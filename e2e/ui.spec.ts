@@ -38,6 +38,8 @@ async function launchRpc(): Promise<{ app: ElectronApplication; page: Page }> {
     PI_WS_DESKTOP_PI: fakePiRpc,
     PI_WS_DESKTOP_ACTIVE_WINDOW_MS: '0',
     FAKE_PI_STREAM_MS: '150',
+    // R03 п.5: the populated visual also exercises a real multi-tool turn.
+    FAKE_PI_TOOLS: '1',
   });
 }
 
@@ -214,6 +216,19 @@ test.describe('UI-A R02 application shell E2E', () => {
       await expect(page.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
       await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG);
 
+      // R03 п.5: every preset captured from the real app (1440×900).
+      await page.getByTestId('theme-card-claude').click();
+      await expect(page.getByTestId('theme-card-claude')).toHaveAttribute('aria-checked', 'true');
+      await expect.poll(() => bodyBackground(page)).not.toBe(LIGHT_BG);
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-theme-claude-1440x900.png'));
+      await page.getByTestId('theme-card-codex').click();
+      await expect(page.getByTestId('theme-card-codex')).toHaveAttribute('aria-checked', 'true');
+      await expect.poll(() => bodyBackground(page)).not.toBe(DARK_BG);
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-theme-codex-1440x900.png'));
+      // back to Light — the custom-editor block below asserts its restore state.
+      await page.getByTestId('theme-card-light').click();
+      await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG);
+
       // Custom editor opens from the fifth card and can be cancelled without
       // changing the persisted theme or the document (live preview restores).
       await page.getByTestId('theme-card-custom').click();
@@ -268,6 +283,10 @@ test.describe('UI-A R02 application shell E2E', () => {
       await page.getByTestId('theme-card-dark').click();
       await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
       await sanitizedScreenshot(page, testInfo.outputPath('ui-settings-dark.png'));
+      // R03 п.5: the Connection diagnostics section as its own evidence.
+      await page.getByTestId('settings-tab-connection').click();
+      await expect(page.getByTestId('rpc-write-boundary-note')).toBeVisible();
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-settings-connection.png'));
     } finally {
       await app.close();
     }
@@ -320,6 +339,9 @@ test.describe('UI-A R02 application shell E2E', () => {
     const testInfo = test.info();
     const { app, page } = await launchRpc();
     try {
+      // R03 п.5: audit at 1440 — the right panel is media-hidden ≤1100px,
+      // so the multi-tool evidence needs the wide viewport (same as A2/A4).
+      await page.setViewportSize({ width: 1440, height: 900 });
       await waitForReady(page);
       await openFixtureChat(page);
       // R03 п.1: no open-button — the composer is enabled immediately and the
@@ -340,6 +362,17 @@ test.describe('UI-A R02 application shell E2E', () => {
       await expect(page.locator('.bubble-user').last()).toContainText('populate the visual matrix');
       await expect(page.locator('.bubble-assistant').last()).toContainText('Hello 🌍 — done');
       await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
+
+      // R03 п.5: representative multi-tool turn — done/error states reach the
+      // right panel with real counts (FAKE_PI_TOOLS via launchRpc).
+      await page.getByTestId('open-details').click();
+      const tools = page.getByTestId('tool-details');
+      await expect(tools).toBeVisible();
+      await expect(tools).toContainText('read_file');
+      await expect(tools).toContainText('bash');
+      await expect(tools).toContainText('grep');
+      await expect(tools).toContainText('ошибка');
+      await expect(page.getByTestId('details-summary')).toHaveText('3 инстр. · 2 готово');
 
       // The composer is still enabled after the run and stays bottom-anchored:
       // its bottom edge sits at the workspace bottom (within a small padding
@@ -467,6 +500,33 @@ test.describe('UI-A R02 application shell E2E', () => {
       });
       expect(overflow).toBeLessThanOrEqual(0);
       await sanitizedScreenshot(page, testInfo.outputPath('ui-dpi-125.png'));
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('markdown fixture: safe rendering — literal headings/lists, fenced code (R03 п.5)', async () => {
+    const testInfo = test.info();
+    const { app, page } = await launchRpc();
+    try {
+      await waitForReady(page);
+      await page.getByTestId('sidebar-search-input').fill('Markdown fixture');
+      const row = page.locator('[data-testid^="session-"]').first();
+      await expect(row).toBeVisible();
+      await row.click();
+      await expect(page.getByTestId('chat-composer')).toBeVisible();
+      const first = page.locator('.bubble-assistant').first();
+      await expect(first).toBeVisible({ timeout: 20_000 });
+      // SafeMarkdown contract (Issue #5 gate 3): headings/lists stay literal
+      // visible text (no tag parsing), inline code renders as <code>,
+      // fenced blocks as <pre><code>.
+      await expect(first).toContainText('## План сборки');
+      await expect(first).toContainText('- линтер: npm run lint');
+      await expect(first.locator('code').first()).toBeVisible();
+      const fence = await first.locator('pre code').first().innerText();
+      expect(fence).toContain('const build = async ()');
+      await expect(page.locator('.bubble-assistant').nth(1)).toContainText('### Линтер');
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-09-markdown-fixture.png'));
     } finally {
       await app.close();
     }

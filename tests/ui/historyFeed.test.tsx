@@ -47,8 +47,12 @@ describe('useHistoryFeed — file scope and stale responses (review P1-5)', () =
     const { result, rerender } = renderHook(({ file }) => useHistoryFeed(api, file), {
       initialProps: { file: '/a.jsonl' },
     });
-    // A is in flight…
-    await waitFor(() => expect(result.current.loading).toBe(true));
+    // A's request must actually be IN FLIGHT before the switch — otherwise
+    // file-scoped cleanup cancels its timer and the test proves nothing
+    // (review MINOR: `loading` alone is the initial value too).
+    await waitFor(() =>
+      expect(api.request).toHaveBeenCalledWith('readSession', expect.objectContaining({ file: '/a.jsonl' })),
+    );
     // …the user switches to B before A answers
     rerender({ file: '/b.jsonl' });
     await act(async () => {
@@ -58,12 +62,12 @@ describe('useHistoryFeed — file scope and stale responses (review P1-5)', () =
     await waitFor(() => expect(result.current.result).not.toBeNull());
     expect(JSON.stringify(result.current.result?.entries)).toContain('ответ B');
 
-    // The retired A finally resolves — it must NOT overwrite B.
+    // The retired A finally resolves — it must NOT overwrite B. Flush the
+    // whole microtask chain deterministically (no arbitrary wall-clock wait).
     await act(async () => {
       slowA.resolve(page('ответ A'));
-      await Promise.resolve();
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
     });
-    await new Promise((r) => setTimeout(r, 50));
     expect(JSON.stringify(result.current.result?.entries)).toContain('ответ B');
     expect(JSON.stringify(result.current.result?.entries)).not.toContain('ответ A');
   });
@@ -78,8 +82,10 @@ describe('useHistoryFeed — file scope and stale responses (review P1-5)', () =
     const { result, rerender } = renderHook(({ file }) => useHistoryFeed(api, file), {
       initialProps: { file: '/a.jsonl' },
     });
-    // wait until the request is actually in flight (catch handler attached)
-    await waitFor(() => expect(api.request).toHaveBeenCalled());
+    // wait until A's request is actually in flight (catch handler attached)
+    await waitFor(() =>
+      expect(api.request).toHaveBeenCalledWith('readSession', expect.objectContaining({ file: '/a.jsonl' })),
+    );
     await act(async () => {
       failA.reject({ code: 'BOOM', message: 'read failed' });
       await Promise.resolve();

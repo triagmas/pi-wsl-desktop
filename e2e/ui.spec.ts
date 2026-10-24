@@ -566,42 +566,59 @@ test.describe('UI-A R02 application shell E2E', () => {
     }
   });
 
-  test('multi-turn live chat: focus contract, single-copy turns, scroll independent (review)', async () => {
+  test('scroll contract: overflowing markdown fixture keeps a nonzero position across a panel toggle (review)', async () => {
+    const { app, page } = await launchRpc();
+    try {
+      await page.setViewportSize({ width: 1280, height: 640 });
+      await waitForReady(page);
+      await page.getByTestId('sidebar-search-input').fill('Markdown fixture');
+      const row = page.locator('button[data-testid^="session-"]').filter({ hasText: 'Markdown fixture' });
+      await expect(row).toHaveCount(1);
+      await row.click();
+      // both stored answers fully rendered — the fixture content is long
+      await expect(page.locator('.bubble-assistant').nth(1)).toBeVisible({ timeout: 20_000 });
+
+      const scroller = page.getByTestId('chat-entries');
+      // HARD requirement (review): the conversation must actually overflow
+      // in the constrained viewport — no honest-NOT-RUN escape branch.
+      const overflow = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+      expect(overflow).toBeGreaterThan(0);
+
+      await scroller.evaluate((el) => {
+        el.scrollTop = Math.min(40, el.scrollHeight - el.clientHeight);
+      });
+      const before = await scroller.evaluate((el) => el.scrollTop);
+      expect(before).toBeGreaterThan(0);
+
+      // the intended in-view interaction: details panel round trip keeps the
+      // conversation's scroll position (same DOM scrollport, no remount)
+      const openBtn = page.getByTestId('open-details');
+      const closeBtn = page.getByTestId('close-details');
+      if (await closeBtn.isVisible().catch(() => false)) {
+        await closeBtn.click();
+        await expect(closeBtn).toBeHidden();
+      } else {
+        await openBtn.click();
+        await expect(closeBtn).toBeVisible();
+      }
+      const after = await scroller.evaluate((el) => el.scrollTop);
+      expect(after).toBe(before);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('multi-turn created dialog: durable round trip reads both turns from disk (review)', async () => {
     const { app, page } = await launchRpc();
     try {
       await waitForReady(page);
-      await page.getByTestId('sidebar-search-input').fill('E2E fixture session');
-      const row = page.locator('[data-testid^="session-"]').first();
-      await expect(row).toBeVisible();
-      await row.click();
+      // a REAL created dialog — only created sessions persist their turns
+      // in the fake (fixture files are never rewritten)
+      await page.getByTestId('sidebar-new-chat').click();
       const composer = page.getByTestId('chat-composer');
       await expect(composer).toBeVisible();
-      // composer is keyboard-reachable (click focuses it)
-      await composer.click();
-      await expect(composer).toBeFocused();
 
-      // history settles — the conversation scroller is its own scrollport
-      await expect(page.locator('.bubble-assistant').first()).toBeVisible({ timeout: 20_000 });
-      const scroller = page.getByTestId('chat-entries');
-      const scrollable = await scroller.evaluate((el) => el.scrollHeight > el.clientHeight + 4);
-      if (scrollable) {
-        await scroller.evaluate((el) => {
-          el.scrollTop = Math.min(60, el.scrollHeight);
-        });
-        const before = await scroller.evaluate((el) => el.scrollTop);
-        await page.getByTestId('open-details').click();
-        await page.getByTestId('close-details').click();
-        const after = await scroller.evaluate((el) => el.scrollTop);
-        expect(after).toBe(before);
-      } else {
-        test.info().annotations.push({
-          type: 'scroll-independence',
-          description: 'fixture fits the viewport without scrolling — scrolled-position retention NOT RUN here',
-        });
-      }
-
-      // turn 1 — the fixture dialog becomes LIVE only through explicit send
-      // (Issue #5 gate 5); completion restores composer focus (rule 14)
+      // turn 1 — completion restores composer focus (rule 14)
       await composer.fill('первый тёрн');
       await page.getByRole('button', { name: /отправить/i }).click();
       await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
@@ -613,17 +630,28 @@ test.describe('UI-A R02 application shell E2E', () => {
       await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
       await expect(composer).toBeFocused();
 
-      // exactly ONE copy of each turn on screen
+      // exactly ONE copy of each turn while the chat is live
       await expect(page.getByText('первый тёрн')).toHaveCount(1);
       await expect(page.getByText('второй тёрн')).toHaveCount(1);
 
-      // durable round trip: close and reopen from the index — still exactly
-      // one copy of each (no lost prompt, no duplicated history)
+      // durable round trip: close, leave to ANOTHER session, come back —
+      // the file switch resets the live controller and the feed refetches,
+      // so both turns must come from FRESHLY READ history on disk
       await page.getByRole('button', { name: /закрыть чат/i }).click();
-      await expect(row).toBeVisible();
-      await row.click();
+
+      await page.getByTestId('sidebar-search-input').fill('E2E fixture session');
+      const fixtureRow = page.locator('button[data-testid^="session-"]').filter({ hasText: 'E2E fixture session' });
+      await expect(fixtureRow).toHaveCount(1);
+      await fixtureRow.click();
+      await expect(page.getByText('Привет из фикстуры')).toBeVisible({ timeout: 15_000 });
+
+      await page.getByTestId('sidebar-search-input').fill('Новый диалог');
+      const createdRow = page.locator('button[data-testid^="session-"]').filter({ hasText: 'Новый диалог' });
+      await expect(createdRow).toHaveCount(1);
+      await createdRow.click();
       await expect(page.getByText('первый тёрн')).toHaveCount(1, { timeout: 15_000 });
       await expect(page.getByText('второй тёрн')).toHaveCount(1);
+      await expect(page.getByTestId('chat-head')).toContainText('Новый диалог');
     } finally {
       await app.close();
     }

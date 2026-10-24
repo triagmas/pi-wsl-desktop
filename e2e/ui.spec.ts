@@ -16,6 +16,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fakePi, launchApp, waitForReady } from './launchApp';
+import { expectNoPrivatePaths, sanitizedScreenshot } from './hygiene';
 
 const repoRoot = path.join(__dirname, '..');
 const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
@@ -61,6 +62,27 @@ async function openFixtureChat(page: Page): Promise<void> {
 }
 
 test.describe('UI-A R02 application shell E2E', () => {
+  test('R03 п.6: no private path material in visible text', async () => {
+    // RED-first: today the bridge resourceCwd is process.cwd(), so the
+    // Resources diagnostics render the real checkout path (/mnt/f/…) —
+    // the exact leak the owner saw in ui-04. The fix (synthetic
+    // PI_WS_DESKTOP_AGENT_CWD in launchApp) must make this pass.
+    const { app, page } = await launch();
+    try {
+      await waitForReady(page);
+      await page.getByTestId('nav-resources').click();
+      await expect(page.getByTestId('resources-view')).toBeVisible({ timeout: 15_000 });
+      await expectNoPrivatePaths(page);
+      await page.getByTestId('nav-settings').click();
+      await expect(page.locator('h1.settings-title')).toBeVisible({ timeout: 15_000 });
+      await expectNoPrivatePaths(page);
+      await page.getByTestId('nav-chat').click();
+      await expectNoPrivatePaths(page);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('window chrome: no application menu, branded topbar; layout geometry', async () => {
     const testInfo = test.info();
     const { app, page } = await launch();
@@ -123,7 +145,7 @@ test.describe('UI-A R02 application shell E2E', () => {
       const entriesBox = await page.getByTestId('chat-entries').boundingBox();
       expect(entriesBox?.y ?? 0).toBeLessThan(formBox?.y ?? 0);
 
-      await page.screenshot({ path: testInfo.outputPath('ui-01-chat-dark-expanded.png') });
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-01-chat-dark-expanded.png'));
     } finally {
       await app.close();
     }
@@ -164,7 +186,7 @@ test.describe('UI-A R02 application shell E2E', () => {
       await page.getByTestId('open-details').click();
       await expect(page.getByTestId('details-body')).toBeVisible();
 
-      await page.screenshot({ path: testInfo.outputPath('ui-02-chat-dark-rail-details.png') });
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-02-chat-dark-rail-details.png'));
     } finally {
       await app.close();
     }
@@ -195,7 +217,7 @@ test.describe('UI-A R02 application shell E2E', () => {
       // changing the persisted theme or the document (live preview restores).
       await page.getByTestId('theme-card-custom').click();
       await expect(page.getByTestId('theme-editor')).toBeVisible();
-      await page.screenshot({ path: testInfo.outputPath('ui-06-theme-editor.png') });
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-06-theme-editor.png'));
       await page.getByTestId('theme-cancel').click();
       await expect(page.getByTestId('theme-editor')).toBeHidden();
       await expect(page.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
@@ -244,7 +266,7 @@ test.describe('UI-A R02 application shell E2E', () => {
       await page.getByTestId('settings-tab-appearance').click();
       await page.getByTestId('theme-card-dark').click();
       await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
-      await page.screenshot({ path: testInfo.outputPath('ui-settings-dark.png') });
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-settings-dark.png'));
     } finally {
       await app.close();
     }
@@ -284,7 +306,7 @@ test.describe('UI-A R02 application shell E2E', () => {
       // Client-side search narrows to one row.
       await page.getByTestId('skills-search').fill('code');
       await expect(page.getByTestId('skill-row')).toHaveCount(1);
-      await page.screenshot({ path: testInfo.outputPath('ui-04-resources-dark.png') });
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-04-resources-dark.png'));
     } finally {
       await app.close();
     }
@@ -330,7 +352,7 @@ test.describe('UI-A R02 application shell E2E', () => {
         expect(gap).toBeGreaterThanOrEqual(0);
         expect(gap).toBeLessThanOrEqual(24); // padding, not a layout break
       }
-      await page.screenshot({ path: testInfo.outputPath('ui-05-chat-populated-dark.png') });
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-05-chat-populated-dark.png'));
     } finally {
       await app.close();
     }
@@ -374,7 +396,7 @@ test.describe('UI-A R02 application shell E2E', () => {
           await expect(page.getByTestId('left-sidebar')).toBeVisible();
           // No terminal strip appears at any viewport in UI-A.
           await expect(page.getByTestId('terminal-slot')).toHaveCount(0);
-          await page.screenshot({ path: testInfo.outputPath(`ui-matrix-${theme}-${w}x${h}.png`) });
+          await sanitizedScreenshot(page, testInfo.outputPath(`ui-matrix-${theme}-${w}x${h}.png`));
         }
       };
 

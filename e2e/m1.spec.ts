@@ -4,16 +4,19 @@
  * Renderer isolation is asserted by the M0 spec and re-asserted here.
  */
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
 import { launchApp } from './launchApp';
+import type { LaunchedApp } from './launchApp';
 import { existsSync, utimesSync } from 'node:fs';
 import path from 'node:path';
 
 const repoRoot = path.join(__dirname, '..');
 const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
-const sessionsRoot = path.join(repoRoot, 'tests', 'fixtures', 'sessions');
-const fixtureSession = path.join(sessionsRoot, '--e2e-project--', '2026-01-01T00-00-00-000Z_e2e.jsonl');
 const T0 = new Date('2026-01-01T00:00:00.000Z');
+
+/** Fixture path inside the per-launch copy (R03 п.6: never the repo). */
+function fixtureOf(sessionsRoot: string): string {
+  return path.join(sessionsRoot, '--e2e-project--', '2026-01-01T00-00-00-000Z_e2e.jsonl');
+}
 
 interface ExtraEnv {
   activeWindow?: string;
@@ -21,7 +24,7 @@ interface ExtraEnv {
   streamMs?: string;
 }
 
-function launch(extra: ExtraEnv = {}): Promise<{ app: ElectronApplication; page: Page }> {
+function launch(extra: ExtraEnv = {}): Promise<LaunchedApp> {
   return launchApp({
     ...(extra.activeWindow !== undefined ? { PI_WS_DESKTOP_ACTIVE_WINDOW_MS: extra.activeWindow } : {}),
     ...(extra.pi !== undefined ? { PI_WS_DESKTOP_PI: extra.pi } : {}),
@@ -31,9 +34,9 @@ function launch(extra: ExtraEnv = {}): Promise<{ app: ElectronApplication; page:
 
 test.describe('M1 sessions & chat E2E', () => {
   test('discovery lists the fixture project/session; history renders read-only', async () => {
-    expect(existsSync(fixtureSession)).toBe(true);
-    const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc });
+    const { app, page, sessionsRoot } = await launch({ activeWindow: '0', pi: fakePiRpc });
     try {
+      expect(existsSync(fixtureOf(sessionsRoot))).toBe(true);
       await expect(page).toHaveTitle('Pi WSL Desktop');
       // UI-A R02: connection diagnostics moved to Settings — wait for the
       // bridge to be genuinely READY via the loaded fixture list.
@@ -63,7 +66,8 @@ test.describe('M1 sessions & chat E2E', () => {
   });
 
   test('explicit chat resume streams from fake Pi RPC and interrupt returns to open state', async () => {
-    const { app, page } = await launch({ activeWindow: '0', pi: fakePiRpc, streamMs: '150' });
+    const { app, page, sessionsRoot } = await launch({ activeWindow: '0', pi: fakePiRpc, streamMs: '150' });
+    const fixtureSession = fixtureOf(sessionsRoot);
     try {
       await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
@@ -115,14 +119,17 @@ test.describe('M1 sessions & chat E2E', () => {
   });
 
   test('a freshly-modified session file surfaces SESSION_CONFLICT instead of opening', async () => {
-    // deterministic "live CLI" state: mtime = right now (window default 10s)
-    utimesSync(fixtureSession, new Date(), new Date());
-    const { app, page } = await launch({ pi: fakePiRpc });
+    const { app, page, sessionsRoot } = await launch({ pi: fakePiRpc });
+    const fixtureSession = fixtureOf(sessionsRoot);
     try {
       await expect(page.getByTestId('project-list')).toBeVisible({ timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
       await page.getByTestId('tab-chat').click();
+      // deterministic "live CLI" state: bump the mtime immediately before
+      // open so the 10s active-window check cannot race the READY waits
+      // (R03: operates on the per-launch copy, never the repo fixture).
+      utimesSync(fixtureSession, new Date(), new Date());
       await page.getByRole('button', { name: /открыть чат/i }).click();
       const alert = page.getByTestId('chat-error');
       await expect(alert).toBeVisible({ timeout: 20_000 });

@@ -587,22 +587,31 @@ test.describe('UI-A R02 application shell E2E', () => {
       await scroller.evaluate((el) => {
         el.scrollTop = Math.min(40, el.scrollHeight - el.clientHeight);
       });
-      const before = await scroller.evaluate((el) => el.scrollTop);
-      expect(before).toBeGreaterThan(0);
 
-      // the intended in-view interaction: details panel round trip keeps the
-      // conversation's scroll position (same DOM scrollport, no remount)
+      // The intended interaction is a ROUND TRIP: establish a known initial
+      // state (panel closed) before sampling, then assert retention after
+      // BOTH transitions — a one-way toggle could hide a reset on the way
+      // back (review round 3, item 1).
       const openBtn = page.getByTestId('open-details');
       const closeBtn = page.getByTestId('close-details');
       if (await closeBtn.isVisible().catch(() => false)) {
         await closeBtn.click();
         await expect(closeBtn).toBeHidden();
-      } else {
-        await openBtn.click();
-        await expect(closeBtn).toBeVisible();
       }
-      const after = await scroller.evaluate((el) => el.scrollTop);
-      expect(after).toBe(before);
+      const before = await scroller.evaluate((el) => el.scrollTop);
+      expect(before).toBeGreaterThan(0);
+
+      // transition 1: open the details panel — position retained
+      await openBtn.click();
+      await expect(closeBtn).toBeVisible();
+      const afterOpen = await scroller.evaluate((el) => el.scrollTop);
+      expect(afterOpen).toBe(before);
+
+      // transition 2: close it again — the RETURN leg retains as well
+      await closeBtn.click();
+      await expect(closeBtn).toBeHidden();
+      const afterClose = await scroller.evaluate((el) => el.scrollTop);
+      expect(afterClose).toBe(before);
     } finally {
       await app.close();
     }

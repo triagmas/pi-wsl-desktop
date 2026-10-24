@@ -11,6 +11,7 @@ import type { ModuleAction } from '../shared/m3Protocol';
 import { ListModulesResultSchema } from '../shared/m3Ipc';
 import { useConnection } from './useConnection';
 import { useChat } from './useChat';
+import { useHistoryFeed } from './historyFeed';
 import { DEMO_MODULE_MANIFEST } from './modules/demoModule';
 import {
   modulePanels,
@@ -207,11 +208,30 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** Files created via newSession that have not materialized on disk yet. */
   const [provisional, setProvisional] = useState<ReadonlySet<string>>(() => new Set());
   const [newChatError, setNewChatError] = useState<{ code: string; message: string } | null>(null);
+  // Review P1-3 (renderer): a SYNCHRONOUS create reservation — rapid repeat
+  // activations cannot start a second newSession while the first is in flight.
+  const creatingDialogRef = useRef(false);
+  const [creatingDialog, setCreatingDialog] = useState(false);
   /** Bumped when a provisional session materializes — the sidebar refetches. */
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const chat = useChat(effectiveApi, activeSession?.file ?? '');
+  // Review P1-2: the conversation feed is app-lifetime — it must survive
+  // leaving/returning the chat view so a re-entry cannot refetch persisted
+  // history on top of the controller's retained live entries.
+  const historyFeed = useHistoryFeed(effectiveApi, activeSession?.file ?? '');
   const [draft, setDraft] = useState('');
   const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
+
+  /** Review P1-4: retiring ABANDONED provisional records on the transition
+   * itself (never in an effect) — a dialog left un-materialized when the
+   * user switches away must not drive reconciliation churn. */
+  const retireOtherProvisional = (file: string): void =>
+    setProvisional((prev) => {
+      if (prev.size === 0 || prev.has(file)) return prev;
+      const next = new Set(prev);
+      for (const f of prev) next.delete(f);
+      return next;
+    });
 
   const pickSession = (session: SessionInfoT): void => {
     if (activeSession?.file === session.file) {
@@ -224,6 +244,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       setView('chat');
       return;
     }
+    retireOtherProvisional(session.file);
     setActiveSession(session);
     setDraft('');
     setNewChatError(null);
@@ -238,6 +259,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       // confirm dialog up and do not present another session as active.
       return;
     }
+    retireOtherProvisional(pendingSession.file);
     setActiveSession(pendingSession);
     setPendingSession(null);
     setDraft('');
@@ -247,12 +269,17 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** R03 п.2 — REAL session creation over the bridge (single-slot, fail-closed). */
   const createDialog = async (): Promise<void> => {
     if (!effectiveApi) return;
+    if (creatingDialogRef.current) return; // review P1-3: one create at a time
+    creatingDialogRef.current = true;
+    setCreatingDialog(true);
     setNewChatError(null);
     try {
       const r = await m1.newSession(
         effectiveApi,
         activeSession?.projectPath ? { projectPath: activeSession.projectPath } : {},
       );
+      // The new dialog replaces any abandoned provisional sibling (review P1-4).
+      retireOtherProvisional(r.session.file);
       setProvisional((prev) => new Set(prev).add(r.session.file));
       setActiveSession(r.session);
       chat.adoptOpen(r.state, r.session.file);
@@ -260,6 +287,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       setView('chat');
     } catch (err) {
       setNewChatError(parseBridgeError(err));
+    } finally {
+      creatingDialogRef.current = false;
+      setCreatingDialog(false);
     }
   };
 
@@ -309,7 +339,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * record replaces the provisional one and the sidebar refreshes; if the
    * chat is closed first, the never-persisted dialog is honestly dropped. */
   useEffect(() => {
+    // Review P1-4: only an ACTIVE provisional file is reconciled — records
+    // for other sessions are outside this effect's ownership (retired above).
     if (!effectiveApi || provisional.size === 0 || !activeSession) return undefined;
+    if (!provisional.has(activeSession.file)) return undefined;
     let cancelled = false;
     void (async () => {
       try {
@@ -325,11 +358,18 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           });
         if (real) {
           drop();
-          setActiveSession(real); // durable metadata replaces the provisional record
+          // Identity-stable replace: unchanged data keeps the same object →
+          // effect deps settle instead of spawning another refetch (review P1-4).
+          setActiveSession((prev) =>
+            prev && prev.file === real.file && prev.updatedAt === real.updatedAt && prev.availability === real.availability && prev.name === real.name
+              ? prev
+              : real,
+          );
           setSidebarRefreshKey((k) => k + 1);
         } else if (chat.state.status === 'closed') {
           drop();
-          setActiveSession(null); // no first message ⇒ no session (mirrors Pi)
+          // Identity-stable null transition as well.
+          setActiveSession((prev) => (prev && prev.file === file ? null : prev));
           setSidebarRefreshKey((k) => k + 1);
         }
       } catch {
@@ -658,8 +698,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         {activeSession ? (
           <div className="session-detail-wrap">
             <SessionDetail
-              api={effectiveApi as DesktopApi}
-              session={activeSession}
+              feed={historyFeed}
               chat={chat}
               draft={draft}
               onDraftChange={setDraft}
@@ -681,6 +720,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
               data-testid="empty-new-chat"
               title="Создать новый диалог через Pi RPC"
               onClick={newChat}
+              disabled={creatingDialog}
             >
               Новый диалог
             </button>
@@ -804,6 +844,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
           }}
           onNewChat={newChat}
+          newChatPending={creatingDialog}
           refreshKey={sidebarRefreshKey}
           connectionReady={snapshot.phase === 'ready'}
           moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}

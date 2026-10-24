@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/renderer/App';
@@ -83,6 +83,13 @@ interface Route {
   newSession?: unknown;
 }
 
+/** R03 review: deferred/stateful routes — a function is called per request
+ * (lets tests keep `readSession` in sync with an optimistic local turn and
+ * count reconciliation refetches); a thenable defers the first response. */
+function routeValue(v: unknown): unknown {
+  return typeof v === 'function' ? (v as () => unknown)() : v;
+}
+
 const EMPTY_READ = {
   header: null,
   entries: [],
@@ -96,10 +103,10 @@ const EMPTY_READ = {
 
 function makeRoutedApi(route: Route = {}): { api: DesktopApi; request: ReturnType<typeof vi.fn> } {
   const request = vi.fn(async (method: string) => {
-    if (method === 'listProjects') return route.listProjects ?? { projects: [], diagnostics: [] };
-    if (method === 'listSessions') return route.listSessions ?? { sessions: [], diagnostics: [] };
-    if (method === 'readSession') return route.readSession ?? EMPTY_READ;
-    if (method === 'newSession') return route.newSession ?? { state: null, session: null };
+    if (method === 'listProjects') return routeValue(route.listProjects) ?? { projects: [], diagnostics: [] };
+    if (method === 'listSessions') return routeValue(route.listSessions) ?? { sessions: [], diagnostics: [] };
+    if (method === 'readSession') return routeValue(route.readSession) ?? EMPTY_READ;
+    if (method === 'newSession') return routeValue(route.newSession) ?? { state: null, session: null };
     if (method === 'openSession') return { state: null };
     if (method === 'closeSession') return { closed: true };
     if (method === 'getState') return { state: null };
@@ -459,5 +466,123 @@ describe('T6 representative populated behavior (п.5)', () => {
     // no accidental auto-reopen or error surfaced by the switches
     expect(screen.queryByTestId('chat-error')).toBeNull();
     expect(screen.queryByTestId('new-chat-error')).toBeNull();
+  });
+});
+
+describe('R03 review fixes — lifecycle regressions', () => {
+  it('provisional reconciliation settles: listSessions churn is bounded (review P1-4)', async () => {
+    const user = userEvent.setup();
+    const { api, request } = makeRoutedApi({
+      listProjects: { projects: [PROJECT], diagnostics: [] },
+      listSessions: { sessions: [SESSION_OLDER], diagnostics: [] },
+      newSession: { state: NEW_STATE, session: NEW_DIALOG },
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+
+    // create A (provisional, never materialized) — the chat is live/open
+    await user.click(await screen.findByTestId('sidebar-new-chat'));
+    await screen.findByTestId('chat-head');
+    expect(screen.getByTestId('chat-head')).toHaveTextContent('Новый диалог');
+
+    // switch to the existing B while A is still provisional: the guard is up
+    await user.click(await screen.findByTestId('session-sess-older'));
+    await user.click(screen.getByTestId('switch-confirm'));
+    await waitFor(() => expect(screen.getByTestId('chat-head')).toHaveTextContent('Старый диалог'));
+
+    // let the reconciliation window run; the churn must stop
+    await new Promise((r) => setTimeout(r, 250));
+    const count = request.mock.calls.filter((c) => c[0] === 'listSessions').length;
+    expect(count).toBeLessThanOrEqual(6);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(request.mock.calls.filter((c) => c[0] === 'listSessions').length).toBe(count);
+  });
+
+  it('repeated «Новый диалог» actions start exactly one create while pending (review P1-3)', async () => {
+    const user = userEvent.setup();
+    let release!: (v: unknown) => void;
+    const pending = new Promise((r) => {
+      release = r;
+    });
+    const { api, request } = makeRoutedApi({
+      newSession: pending as unknown,
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+
+    const btn = await screen.findByTestId('sidebar-new-chat');
+    await user.click(btn);
+    await user.click(btn);
+    await user.click(btn);
+    expect(request.mock.calls.filter((c) => c[0] === 'newSession')).toHaveLength(1);
+    // while the create is in flight the entry point reports its busy state
+    await waitFor(() => expect(btn).toBeDisabled());
+
+    release({ state: NEW_STATE, session: NEW_DIALOG });
+    await waitFor(() => expect(screen.getByTestId('chat-head')).toHaveTextContent('Новый диалог'));
+    expect(btn).not.toBeDisabled();
+  });
+
+  it('mid-stream panel/theme round trip keeps the live run, open count and unduplicated turns (review P1-7 / п.5)', async () => {
+    const user = userEvent.setup();
+    let persisted = false;
+    const { api, request } = makeRoutedApi({
+      listProjects: { projects: [PROJECT], diagnostics: [] },
+      listSessions: { sessions: [SESSION_OLDER], diagnostics: [] },
+      readSession: () => ({
+        header: null,
+        entries: persisted
+          ? [
+              { type: 'message', id: 'h1', raw: { message: { role: 'user', content: 'вопрос до стрима', timestamp: 1 } } },
+              { type: 'message', id: 'h2', raw: { message: { role: 'user', content: 'живой стрим', timestamp: 2 } } },
+            ]
+          : [{ type: 'message', id: 'h1', raw: { message: { role: 'user', content: 'вопрос до стрима', timestamp: 1 } } }],
+        leafId: 'h1',
+        nextCursor: null,
+        truncated: false,
+        partialTrailing: false,
+        diagnostics: [],
+        availability: 'ok',
+      }),
+    });
+    const pusher = api as unknown as { _pushChatEvent: (p: unknown) => void };
+    render(<App api={api} moduleDefinitions={[]} />);
+
+    // open + explicit send (Issue #5 gate 5)
+    await user.click(await screen.findByTestId('session-sess-older'));
+    const input = await screen.findByPlaceholderText(/сообщение/i);
+    await user.type(input, 'живой стрим');
+    await user.click(screen.getByRole('button', { name: /отправить/i }));
+    persisted = true;
+
+    // live user turn + a partial streamed answer
+    await act(async () => {
+      pusher._pushChatEvent({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'живой стрим', timestamp: 2 } } });
+      pusher._pushChatEvent({ kind: 'pi', name: 'message_update', data: { assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'частичный ответ' } } });
+    });
+    expect(screen.getByTestId('chat-status')).toHaveTextContent('Генерация…');
+
+    // right-panel toggle + theme round trip (view leaves and returns to chat)
+    await user.click(screen.getByTestId('open-details'));
+    await user.click(screen.getByTestId('close-details'));
+    await user.click(screen.getByTestId('nav-settings'));
+    await user.click(screen.getByTestId('theme-card-light'));
+    await user.click(screen.getByTestId('nav-chat'));
+
+    // the live run survives: status, partial text, exactly one session open
+    expect(screen.getByTestId('chat-status')).toHaveTextContent('Генерация…');
+    const entries = screen.getByTestId('chat-entries');
+    expect(entries).toHaveTextContent('частичный ответ');
+    expect(request.mock.calls.filter((c) => c[0] === 'openSession')).toHaveLength(1);
+    // review P1-2: the optimistic turn renders exactly once after the round trip
+    expect(entries.querySelectorAll('.bubble')).toBeTruthy();
+    const liveTexts = within(entries).getAllByText('живой стрим');
+    expect(liveTexts).toHaveLength(1);
+    expect(within(entries).getAllByText('вопрос до стрима')).toHaveLength(1);
+
+    // abort still works after the round trip (review P1-7)
+    await user.click(screen.getByRole('button', { name: /прервать/i }));
+    await act(async () => {
+      pusher._pushChatEvent({ kind: 'pi', name: 'agent_settled', data: { aborted: true } });
+    });
+    expect(screen.getByTestId('chat-status')).toHaveTextContent('Чат открыт');
   });
 });

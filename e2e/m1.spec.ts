@@ -165,6 +165,24 @@ test.describe('M1 sessions & chat E2E', () => {
       await row.click();
       await expect(page.getByText('первый реплике нового диалога')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByText('Hello 🌍 — done')).toBeVisible();
+      // review P1-1: exactly ONE copy of the turn after the round trip
+      await expect(page.getByText('первый реплике нового диалога')).toHaveCount(1);
+
+      // second turn — the reopened dialog must accept a prompt without
+      // losing or duplicating the stored one (review P2-8, E2E level)
+      await page.getByPlaceholder(/сообщение/i).fill('второй тёрн');
+      await page.getByRole('button', { name: /отправить/i }).click();
+      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
+      await expect(page.getByText('первый реплике нового диалога')).toHaveCount(1);
+      await expect(page.getByText('второй тёрн')).toHaveCount(1);
+
+      // review P1-2: leaving and returning to the chat view must not
+      // refetch persisted history on top of the retained live entries
+      await page.getByTestId('nav-settings').click();
+      await page.getByTestId('nav-chat').click();
+      await expect(page.getByText('первый реплике нового диалога')).toHaveCount(1);
+      await expect(page.getByText('второй тёрн')).toHaveCount(1);
+      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт');
     } finally {
       await app.close();
     }

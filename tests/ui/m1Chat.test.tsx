@@ -3,15 +3,16 @@
  * text, interrupt, error/recovery states from real bridge policies.
  */
 import { useState } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../../src/renderer/ChatPane';
 import { SessionDetail } from '../../src/renderer/SessionDetail';
 import { useChat } from '../../src/renderer/useChat';
+import { useHistoryFeed } from '../../src/renderer/historyFeed';
 import type { DesktopApi } from '../../src/renderer/api';
 import type { ChatEventT } from '../../src/shared/m1Protocol';
-import type { RendererSnapshot, SessionInfoT } from '../../src/renderer/types';
+import type { RendererSnapshot } from '../../src/renderer/types';
 
 interface ChatRoute {
   openSession?: unknown;
@@ -90,23 +91,9 @@ function ChatHarness({ api, file }: { api: DesktopApi; file: string }) {
  * feeds it into the conversation + composer in one scroll. */
 function DetailHarness({ api, file }: { api: DesktopApi; file: string }) {
   const chat = useChat(api, file);
+  const feed = useHistoryFeed(api, file);
   const [draft, setDraft] = useState('');
-  const session: SessionInfoT = {
-    id: 's1',
-    file,
-    root: '/root',
-    projectId: '/work/repo',
-    projectPath: '/work/repo',
-    name: 'Refactor auth',
-    createdAt: '2026-10-19T01:00:00.000Z',
-    updatedAt: '2026-10-19T02:00:00.000Z',
-    sizeBytes: 512,
-    version: 3,
-    availability: 'ok',
-    activeWrite: false,
-    diagnostics: null,
-  };
-  return <SessionDetail api={api} session={session} chat={chat} draft={draft} onDraftChange={setDraft} />;
+  return <SessionDetail feed={feed} chat={chat} draft={draft} onDraftChange={setDraft} />;
 }
 
 describe('ChatPane — write boundary and lifecycle', () => {
@@ -290,5 +277,36 @@ describe('ChatPane — write boundary and lifecycle', () => {
     await waitFor(() =>
       expect(request.mock.calls.filter((c) => c[0] === 'openSession').length).toBe(2),
     );
+  });
+});
+
+describe('review P1-1 — adoptOpen must not inherit live entries', () => {
+  it('adopting a bridge-created session starts with an empty conversation', async () => {
+    const { api, emit } = makeApi();
+    const box: { current: ReturnType<typeof useChat> | null } = { current: null };
+    function Capture() {
+      box.current = useChat(api, FILE);
+      return null;
+    }
+    render(<Capture />);
+    // a completed turn from the PREVIOUS dialog is live in the controller
+    act(() => {
+      emit({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'старый диалог', timestamp: 1 } } });
+    });
+    expect(box.current?.state.entries).toHaveLength(1);
+
+    // bridge created a NEW dialog and the app adopts it (R03 п.2 flow)
+    act(() => {
+      box.current?.adoptOpen(
+        { sessionId: 'new-id', sessionFile: '/root/sessions/new.jsonl', isStreaming: false, isCompacting: false, messageCount: 0, model: null, thinkingLevel: 'medium' },
+        '/root/sessions/new.jsonl',
+      );
+    });
+    expect(box.current?.state.file).toBe('/root/sessions/new.jsonl');
+    expect(box.current?.state.status).toBe('open');
+    // review P1-1: the old conversation must not render under the new title
+    expect(box.current?.state.entries).toEqual([]);
+    expect(box.current?.state.streamText).toBe('');
+    expect(box.current?.state.tools).toEqual([]);
   });
 });

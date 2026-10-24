@@ -138,10 +138,12 @@ function streamPrompt(id, message) {
 }
 
 function materializePrompt(message) {
-  // Existing sessions (fixture files opened via switch_session) are never
-  // rewritten — they belong to the fixture; only a CREATED session (file does
-  // not exist yet) gets Pi's first-flush treatment below.
-  if (!sessionFile || existsSync(sessionFile)) return;
+  // Existing FIXTURE sessions (opened via switch_session) are never
+  // rewritten — they belong to the fixture. A session this process CREATED
+  // keeps accepting turns once flushed: the second prompt appends below just
+  // like the CLI would (review P2-8: prompt durability for created sessions).
+  if (!sessionFile) return;
+  if (existsSync(sessionFile) && !flushed) return;
   const iso = new Date().toISOString();
   msgSeq += 1;
   const userEntry = {

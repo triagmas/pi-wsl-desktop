@@ -4,22 +4,22 @@
  * no История/Чат tab framing, and selecting a session never opens a write
  * session (read-only; Issue #5 gate 5: open only on explicit click/send).
  */
-import type { DesktopApi } from './api';
-import { HistoryFeedView, useHistoryFeed } from './historyFeed';
+import { HistoryFeedView, type HistoryFeed } from './historyFeed';
 import { ChatPane } from './ChatPane';
-import type { SessionInfoT } from './types';
 
 export interface SessionDetailProps {
-  api: DesktopApi;
-  session: SessionInfoT;
+  /** LIFTCYCLE (review P1-2): the feed is created by the PARENT and lives
+   * for as long as the app does — leaving and returning to the chat view
+   * re-renders the same feed object instead of refetching persisted history
+   * on top of the controller's retained live entries (duplicate turns). */
+  feed: HistoryFeed;
   /** Active chat controller + draft for the viewed session (§9.1 item 4). */
   chat?: import('./useChat').ChatController;
   draft?: string;
   onDraftChange?: (value: string) => void;
 }
 
-export function SessionDetail({ api, session, chat, draft = '', onDraftChange }: SessionDetailProps) {
-  const feed = useHistoryFeed(api, session.file);
+export function SessionDetail({ feed, chat, draft = '', onDraftChange }: SessionDetailProps) {
   return (
     <section className="detail" data-testid="session-detail">
       {chat && onDraftChange ? (

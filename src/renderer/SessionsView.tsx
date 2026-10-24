@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { m1, parseBridgeError } from './m1api';
 import { SessionDetail } from './SessionDetail';
+import { useHistoryFeed } from './historyFeed';
 import type { ProjectInfoT, SessionInfoT } from './types';
 
 const READY_DEADLINE_MS = 20_000;
@@ -29,6 +30,9 @@ export function SessionsView({
 
   const [ready, setReady] = useState(false);
   const loadedOnce = useRef(false);
+  // Review P1-2: this surface's feed is also parent-owned (stable across
+  // unmount/remount cycles of the detail block).
+  const openFeed = useHistoryFeed(api, open?.file ?? '');
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -131,7 +135,7 @@ export function SessionsView({
         <button type="button" data-testid="sessions-back" onClick={() => setOpen(null)}>
           ← К спискам
         </button>
-        <SessionDetail key={open.id} api={api} session={open} />
+        <SessionDetail key={open.id} feed={openFeed} />
       </div>
     );
   }

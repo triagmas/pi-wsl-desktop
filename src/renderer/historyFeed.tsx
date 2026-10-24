@@ -6,7 +6,7 @@
  * Pure page accumulation lives in historyMerge (seam-tested); the forward
  * cursor semantics are unchanged from the original HistoryView.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { m1, parseBridgeError } from './m1api';
 import { entryView } from './entryText';
@@ -24,34 +24,53 @@ export interface HistoryFeed {
   retry: () => void;
 }
 
-export function useHistoryFeed(api: DesktopApi, file: string): HistoryFeed {
+export function useHistoryFeed(api: DesktopApi | null, file: string): HistoryFeed {
   const [result, setResult] = useState<ReadSessionResultT | null>(null);
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Review P1-5: strictly-increasing request generation — a response for a
+   * retired file (or an older request) is never applied. */
+  const reqSeq = useRef(0);
 
   const load = useCallback(
     async (since?: string) => {
+      if (!api || !file) return;
+      const seq = ++reqSeq.current;
+      if (!since) {
+        // Fresh load (not a pagination step): a file switch clears the previous
+        // file's result/error immediately, and a retry starts clean (review P1-5).
+        setResult(null);
+        setError(null);
+        setLoading(true);
+      }
       try {
         const next = await m1.readSession(api, { file, limit: PAGE, ...(since ? { sinceEntryId: since } : {}) });
+        if (seq !== reqSeq.current) return; // a newer file/request owns the view
         // The reader cursor is strictly forward — mergeHistoryPage appends
         // continuation pages (review round 4; pure + seam-tested).
         setResult((prev) => mergeHistoryPage(prev, next, since));
         setError(null);
       } catch (err) {
+        if (seq !== reqSeq.current) return;
         setError(parseBridgeError(err));
       } finally {
-        setLoading(false);
+        if (seq === reqSeq.current) setLoading(false);
       }
     },
     [api, file],
   );
 
   useEffect(() => {
+    if (!api || !file) return;
+    // Review P1-5: invalidate in-flight responses for the retired file the
+    // moment the file prop changes (a REF bump is effect-legal; the visible
+    // file-scoped reset happens inside `load`, never synchronously here).
+    reqSeq.current += 1;
     // Deferred: the strict set-state-in-effect rule forbids synchronous
     // setState chains inside effect bodies; the fetch itself is async.
     const t = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(t);
-  }, [load]);
+  }, [api, file, load]);
 
   const loadMore = useCallback(() => {
     setLoading(true); // event handler — not in an effect

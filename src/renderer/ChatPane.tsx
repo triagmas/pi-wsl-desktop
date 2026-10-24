@@ -6,6 +6,7 @@
  * renders in the same scroll above the live entries; the composer is anchored
  * at the bottom in every state.
  */
+import { useEffect, useRef } from 'react';
 import type { FormEvent } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
 import { HistoryBubbles, HistoryErrorBox, HistoryLoading, HistoryMore, HistoryNotices } from './historyFeed';
@@ -25,6 +26,17 @@ export interface ChatPaneProps {
 }
 
 export function ChatPane({ chat, draft, onDraftChange, feed }: ChatPaneProps) {
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const wasSending = useRef(false);
+  useEffect(() => {
+    // R01 rule 14 (review: focus contract): when a generation settles the
+    // focus returns to the composer — the send button was focused, the
+    // disabled textarea dropped it, and typing must continue without a click.
+    const sending = chat.state.status === 'sending';
+    if (wasSending.current && !sending) composerRef.current?.focus();
+    wasSending.current = sending;
+  }, [chat.state.status]);
+
   const { state, open, send, interrupt, closeChat } = chat;
 
   const submit = (e: FormEvent): void => {
@@ -133,6 +145,7 @@ export function ChatPane({ chat, draft, onDraftChange, feed }: ChatPaneProps) {
 
       <form className="chat-form" onSubmit={submit}>
         <textarea
+          ref={composerRef}
           data-testid="chat-composer"
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}

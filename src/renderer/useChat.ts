@@ -149,16 +149,9 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
   }, [file]);
 
   const adoptOpen = useCallback((rpcState: RpcStateT, f: string) => {
-    setState((s) => ({
-      ...s,
-      file: f,
-      status: 'open',
-      state: rpcState,
-      error: null,
-      banner: null,
-      streamText: '',
-      tools: [],
-    }));
+    // Review P1-1: adoption starts the NEW dialog empty — inheriting the
+    // previous session's live entries would render them under the new title.
+    setState({ ...initialChatState, file: f, status: 'open', state: rpcState });
   }, []);
 
   const open = useCallback(async (): Promise<boolean> => {

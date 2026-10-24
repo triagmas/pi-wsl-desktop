@@ -98,6 +98,11 @@ export class ChatSessionManager {
    * the idle external-writer gate must not SESSION_NOT_FOUND a session whose
    * file Pi has not written yet (and nothing external can have touched). */
   private pendingMaterialization = false;
+  /** Review P1-3: synchronous single-slot reservation — claimed BEFORE the
+   * first await of open()/create() so concurrent calls cannot both pass the
+   * pre-spawn gate; released by the wrapper's `finally` (success assigns
+   * `this.client`, every failure path unwinds through it). */
+  private starting = false;
   private readonly now: () => number;
   private readonly window: number;
 
@@ -114,6 +119,24 @@ export class ChatSessionManager {
     this.deps.onEvent?.(ev);
   }
 
+  private beginSlot(op: 'open' | 'create'): void {
+    if (this.starting) {
+      throw new BridgeError('RESOURCE_BUSY', `A chat session is already starting (${op}) — wait for it to finish`);
+    }
+    if (this.client) {
+      if (this.client.alive) {
+        throw new BridgeError(
+          'RESOURCE_BUSY',
+          op === 'create'
+            ? 'A chat session is already open — close it before creating a new one'
+            : 'A chat session is already open — close it before opening another',
+        );
+      }
+      this.client = null; // stale dead handle (exit event not yet observed)
+    }
+    this.starting = true;
+  }
+
   private async statOrThrow(file: string): Promise<{ size: number; mtimeMs: number }> {
     try {
       return await this.deps.fs.stat(file);
@@ -123,13 +146,17 @@ export class ChatSessionManager {
   }
 
   async open(file: string): Promise<RpcStateT | null> {
-    if (this.client) {
-      if (this.client.alive) {
-        throw new BridgeError('RESOURCE_BUSY', 'A chat session is already open — close it before opening another');
-      }
-      this.client = null; // stale dead handle (exit event not yet observed)
+    // Review P1-3: the reservation is synchronous — a second concurrent call
+    // observes RESOURCE_BUSY before this flow's first await, not after it.
+    this.beginSlot('open');
+    try {
+      return await this.runOpen(file);
+    } finally {
+      this.starting = false;
     }
+  }
 
+  private async runOpen(file: string): Promise<RpcStateT | null> {
     const meta = await this.statOrThrow(file);
     if (this.now() - meta.mtimeMs <= this.window) {
       throw new BridgeError(
@@ -206,13 +233,18 @@ export class ChatSessionManager {
    * provisional until it appears in the index.
    */
   async create(projectPath?: string): Promise<{ state: RpcStateT; cwd: string }> {
-    if (this.client) {
-      if (this.client.alive) {
-        throw new BridgeError('RESOURCE_BUSY', 'A chat session is already open — close it before creating a new one');
-      }
-      this.client = null; // stale dead handle (exit event not yet observed)
+    // Review P1-3: synchronous reservation (same single-slot policy, no
+    // auto-close) — concurrent create/create and create/open resolve to one
+    // RESOURCE_BUSY winner and one RESOURCE_BUSY loser.
+    this.beginSlot('create');
+    try {
+      return await this.runCreate(projectPath);
+    } finally {
+      this.starting = false;
     }
+  }
 
+  private async runCreate(projectPath?: string): Promise<{ state: RpcStateT; cwd: string }> {
     const piPath = await this.deps.resolvePi();
     if (!piPath) throw new BridgeError('PI_NOT_FOUND', 'Pi executable not found for chat spawn');
     // The bridge owns the default cwd (its own resource cwd); projectPath is
@@ -277,7 +309,18 @@ export class ChatSessionManager {
     // Idle-time external-writer gate (skip while OUR run owns the file).
     if (!this.runActive && this.file) {
       const meta = this.pendingMaterialization
-        ? await this.deps.fs.stat(this.file).catch(() => null)
+        ? await this.deps.fs.stat(this.file).catch((err: unknown) => {
+          const code = (err as NodeJS.ErrnoException | undefined)?.code;
+          // Only "the file does not exist yet" is safe to proceed past: a
+          // transient visibility failure (EACCES/EPERM/EMFILE…) leaves the
+          // external-writer state INDETERMINATE → fail closed before prompt
+          // (review P1-6; EACCES regression test pendingMaterialization).
+          if (code === 'ENOENT') return null;
+          throw new BridgeError(
+            'SESSION_CONFLICT',
+            `Cannot verify the session file state (${code ?? String(err)}) — prompt blocked (fail closed)`,
+          );
+        })
         : await this.statOrThrow(this.file);
       // meta === null ⇔ created but not yet persisted by the first message:
       // nothing external can have written a file that does not exist yet.

@@ -531,3 +531,100 @@ test.describe('UI-A R02 application shell E2E', () => {
       await app.close();
     }
   });
+
+  test('DPI 150% scaling attempt keeps geometry intact (R03 п.4 / memory gate)', async () => {
+    const testInfo = test.info();
+    const { app, page } = await launchApp(
+      { PI_WS_DESKTOP_PI: fakePi },
+      { launchArgs: ['--force-device-scale-factor=1.5'] },
+    );
+    try {
+      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
+      const dpr = await page.evaluate(() => {
+        const w = window as unknown as { devicePixelRatio: number };
+        return w.devicePixelRatio;
+      });
+      if (Math.abs(dpr - 1.5) > 0.01) {
+        // honest: the harness ignored the flag — record NOT RUN, never fake it
+        testInfo.annotations.push({
+          type: 'dpi-attempt',
+          description: `Chromium ignored --force-device-scale-factor (devicePixelRatio=${dpr}) — 150% visual capture NOT RUN on this harness`,
+        });
+        return;
+      }
+      const overflow = await page.evaluate(() => {
+        const w = window as unknown as {
+          document: { documentElement: { scrollWidth: number } };
+          innerWidth: number;
+        };
+        return w.document.documentElement.scrollWidth - w.innerWidth;
+      });
+      expect(overflow).toBeLessThanOrEqual(0);
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-dpi-150.png'));
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('multi-turn live chat: focus contract, single-copy turns, scroll independent (review)', async () => {
+    const { app, page } = await launchRpc();
+    try {
+      await waitForReady(page);
+      await page.getByTestId('sidebar-search-input').fill('E2E fixture session');
+      const row = page.locator('[data-testid^="session-"]').first();
+      await expect(row).toBeVisible();
+      await row.click();
+      const composer = page.getByTestId('chat-composer');
+      await expect(composer).toBeVisible();
+      // composer is keyboard-reachable (click focuses it)
+      await composer.click();
+      await expect(composer).toBeFocused();
+
+      // history settles — the conversation scroller is its own scrollport
+      await expect(page.locator('.bubble-assistant').first()).toBeVisible({ timeout: 20_000 });
+      const scroller = page.getByTestId('chat-entries');
+      const scrollable = await scroller.evaluate((el) => el.scrollHeight > el.clientHeight + 4);
+      if (scrollable) {
+        await scroller.evaluate((el) => {
+          el.scrollTop = Math.min(60, el.scrollHeight);
+        });
+        const before = await scroller.evaluate((el) => el.scrollTop);
+        await page.getByTestId('open-details').click();
+        await page.getByTestId('close-details').click();
+        const after = await scroller.evaluate((el) => el.scrollTop);
+        expect(after).toBe(before);
+      } else {
+        test.info().annotations.push({
+          type: 'scroll-independence',
+          description: 'fixture fits the viewport without scrolling — scrolled-position retention NOT RUN here',
+        });
+      }
+
+      // turn 1 — the fixture dialog becomes LIVE only through explicit send
+      // (Issue #5 gate 5); completion restores composer focus (rule 14)
+      await composer.fill('первый тёрн');
+      await page.getByRole('button', { name: /отправить/i }).click();
+      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
+      await expect(composer).toBeFocused();
+
+      // turn 2 — multi-turn durability on the SAME opened session
+      await composer.fill('второй тёрн');
+      await page.getByRole('button', { name: /отправить/i }).click();
+      await expect(page.getByTestId('chat-status')).toHaveText('Чат открыт', { timeout: 20_000 });
+      await expect(composer).toBeFocused();
+
+      // exactly ONE copy of each turn on screen
+      await expect(page.getByText('первый тёрн')).toHaveCount(1);
+      await expect(page.getByText('второй тёрн')).toHaveCount(1);
+
+      // durable round trip: close and reopen from the index — still exactly
+      // one copy of each (no lost prompt, no duplicated history)
+      await page.getByRole('button', { name: /закрыть чат/i }).click();
+      await expect(row).toBeVisible();
+      await row.click();
+      await expect(page.getByText('первый тёрн')).toHaveCount(1, { timeout: 15_000 });
+      await expect(page.getByText('второй тёрн')).toHaveCount(1);
+    } finally {
+      await app.close();
+    }
+  });

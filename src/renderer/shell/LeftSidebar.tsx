@@ -63,6 +63,9 @@ export interface LeftSidebarProps {
   activeFile: string | null;
   onToggleCollapsed: () => void;
   onNewChat: () => void;
+  /** Review P1-3 (renderer): while a create is in flight the entry points
+   * report their busy state instead of queuing repeat activations. */
+  newChatPending?: boolean;
   /** R03 п.2: bumped when a created session materializes — refetch the list. */
   refreshKey?: number;
   onView: (view: string) => void;
@@ -81,6 +84,7 @@ export function LeftSidebar({
   activeFile,
   onToggleCollapsed,
   onNewChat,
+  newChatPending = false,
   refreshKey = 0,
   onView,
   onPickSession,
@@ -183,6 +187,7 @@ export function LeftSidebar({
             title={newChatTitle}
             aria-label="Новый диалог"
             onClick={onNewChat}
+            disabled={newChatPending}
           >
             <IconPlus />
           </button>
@@ -207,6 +212,7 @@ export function LeftSidebar({
             className="btn-primary sidebar-new"
             title={newChatTitle}
             onClick={onNewChat}
+            disabled={newChatPending}
           >
             <IconPlus />
             <span>Новый диалог</span>

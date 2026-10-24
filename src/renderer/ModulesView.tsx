@@ -30,9 +30,8 @@ export function ModulesView({
 }: ModulesViewProps) {
   return (
     <section className="panel" aria-label="Модули" data-testid="modules-view" data-loading={loading ? 'true' : 'false'}>
-      <header className="panel-header">
-        <h2 data-testid="modules-heading">Модули</h2>
-      </header>
+      {/* R03 п.3: no stacked «Модули» duplicate — the window-titlebar path
+          carries the section title. */}
       {entries.length === 0 ? (
         <p data-testid="modules-empty">Модули не зарегистрированы.</p>
       ) : (

@@ -224,8 +224,7 @@ input[type="range"] {
 .left-sidebar.sidebar-collapsed .project-list,
 .left-sidebar.sidebar-collapsed .sidebar-search,
 .left-sidebar.sidebar-collapsed .sidebar-new,
-.left-sidebar.sidebar-collapsed .module-tab-nav,
-.left-sidebar.sidebar-collapsed .sidebar-search-note {
+.left-sidebar.sidebar-collapsed .module-tab-nav {
   display: none;
 }
 
@@ -321,9 +320,6 @@ input[type="range"] {
   background: var(--pw-placeholder-color);
 }
 
-.sidebar-search-note {
-  font-size: 12px;
-}
 
 .sidebar-scroll {
   flex: 1;
@@ -1743,8 +1739,7 @@ details.tool-result {
   .left-sidebar .project-list,
   .left-sidebar .sidebar-search,
   .left-sidebar .sidebar-new,
-  .left-sidebar .module-tab-nav,
-  .left-sidebar .sidebar-search-note {
+  .left-sidebar .module-tab-nav {
     display: none;
   }
 

@@ -71,11 +71,7 @@ export function RightSidebar({ width, tools, streaming, title, onClose }: RightS
           )}
 
           <h3 className="details-heading">Инструменты</h3>
-          {tools.length === 0 ? (
-            <p className="muted" data-testid="details-empty">
-              Инструменты появятся по мере работы Pi — здесь реальные события текущей сессии.
-            </p>
-          ) : (
+          {tools.length > 0 && (
             <ul className="tool-details-list" data-testid="tool-details">
               {tools.map((t) => (
                 <li key={t.id} className="tool-detail-row">

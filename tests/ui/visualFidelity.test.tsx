@@ -212,6 +212,34 @@ describe('T2 left sidebar truthfulness (A2)', () => {
 });
 
 describe('T3 center chat workspace (A3/A6)', () => {
+  it('window-titlebar path + content heading form a hierarchy — no stacked duplicates (R03 п.3)', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi(READY)} moduleDefinitions={[]} />);
+    // redundant search-scope caption is gone even mid-search (refs: bare field)
+    const searchInput = await screen.findByTestId('sidebar-search-input');
+    await user.type(searchInput, 'fixture');
+    expect(screen.queryByText('Поиск по названиям и путям сессий')).toBeNull();
+    await user.clear(searchInput);
+    // Resources: path «Секция / Подсекция» in the titlebar, section h1 in content (ref3/ref4)
+    await user.click(await screen.findByTestId('nav-resources'));
+    const head = screen.getByTestId('view-head');
+    expect(head).toHaveTextContent('Ресурсы / Skills');
+    expect(screen.getByRole('heading', { level: 1, name: 'Ресурсы' })).toBeInTheDocument();
+    expect(head.textContent).not.toBe('Ресурсы'); // never a bare duplicate of the h1
+    await user.click(screen.getByTestId('res-tab-mcp'));
+    expect(screen.getByTestId('view-head')).toHaveTextContent('Ресурсы / MCP');
+    // Settings: same pattern, live-tracked section
+    await user.click(screen.getByTestId('nav-settings'));
+    expect(screen.getByTestId('view-head')).toHaveTextContent('Настройки / Внешний вид');
+    await user.click(screen.getByTestId('settings-tab-connection'));
+    expect(screen.getByTestId('view-head')).toHaveTextContent('Настройки / Подключение');
+    // Modules: one heading only — the stacked «Модули» duplicate is gone
+    await user.click(screen.getByTestId('nav-modules'));
+    expect(screen.getByTestId('view-head')).toHaveTextContent('Модули');
+    expect(screen.queryByTestId('modules-heading')).toBeNull();
+    expect(screen.getByTestId('modules-view')).toBeInTheDocument();
+  });
+
   it('shows a quiet empty state with a REAL create action and an honest secondary CTA', async () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     const empty = await screen.findByTestId('chat-empty');
@@ -299,7 +327,9 @@ describe('T4 right details panel (A4)', () => {
     // M1 events carry no structured file diffs — the «Файлы» tab must not
     // exist in UI-A (honest absence, owner A4).
     expect(within(panel).queryByRole('tab', { name: 'Файлы' })).not.toBeInTheDocument();
-    expect(within(panel).getByTestId('details-empty')).toBeInTheDocument();
+    // R03 п.3: no lecture copy under the tools heading — badge + real list +
+    // real footer counts are the whole honest surface
+    expect(within(panel).queryByText(/Инструменты появятся по мере/)).not.toBeInTheDocument();
     expect(within(panel).getByTestId('details-summary')).toHaveTextContent('0 инстр.');
     // no invented counts anywhere in the panel
     expect(panel.textContent).not.toMatch(/\d+\s*файл/);

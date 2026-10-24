@@ -224,11 +224,6 @@ export function LeftSidebar({
               aria-label="Поиск чатов по названию и файлу"
             />
           </label>
-          {q && (
-            <p className="sidebar-search-note muted" data-testid="search-scope">
-              Поиск по названиям и путям сессий
-            </p>
-          )}
           {error && (
             <p className="request-error" role="alert" data-testid="sidebar-error">
               {error}

@@ -14,7 +14,7 @@ import { m2, type PreviewOpInput } from './m2api';
 import { IconModules, IconResources, IconSearch, IconTerminal } from './shell/icons';
 import type { BuiltinInfoT, McpServerInfoT, PackageInfoT, ResourceOpPlanT, SkillInfoT } from './types';
 
-type ResTab = 'skills' | 'packages' | 'mcp';
+export type ResTab = 'skills' | 'packages' | 'mcp';
 
 interface OpResult {
   ok: boolean;
@@ -24,8 +24,17 @@ interface OpResult {
   verified: boolean;
 }
 
-export function ResourcesView({ api }: { api: DesktopApi | null }) {
-  const [tab, setTab] = useState<ResTab>('skills');
+export function ResourcesView({
+  api,
+  tab,
+  onTabChange,
+}: {
+  api: DesktopApi | null;
+  /** R03 п.3: controlled so the window-titlebar can render the live
+   * «Секция / Подсекция» path (ref3/ref4) — state lifted to App. */
+  tab: ResTab;
+  onTabChange: (next: ResTab) => void;
+}) {
   const [skills, setSkills] = useState<SkillInfoT[] | null>(null);
   const [packages, setPackages] = useState<{ packages: PackageInfoT[]; builtins: BuiltinInfoT[]; settingsExtensions: string[] } | null>(null);
   const [mcp, setMcp] = useState<{ servers: McpServerInfoT[]; builtinEnabled: boolean; logDiagnostics: string[] } | null>(null);
@@ -189,7 +198,7 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
             data-testid={`res-tab-${key}`}
             className={tab === key ? 'tab tab-active' : 'tab'}
             aria-pressed={tab === key}
-            onClick={() => setTab(key)}
+            onClick={() => onTabChange(key)}
           >
             {label}
           </button>

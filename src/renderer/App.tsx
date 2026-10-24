@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { SessionDetail } from './SessionDetail';
-import { ResourcesView } from './ResourcesView';
+import { ResourcesView, type ResTab } from './ResourcesView';
 import { ModulesView } from './ModulesView';
-import { SettingsView } from './SettingsView';
+import { SettingsView, type Section } from './SettingsView';
 import { ModulePanel } from './ModulePanel';
 import { ModuleTabView } from './ModuleTabView';
 import type { ModuleAction } from '../shared/m3Protocol';
@@ -50,6 +50,15 @@ const RIGHT_PANEL_MAX = 560;
 const LEFT_MIN = 200;
 const LEFT_MAX = 480;
 
+/** R03 п.3: window-titlebar path labels (ref3/ref4 — «Секция / Подсекция»). */
+const RES_TAB_LABELS: Record<ResTab, string> = { skills: 'Skills', packages: 'Extensions', mcp: 'MCP' };
+const SETTINGS_SECTION_LABELS: Record<Section, string> = {
+  appearance: 'Внешний вид',
+  typography: 'Типографика',
+  workspace: 'Рабочее пространство',
+  connection: 'Подключение',
+};
+
 export function App({ api, moduleDefinitions }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
   const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
@@ -57,7 +66,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const [view, setView] = useState<View>('chat');
   /** Which Settings section to land on when Settings opens (R02 review P2:
    * the connection-recovery shortcut must reach Connection, not Appearance). */
-  const [settingsSection, setSettingsSection] = useState<'appearance' | 'connection'>('appearance');
+  const [settingsSection, setSettingsSection] = useState<Section>('appearance');
+  /** R03 п.3: live resources tab for the window-titlebar path. */
+  const [resourcesTab, setResourcesTab] = useState<ResTab>('skills');
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
@@ -557,13 +568,36 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     ) : (
       <header className="center-head" data-testid="view-head">
         <div className="center-title">
-          <strong>
-            {view === 'resources'
-              ? 'Ресурсы'
-              : view === 'modules' || view.startsWith('module:')
-                ? 'Модули'
-                : 'Настройки'}
-          </strong>
+          {/* R03 п.3: the titlebar carries the PATH («Секция / Подсекция»,
+              ref3/ref4) — never a bare repeat of the content heading. */}
+          {view === 'resources' && (
+            <>
+              <strong>Ресурсы</strong>
+              <span className="center-slash">{" / "}</span>
+              <span className="muted">{RES_TAB_LABELS[resourcesTab]}</span>
+            </>
+          )}
+          {view === 'settings' && (
+            <>
+              <strong>Настройки</strong>
+              <span className="center-slash">{" / "}</span>
+              <span className="muted">{SETTINGS_SECTION_LABELS[settingsSection]}</span>
+            </>
+          )}
+          {(view === 'modules' || view.startsWith('module:')) && (
+            <>
+              <strong>Модули</strong>
+              {view.startsWith('module:') && (() => {
+                const tab = tabs.find((t) => t.tabKey === view.slice('module:'.length));
+                return tab ? (
+                  <>
+                    <span className="center-slash">{" / "}</span>
+                    <span className="muted">{tab.tab.title}</span>
+                  </>
+                ) : null;
+              })()}
+            </>
+          )}
         </div>
       </header>
     );
@@ -679,7 +713,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       </div>
     );
   } else if (view === 'resources') {
-    centerBody = <div data-testid="view-resources"><ResourcesView api={effectiveApi} /></div>;
+    centerBody = <div data-testid="view-resources"><ResourcesView api={effectiveApi} tab={resourcesTab} onTabChange={setResourcesTab} /></div>;
   } else if (view === 'settings') {
     centerBody = (
       <div data-testid="view-settings">
@@ -688,6 +722,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           appearance={appearance}
           ready={appearanceReady}
           initialSection={settingsSection}
+          onSectionChange={setSettingsSection}
           onChange={persistAppearance}
           onReset={() => {
             if (!effectiveApi) {

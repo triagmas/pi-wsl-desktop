@@ -36,6 +36,12 @@ export interface LaunchedApp {
 
 export async function launchApp(
   extra: Record<string, string | undefined> = {},
+  options: {
+    /** R03 п.4: extra Chromium args (e.g. --force-device-scale-factor for
+     * the 125%/150% DPI audit attempt). Ignored flags are detected via
+     * devicePixelRatio and reported as NOT RUN, never faked. */
+    launchArgs?: string[];
+  } = {},
 ): Promise<LaunchedApp> {
   const userData = await mkdtemp(path.join(tmpdir(), 'piwsd-e2e-data-'));
   const home = await mkdtemp(path.join(tmpdir(), 'piwsd-e2e-home-'));
@@ -73,7 +79,7 @@ export async function launchApp(
       ...extra,
     }).filter((entry): entry is [string, string] => entry[1] !== undefined),
   );
-  const app = await electron.launch({ args: [mainScript], env });
+  const app = await electron.launch({ args: [mainScript, ...(options.launchArgs ?? [])], env });
   const page = await app.firstWindow();
   return { app, page, userData, home, sessionsRoot };
 }

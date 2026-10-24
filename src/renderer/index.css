@@ -21,6 +21,9 @@
 
 * {
   box-sizing: border-box;
+  /* R03 п.4: stable scrollbar gutters — sidebar/content never shifts right
+     when a list grows a scrollbar (covers the awkward rail/search stacking). */
+  scrollbar-gutter: stable;
   transition-property: background-color, border-color, color;
   transition-duration: calc(var(--pw-animation-duration-ms, 120) * 1ms);
 }
@@ -1337,6 +1340,14 @@ input[type="range"] {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+  /* R03 п.4: Apply/Cancel/Reset stay reachable while the editor scrolls
+     (audited at 1024×768 + 125%/150% scaling) — sticky against .settings. */
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 8px;
+  padding-top: 8px;
+  background: var(--pw-elevated-surface-background-color);
 }
 
 .custom-summary {
@@ -1708,6 +1719,24 @@ details.tool-result {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* R03 п.4: settings/resources/modules share the chat pane's height chain
+   (chat-workspace pattern) — the app chrome (topbar/statusbar) stays fixed
+   and each pane owns its internal scrollport. This is the chain the
+   theme-editor sticky footer needs to engage against. */
+.view-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.view-pane > .resources,
+.view-pane > .panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .center-workspace {

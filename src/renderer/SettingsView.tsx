@@ -530,7 +530,7 @@ export function SettingsView(props: SettingsViewProps) {
                 </span>
               </div>
 
-              <div className="theme-editor-actions">
+              <div className="theme-editor-actions" data-testid="theme-editor-actions">
                 <button type="button" className="btn-primary" data-testid="theme-apply" onClick={applyCustom}>
                   Apply
                 </button>

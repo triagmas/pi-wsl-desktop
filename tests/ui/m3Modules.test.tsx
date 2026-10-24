@@ -807,9 +807,7 @@ describe('M3 R04 UI — external discovery and persistence', () => {
     expect(screen.queryByTestId('module-tab-ext1')).not.toBeInTheDocument();
     // review #3 P2: no orphaned view — the Modules nav button is active again
     expect(screen.getByTestId('nav-modules')).toHaveAttribute('aria-current', 'true');
-    // R03 п.3: the Modules view renders (the stacked duplicate heading was
-    // removed — the window-titlebar path carries the section title)
-    expect(screen.getByTestId('modules-view')).toBeInTheDocument();
+    expect(screen.getByTestId('modules-heading')).toBeInTheDocument();
   });
 
 });

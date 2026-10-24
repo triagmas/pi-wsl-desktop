@@ -542,7 +542,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             {activeSession ? activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект' : 'Pi Desktop'}
           </span>
           <span className="center-slash" aria-hidden="true">/</span>
-          <strong>{activeSession ? sessionLabel(activeSession) : 'Диалог'}</strong>
+          <strong title={activeSession ? sessionLabel(activeSession) : undefined}>
+            {activeSession ? sessionLabel(activeSession) : 'Диалог'}
+          </strong>
           {activeSession?.activeWrite && <span className="badge badge-active">запись</span>}
           {activeSession &&
             activeSession.availability !== 'ok' &&
@@ -713,10 +715,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       </div>
     );
   } else if (view === 'resources') {
-    centerBody = <div data-testid="view-resources"><ResourcesView api={effectiveApi} tab={resourcesTab} onTabChange={setResourcesTab} /></div>;
+    centerBody = <div className="view-pane" data-testid="view-resources"><ResourcesView api={effectiveApi} tab={resourcesTab} onTabChange={setResourcesTab} /></div>;
   } else if (view === 'settings') {
     centerBody = (
-      <div data-testid="view-settings">
+      <div className="view-pane" data-testid="view-settings">
         <SettingsView
           api={effectiveApi}
           appearance={appearance}
@@ -771,7 +773,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     );
   } else if (view === 'modules') {
     centerBody = (
-      <div data-testid="view-modules">
+      <div className="view-pane" data-testid="view-modules">
         <ModulesView
           entries={moduleEntries}
           diagnostics={loadDiagnostics}

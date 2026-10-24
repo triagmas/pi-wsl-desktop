@@ -244,6 +244,7 @@ export function LeftSidebar({
                     type="button"
                     className="project-row"
                     data-testid={`project-${p.id}`}
+                    title={p.path}
                     aria-expanded={open}
                     onClick={() => {
                       onPickProject(p);
@@ -273,6 +274,7 @@ export function LeftSidebar({
                             data-testid={`session-${s.id}`}
                             className={`session-row${s.file === activeFile ? ' session-active' : ''}`}
                             aria-current={s.file === activeFile}
+                            title={sessionLabel(s)}
                             onClick={() => onPickSession(s)}
                           >
                             <IconChatBubble className="row-icon" />
@@ -300,6 +302,7 @@ export function LeftSidebar({
                 key={tabKey}
                 type="button"
                 data-testid={`tab-module-${tabKey}`}
+                title={tabKey}
                 className={`nav-item nav-sub${view === `module:${tabKey}` ? ' nav-current' : ''}`}
                 aria-current={view === `module:${tabKey}`}
                 onClick={() => onView(`module:${tabKey}`)}

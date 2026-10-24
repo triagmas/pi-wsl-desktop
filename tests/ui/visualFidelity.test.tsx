@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -233,10 +234,11 @@ describe('T3 center chat workspace (A3/A6)', () => {
     expect(screen.getByTestId('view-head')).toHaveTextContent('Настройки / Внешний вид');
     await user.click(screen.getByTestId('settings-tab-connection'));
     expect(screen.getByTestId('view-head')).toHaveTextContent('Настройки / Подключение');
-    // Modules: one heading only — the stacked «Модули» duplicate is gone
+    // Modules: owner п.3 lists ONLY Ресурсы/Настройки — the M3-contract
+    // heading stays (titlebar «Модули» + content h2 were not flagged)
     await user.click(screen.getByTestId('nav-modules'));
     expect(screen.getByTestId('view-head')).toHaveTextContent('Модули');
-    expect(screen.queryByTestId('modules-heading')).toBeNull();
+    expect(screen.getByTestId('modules-heading')).toBeInTheDocument();
     expect(screen.getByTestId('modules-view')).toBeInTheDocument();
   });
 
@@ -386,5 +388,39 @@ describe('T5 resources skills view (A5)', () => {
     const filtered = await screen.findAllByTestId('skill-row');
     expect(filtered).toHaveLength(1);
     expect(filtered[0]).toHaveTextContent('code-review');
+  });
+});
+
+describe('T5 typography & responsiveness (п.4)', () => {
+  it('truncated labels carry full-value tooltips', async () => {
+    const { api } = makeRoutedApi({
+      listProjects: { projects: [PROJECT], diagnostics: [] },
+      listSessions: { sessions: [SESSION_OLDER], diagnostics: [] },
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+    const sessionRow = await screen.findByTestId('session-sess-older');
+    expect(sessionRow).toHaveAttribute('title', 'Старый диалог');
+    expect(screen.getByTestId('project-/work/repo')).toHaveAttribute('title', '/work/repo');
+  });
+
+  it('stable gutters, reduced motion, focus-visible and the sticky editor footer are wired (source gate)', () => {
+    const css = readFileSync('src/renderer/index.css', 'utf-8');
+    expect(css).toContain('scrollbar-gutter: stable');
+    expect(css).toMatch(/prefers-reduced-motion:\s*reduce/);
+    expect((css.match(/:focus-visible/g) ?? []).length).toBeGreaterThan(0);
+    expect(css).toMatch(/\.theme-editor-actions \{[^}]*position: sticky/s);
+    expect(css).toMatch(/\.theme-editor-actions \{[^}]*bottom: 0/s);
+  });
+
+  it('«Новый диалог» stays keyboard-reachable (п.4 a11y)', async () => {
+    const user = userEvent.setup();
+    const { api } = makeRoutedApi({
+      newSession: { state: NEW_STATE, session: NEW_DIALOG },
+    });
+    render(<App api={api} moduleDefinitions={[]} />);
+    const rail = await screen.findByTestId('sidebar-new-chat');
+    rail.focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByTestId('chat-head')).toHaveTextContent('Новый диалог');
   });
 });

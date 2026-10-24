@@ -408,3 +408,66 @@ test.describe('UI-A R02 application shell E2E', () => {
     }
   });
 });
+
+  test('theme editor Apply/Cancel stay reachable at 1024×768 (R03 п.4 sticky footer)', async () => {
+    const { app, page } = await launch();
+    try {
+      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
+      await page.getByTestId('nav-settings').click();
+      await page.getByTestId('theme-card-custom').click();
+      await expect(page.getByTestId('theme-editor')).toBeVisible();
+
+      // audit the narrower supported viewport: scroll INTO the editor (its
+      // token list outgrows 1024×768) — the sticky footer must keep
+      // Apply/Cancel pinned in view instead of only at the editor's end
+      await page.setViewportSize({ width: 1024, height: 768 });
+      await page.getByTestId('theme-editor').evaluate((el) => {
+        el.scrollIntoView({ block: 'start' });
+      });
+      const actions = page.getByTestId('theme-editor-actions');
+      const box = await actions.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(768);
+      // and the controls work from that sticky position
+      await page.getByTestId('theme-cancel').click();
+      await expect(page.getByTestId('theme-editor')).toBeHidden();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('DPI 125% scaling attempt keeps geometry intact (R03 п.4)', async () => {
+    const testInfo = test.info();
+    const { app, page } = await launchApp(
+      { PI_WS_DESKTOP_PI: fakePi },
+      { launchArgs: ['--force-device-scale-factor=1.25'] },
+    );
+    try {
+      await expect(page.getByTestId('left-sidebar')).toBeVisible({ timeout: 30_000 });
+      const dpr = await page.evaluate(() => {
+        // e2e window typing is the preload surface only — reach the DOM via casts.
+        const w = window as unknown as { devicePixelRatio: number };
+        return w.devicePixelRatio;
+      });
+      if (Math.abs(dpr - 1.25) > 0.01) {
+        // honest: the harness ignored the flag — record NOT RUN instead of
+        // pretending a 125% capture happened
+        testInfo.annotations.push({
+          type: 'dpi-attempt',
+          description: `Chromium ignored --force-device-scale-factor (devicePixelRatio=${dpr}) — 125% visual capture NOT RUN on this harness`,
+        });
+        return;
+      }
+      const overflow = await page.evaluate(() => {
+        const w = window as unknown as {
+          document: { documentElement: { scrollWidth: number } };
+          innerWidth: number;
+        };
+        return w.document.documentElement.scrollWidth - w.innerWidth;
+      });
+      expect(overflow).toBeLessThanOrEqual(0);
+      await sanitizedScreenshot(page, testInfo.outputPath('ui-dpi-125.png'));
+    } finally {
+      await app.close();
+    }
+  });

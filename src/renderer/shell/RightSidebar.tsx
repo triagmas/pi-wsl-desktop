@@ -78,7 +78,7 @@ export function RightSidebar({ width, tools, streaming, title, onClose }: RightS
                   <span className={`tool-state tool-state-${t.error ? 'error' : t.done ? 'done' : 'running'}`} aria-hidden="true">
                     {t.error ? <IconXCircle /> : t.done ? <IconCheck /> : <IconClock />}
                   </span>
-                  <span className="tool-detail-name">{t.name}</span>
+                  <span className="tool-detail-name" title={t.name}>{t.name}</span>
                   <span className="muted">
                     {t.error ? 'ошибка' : t.done ? 'готово' : 'выполняется'}
                   </span>

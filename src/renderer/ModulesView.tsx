@@ -30,8 +30,12 @@ export function ModulesView({
 }: ModulesViewProps) {
   return (
     <section className="panel" aria-label="Модули" data-testid="modules-view" data-loading={loading ? 'true' : 'false'}>
-      {/* R03 п.3: no stacked «Модули» duplicate — the window-titlebar path
-          carries the section title. */}
+      {/* Owner п.3 lists ONLY Ресурсы/Настройки — the M3-contract heading
+          stays (restore R03: heading-less views would break п.4's
+          accessibility requirement). */}
+      <header className="panel-header">
+        <h2 data-testid="modules-heading">Модули</h2>
+      </header>
       {entries.length === 0 ? (
         <p data-testid="modules-empty">Модули не зарегистрированы.</p>
       ) : (

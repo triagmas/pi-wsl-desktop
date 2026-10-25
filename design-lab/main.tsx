@@ -3,19 +3,21 @@
  *
  * Изолированный Vite dev-server: React + CSS-слой БЕЗ Electron, Pi, WSL Bridge,
  * IPC и user ~/.pi. Данные состояний — только fixtures.tsx (DEMO).
- * Выбор состояния: ?state=ref1..ref6 | settings | demo; ?bare=1 скрывает picker
- * (используется скриптом capture.mjs для чистых скриншотов).
+ * Выбор состояния: ?state=ref1..ref6 | settings | demo | board; ?bare=1 скрывает
+ * picker (используется скриптом capture.mjs для чистых скриншотов).
  */
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../src/renderer/design/typography.css';
 import '../src/renderer/design/layout.css';
 import '../src/renderer/design/components.css';
+import '../src/renderer/design/board.css';
 import { applyTheme } from '../src/renderer/design/applyTheme';
 import { applyTypography } from '../src/renderer/design/applyTypography';
 import { defaultTypography } from '../src/shared/appearance';
 import { THEME_PRESETS, type ThemePresetId } from '../src/shared/design/presets';
 import { AppFrame } from '../src/renderer/ui/AppFrame';
+import { BoardScreen } from '../src/renderer/ui/BoardScreen';
 import { ChatView } from '../src/renderer/ui/ChatView';
 import { DetailsHeader, DetailsPanel } from '../src/renderer/ui/DetailsPanel';
 import { Rail } from '../src/renderer/ui/Rail';
@@ -27,7 +29,7 @@ import { TerminalPane } from '../src/renderer/ui/TerminalPane';
 import { IconDots, IconPanelExpand } from '../src/renderer/ui/icons';
 import * as F from './fixtures';
 
-const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo'] as const;
+const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo', 'board'] as const;
 type StateId = (typeof STATES)[number];
 
 interface StateView {
@@ -233,6 +235,12 @@ function buildState(state: StateId): StateView {
             />
           </AppFrame>
         ),
+      };
+    case 'board':
+      return {
+        label: 'board · Компоненты (01–09)',
+        theme: 'dark',
+        node: <BoardScreen />,
       };
   }
 }

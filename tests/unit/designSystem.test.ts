@@ -6,7 +6,7 @@ import {
   type ThemeTokens,
   semanticTokenKeys,
 } from '../../src/shared/design/presets';
-import { contrastRatio, meetsAA } from '../../src/shared/design/contrast';
+import { contrastRatio, meetsAA, hexColor } from '../../src/shared/design/contrast';
 import { validateCustomTokens } from '../../src/renderer/design/customTheme';
 
 /**
@@ -99,6 +99,33 @@ describe('contrast math', () => {
 
   it('rejects non-hex inputs instead of guessing', () => {
     expect(() => contrastRatio('red', '#fff')).toThrow();
+  });
+});
+
+describe('hexColor: любой CSS-цвет → #rrggbb (board, «Своя тема»)', () => {
+  it('converts hsl() functional notation to hex', () => {
+    expect(hexColor('hsl(0 100% 50%)')).toBe('#ff0000');
+    expect(hexColor('hsl(120, 14%, 47%)')).toBe('#678967');
+    expect(hexColor('hsl(210 80% 50%)')).toBe('#197fe6');
+  });
+
+  it('converts rgb() functional notation to hex', () => {
+    expect(hexColor('rgb(255, 255, 255)')).toBe('#ffffff');
+    expect(hexColor('rgb(0 0 0 / 50%)')).toBe('#000000');
+  });
+
+  it('passes hex through unchanged (case normalized)', () => {
+    expect(hexColor('#78957C')).toBe('#78957c');
+  });
+
+  it('throws on unsupported colors instead of guessing (fail-safe)', () => {
+    expect(() => hexColor('red')).toThrow();
+    expect(() => hexColor('var(--x)')).toThrow();
+    expect(() => hexColor('linear-gradient(#000, #fff)')).toThrow();
+  });
+
+  it('round-trips into contrast math for the board AA badge', () => {
+    expect(() => contrastRatio(hexColor('hsl(120 14% 47%)'), '#20221f')).not.toThrow();
   });
 });
 

@@ -13,7 +13,7 @@ npm run design          # dev-server на http://localhost:5199
 ```
 
 Состояния: `?state=ref1 … ref6` (шесть эталонов Issue #21), `?state=settings`,
-`?state=demo`. Плавающий picker внизу справа — тоже DEMO-подписи;
+`?state=demo`, `?state=board`. Плавающий picker внизу справа — тоже DEMO-подписи;
 `?bare=1` скрывает его (для скриншотов).
 
 | state | мокап | что показывает |
@@ -25,6 +25,7 @@ npm run design          # dev-server на http://localhost:5199
 | ref5 | тёмный, терминал + статус-бар | терминал строго под композером, statusbar |
 | ref6 | светлый, «Ресурсы / Skills» | светлая тема Resources |
 | settings / demo | нет эталона | Настройки (§9.3: 5 тем, 8 зон) и Markdown-тело |
+| board | нет эталона (учебный лист) | «Компоненты 01–09» — живые контролы темы/шрифта/зон, вкладки, поиск, статус-бар; см. `docs/ui/design-lab-component-board.md` |
 
 ## Что можно и чего нельзя
 

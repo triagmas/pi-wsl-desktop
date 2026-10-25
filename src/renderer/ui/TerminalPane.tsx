@@ -1,6 +1,7 @@
 /**
  * Design Lab — терминал строго под композером (Issue #21, D1; ref5).
- * Только представление: grip, вкладки и статичные строки фикстуры.
+ * Только представление: grip, вкладки и строки фикстуры; в board (D1-b) вкладки
+ * и «+» — интерактивные (они-опциональны, без обработчиков контракт не меняется).
  * Реальный PTY/терминал — UI-B и НЕ начинается в D1; строки — иллюстрация,
  * ANSI-цвета через токены --pw-terminal-*.
  */
@@ -21,27 +22,53 @@ export interface TerminalPaneProps {
   tabs: TerminalTab[];
   /** Строки с классами t-green / t-blue / t-muted (см. components.css). */
   lines: ReactNode[];
+  /** board: переключение вкладки (без обработчика вкладки статичны). */
+  onSelectTab?: (id: string) => void;
+  /** board: кнопка «+» (без обработчика не рендерится — контракт ref5 сохранён). */
+  onAddTab?: () => void;
+  /** board: закрыть вкладку (крестик кликабелен только при обработчике). */
+  onCloseTab?: (id: string) => void;
 }
 
-export function TerminalPane({ tabs, lines }: TerminalPaneProps) {
+export function TerminalPane({ tabs, lines, onSelectTab, onAddTab, onCloseTab }: TerminalPaneProps) {
   return (
     <section className="dl-terminal" aria-label="Терминал (фикстура Design Lab)">
       <div className="dl-grip" aria-hidden="true" />
-      <div className="dl-term-tabs">
-        {tabs.map((tab) => (
-          <span key={tab.id} className={`dl-term-tab${tab.active ? ' dl-term-tab-active' : ''}`}>
-            {tab.icon}
-            {tab.label}
-            {tab.closable ? (
-              <span className="dl-term-tab-close" aria-hidden="true">
-                <IconClose size={15} />
-              </span>
-            ) : null}
-          </span>
-        ))}
-        <button type="button" className="dl-term-add" aria-label="Новая вкладка">
-          <IconPlus size={17} />
-        </button>
+      <div className="dl-term-tabs" role={onSelectTab ? 'tablist' : undefined}>
+        {tabs.map((tab) => {
+          const TabTag = onSelectTab ? 'button' : 'span';
+          return (
+            <TabTag
+              key={tab.id}
+              {...(onSelectTab
+                ? {
+                    type: 'button' as const,
+                    role: 'tab' as const,
+                    'aria-selected': Boolean(tab.active),
+                    onClick: () => onSelectTab(tab.id),
+                  }
+                : {})}
+              className={`dl-term-tab${tab.active ? ' dl-term-tab-active' : ''}`}
+            >
+              {tab.icon}
+              {tab.label}
+              {tab.closable ? (
+                <span
+                  className="dl-term-tab-close"
+                  aria-hidden="true"
+                  onClick={onCloseTab ? (e) => { e.stopPropagation(); onCloseTab(tab.id); } : undefined}
+                >
+                  <IconClose size={15} />
+                </span>
+              ) : null}
+            </TabTag>
+          );
+        })}
+        {onAddTab ? (
+          <button type="button" className="dl-term-add" aria-label="Новая вкладка" onClick={onAddTab}>
+            <IconPlus size={17} />
+          </button>
+        ) : null}
         <div className="dl-term-actions">
           <button type="button" className="dl-term-iconbtn" aria-label="Развернуть терминал">
             <IconExpandArrows size={19} />

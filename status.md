@@ -1,49 +1,50 @@
 # STATUS.md — текущий прогресс (измерения, не обещания)
 
-Обновлено: 2026-10-25 (раунд 3: ячейки 10–36 из Component Library v5).
+Обновлено: 2026-10-25 (итог: board D1-b принят владельцем, раунд 4).
 Связанные записи: `agent-output.log` (находки и циклы проверок),
 `docs/ui/design-lab-component-board.md` (полный отчёт владельцу).
 
 ## Ветка / состояние
 
-- Ветка `design-lab-d1`; предыдущий head: `a8be1e0` (board раунд 2, «поправь 6 и 9»).
-- Страница board: `http://localhost:5199/?state=board` (интерфейс скроллится внутри
-  `.dl-board` — 4802px, 36 ячеек).
-- PR #23 (UI-A R02/R03) заморожен; merge НЕ выполнялся; Issues #16 и #21 открыты.
+- Ветка `design-lab-d1`, head **`c489738`** (push origin):
+  - `41c14ac` — board раунд 1 (9 ячеек, интерактив),
+  - `a8be1e0` — раунд 2 (правки 06/09 по эталону),
+  - `14f61e8` — раунд 3 (ячейки 10–36 из Component Library v5),
+  - `c489738` — раунд 4 (визуальные правки 12/17/25/26/28/30 от владельца).
+- **Владелец: «мне всё нравится» — визуальный ACCEPT получен.**
+- Страница: `http://localhost:5199/?state=board` (скролл внутри `.dl-board`, 4802px, 36 ячеек).
+- PR #23 (UI-A R02/R03) заморожен на `1797217`; merge НЕ выполнялся.
+- Issues #16 и #21 открыты; PR #20 не тронут.
 
-## Что сделано в раунде 3
+## Итог раунда 4 (замечания владельца → фиксы, проверены числами)
 
-- Разобран `Reference/Pi-WSL-Desktop-Component-Library-v5.zip`:
-  `components.json` (37 единиц), `preview-cases.json` (84 кейса).
-- Маппинг: 9 ячеек 01–09 уже покрывали 9 интерфейсных компонентов; Tokens → шапка;
-  **добавлены 27 отсутствующих ячеек 10–36** в порядке registry v5
-  (Типографика, Иконки, Select, Switch, Checkbox, Choice, Range, ActionMenu, Status,
-  Progress, Attachment, ContextBreakdown, TreeView, CodeViewer, DiffViewer, SettingRow,
-  ThemeEditor, EnvironmentCheck, ResourceItem, MetricGroup, TimeSeriesChart,
-  ActivityGrid, DataTable, InlineAlert, Toast, Dialog(modal), EmptyState).
-- Стилистика — как в ячейках 01–09: токены `--pw-*`, em-кегли, живые контролы,
-  только fixture (без Electron/Pi/WSL/IPC/~/.pi).
-- Новый файл `src/renderer/ui/BoardCellsV5.tsx` + v5-секция `board.css`;
-  `BoardScreen.tsx` подключает `V5_CELLS`/`V5Body` (36 ячеек, счётчик в шапке).
+| Пункт | Фикс | Число |
+|---|---|---|
+| 12/17 выпадашки обрезались | `overflow:visible` у `.cell-select/.cell-menu`, listbox max-height 150 + скролл, контент ячейки по центру | listbox выходит на 87px поверх соседа, все 3 пункта видны |
+| свитч не отцентрирован / вверх (13/25/28) | thumb `top 3`, `translateX 18`, `align-items:center` | margins 20/2 + 3/3; offY свитча к подписи = 0 |
+| 26 кегли/вид/выбор цвета | свой свотч 34×24 + нативный color-input поверх (opacity 0), строки плотнее, hex 0.93em | проба: fill → hex, «Сохранить» → «Черновик сохранён» |
+| 30 точки растягивались | `.v5-dot` — отдельные абсолютные круги поверх растягиваемого SVG | 7/7 точек — круги |
+| 12 «кружки» | шеврон и чекмарк опции | offY = 0 у обоих |
 
-## Гейты (фактические команды, PASS/FAIL/SKIP/NOT RUN)
+## Гейты (фактически, финальные)
 
-- tsc node + tsc web: **PASS 0/0**
-- `npx eslint .`: **PASS 0**
-- vitest полный: **PASS 607 passed / 10 skipped** (60 файлов)
-- `npm run build`: **PASS**
-- E2E Playwright `--grep "UI-A"`: **PASS 3/3**
-- Проба v5 (`artifacts/probe-v5.mjs`): **PASS 42/42, 0 ошибок** (найден баг `ui` vs
-  `renderer` в TreeView — исправлен, RED→GREEN)
-- Регресс 01–09 (`probe-board.mjs`): **PASS, 0 ошибок**
-- Адаптив 1100/760 + состояния ref1–ref6/settings/demo: **PASS, 0 ошибок, без переполнения**
-- Полный Electron E2E / installer / CI: **NOT RUN** (вне-скоуп design-правок)
+- tsc node + tsc web: **PASS 0/0**; `npx eslint .`: **PASS 0**
+- vitest: **PASS 607 passed / 10 skipped**; `npm run build`: **PASS**
+- E2E `--grep "UI-A"`: **PASS 3/3**
+- проба v5: **PASS 42/42, 0 ошибок**; регресс 01–09: **PASS, 0 ошибок**
+- гео-пробы (chevron/thumb/tile/switch): **все offY/center = 0**
+- адаптив 1100/760: без переполнения; ref1–ref6/settings/demo: 200, 0 ошибок
+- NOT RUN: полный Electron E2E / installer / CI / реальная установка (вне-скоуп / consent)
+
+## Артефакты владельцу
+
+- ZIP: `F:\_tmp\d1-b-board-final.zip` — sha256
+  `139c386ab7a16b2a0d980b37d625ffcd3d2fb72886604d2e984b40c7a7be41ea`, 41 файл.
+- Живой просмотр: `localhost:5199/?state=board`.
 
 ## Следующий шаг
 
-**Visual ACCEPT / замечания владельца** по раунду 3:
-`localhost:5199/?state=board` (скролл до ячеек 10–36),
-скриншоты `artifacts/design-lab/v5-scroll-0..5.png`,
-ZIP **`F:\_tmp\d1-b-board-v5.zip`**
-(sha256 `948dcb4a71026c3ca5eba1e51fa52c674d4fe6e016ef03806d8b8c95c22007c8`, 31 entry).
-Merge PR #23 — только по прямому разрешению владельца.
+1. Merge PR #23 — только по прямому разрешению владельца (PR frozen, base main).
+2. D1 Этап 2 (после выбора design variant по Reference v3) и функциональная
+   интеграция design-lab-компонентов в shell (D2).
+3. Реальный install/uninstall-гейт — consent владельца до 1.0.0.

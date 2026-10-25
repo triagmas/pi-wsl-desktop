@@ -660,7 +660,7 @@ function ComposerCell() {
         </button>
       </div>
       <div className="dl-board-sub">Вариант с остановкой генерации</div>
-      <div className="dl-board-composer-box">
+      <div className="dl-board-composer-box is-stop">
         <div className="dl-composer-row1">
           <span className="dl-composer-attach">
             <ComposerClip />
@@ -845,27 +845,21 @@ function TerminalCell() {
 function StatusCell() {
   const [term, setTerm] = useState(false);
   return (
-    <div className={term ? 'dl-board-status is-on' : 'dl-board-status'}>
+    <div className="dl-board-status">
+      <span className="dl-board-sub dl-board-status-hint">Нажмите «Терминал» в строке — переключение</span>
       <div className="dl-status">
         <StatusBar
           connection={{ label: 'Pi подключён' }}
           distro="Ubuntu · WSL"
           right={[
-            { id: 'os', text: 'Windows' },
             { id: 'cpu', text: 'CPU 12%', icon: <CpuGlyph /> },
-            { id: 'ram', text: 'RAM 8.4 / 32 ГБ', icon: <RamGlyph /> },
+            { id: 'ram', text: 'RAM 8,4 / 32 ГБ', icon: <RamGlyph /> },
           ]}
           terminalLabel="Терминал"
-        />
-        <button
-          type="button"
-          className="dl-board-status-hit"
-          aria-pressed={term}
-          aria-label="Переключить терминал в статус-баре"
-          onClick={() => setTerm((v) => !v)}
+          onTerminalToggle={() => setTerm((v) => !v)}
+          terminalActive={term}
         />
       </div>
-      <span className="dl-board-sub">Нажмите кнопку «Терминал» справа</span>
     </div>
   );
 }
@@ -882,8 +876,8 @@ function CpuGlyph() {
 function RamGlyph() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <rect x="3.5" y="8" width="17" height="8" rx="1.5" />
-      <path d="M7 16v2.5M12 16v2.5M17 16v2.5" strokeLinecap="round" />
+      <rect x="3.5" y="7.5" width="17" height="9" rx="2" />
+      <path d="M7.5 10.5v3M12 10.5v3M16.5 10.5v3" strokeLinecap="round" />
     </svg>
   );
 }

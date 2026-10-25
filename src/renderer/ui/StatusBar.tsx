@@ -19,9 +19,20 @@ export interface StatusBarProps {
   distro?: string;
   right?: StatusItem[];
   terminalLabel?: string;
+  /** board (D1-b): живой переключатель; без обработчика кнопка статична (ref5). */
+  onTerminalToggle?: () => void;
+  /** board: активное состояние кнопки терминала (рендерится только с обработчиком). */
+  terminalActive?: boolean;
 }
 
-export function StatusBar({ connection, distro, right = [], terminalLabel }: StatusBarProps) {
+export function StatusBar({
+  connection,
+  distro,
+  right = [],
+  terminalLabel,
+  onTerminalToggle,
+  terminalActive = false,
+}: StatusBarProps) {
   return (
     <>
       <div className="dl-status-group">
@@ -53,7 +64,12 @@ export function StatusBar({ connection, distro, right = [], terminalLabel }: Sta
         {terminalLabel ? (
           <>
             <span className="dl-status-sep" aria-hidden="true" />
-            <button type="button" className="dl-status-term">
+            <button
+              type="button"
+              className="dl-status-term"
+              onClick={onTerminalToggle}
+              aria-pressed={onTerminalToggle ? terminalActive : undefined}
+            >
               <IconTerminalGlyph size={16} />
               {terminalLabel}
             </button>

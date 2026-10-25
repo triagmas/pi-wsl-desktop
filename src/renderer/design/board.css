@@ -505,17 +505,65 @@
 
 /* ── 06 Поле ввода ──────────────────────────────────────────── */
 
-.dl-board-composer .dl-composer {
-  border-radius: 14px;
-}
-.dl-board-composer .dl-composer + .dl-board-sub {
-  margin-top: 16px;
-}
+/* Бокс композера (эталон 06): скруглённая рамка, две строки, кнопка по центру */
 .dl-board-composer-box {
   position: relative;
+  background: var(--pw-chat-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: 14px;
+  padding: 15px 16px;
+}
+.dl-board-composer-box + .dl-board-sub {
+  margin-top: 16px;
+}
+.dl-board-composer-box .dl-composer-row1 {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-right: 78px;
 }
 .dl-board-composer-box .dl-composer-row2 {
-  margin-bottom: 2px;
+  margin-left: 44px;
+  margin-top: 13px;
+  padding-right: 78px;
+}
+/* живое поле ввода (без стилей — был браузерный дефолт) */
+.dl-composer-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--pw-body-text-color);
+  font-family: inherit;
+  font-size: 1.21em; /* ≈17px — измерено по эталону 06 */
+}
+.dl-composer-input::placeholder {
+  color: var(--pw-placeholder-color);
+}
+/* пропорции эталона 06: чип и контекст меньше полноразмерных (ref1..ref6) */
+.dl-board-composer .dl-chip {
+  height: 34px;
+  gap: 10px;
+  padding: 0 14px;
+  font-size: 1.07em; /* 15px */
+}
+.dl-board-composer .dl-context {
+  margin-left: 20px;
+  gap: 8px;
+  font-size: 1.07em; /* 15px */
+}
+/* кнопка отправки: вертикальный центр бокса (эталон: ≈52×54) */
+.dl-board-composer-box .dl-send {
+  right: 14px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
 }
 .dl-board-model {
   position: relative;
@@ -565,28 +613,40 @@
   border: 1px solid var(--pw-muted-text-color);
   border-radius: 50%;
 }
+/* Стоп-вариант (эталон 06): тёмно-красный бокс + яркий коралловый квадрат.
+ * Измерено по component-board: bg (92,61,60), квадрат (245,102,97). */
 .dl-board-stop {
   position: absolute;
   right: 14px;
-  bottom: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: color-mix(in srgb, var(--pw-button-primary-background-color) 70%, transparent);
+  width: 42px;
+  height: 42px;
+  background: #5c3d3c;
   border: none;
-  border-radius: 12px;
+  border-radius: 11px;
   cursor: pointer;
 }
 .dl-board-stop span {
-  width: 13px;
-  height: 13px;
-  background: var(--pw-button-primary-text-color);
+  width: 15px;
+  height: 15px;
+  background: #f56661;
   border-radius: 3px;
 }
+/* клик: остановлено → токен error (светлая тема + проверяемость переключения) */
 .dl-board-stop.is-stopped {
   background: var(--pw-error-color);
+}
+.dl-board-stop.is-stopped span {
+  background: var(--pw-elevated-surface-background-color);
+}
+/* второй бокс — одна строка (без чипа/контекста) */
+.dl-board-composer-box.is-stop {
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 /* ── 07 Правая панель ───────────────────────────────────────── */
@@ -693,88 +753,80 @@
 
 /* ── 09 Статус-бар ──────────────────────────────────────────── */
 
-.dl-board-status {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 49px;
-  padding: 0 4px;
-}
-/* статус-бар в ячейке board: тесная раскладка строки (иначе RAM/CPU переносятся) */
-.dl-board-status .dl-status {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: auto;
-  min-height: 42px;
+/* Ячейка 09 (эталон): заголовок сверху, полоса прижата к низу ячейки
+ * во всю ширину (full-bleed), скругления — за счёт overflow:hidden ячейки. */
+.cell-status .dl-board-cell-body {
   padding: 0;
-  gap: 2px;
-  /* строка должна помещаться в одну линию без переносов */
-  font-size: 0.64em;
+}
+.dl-board-status {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 208px;
+  padding-top: 14px;
+}
+.dl-board-status-hint {
+  margin: 0;
+  padding: 0 16px;
+  font-size: 0.79em;
+}
+/* полоса: токен статус-бара, компактная строка в одну линию.
+ * Измерения эталона: полоса 515px, кегль строки ≈10.5px, высота 48px.
+ * box-sizing:border-box — иначе padding выходит за ширину ячейки. */
+.dl-board-status .dl-status {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 48px; /* измерено по эталону: y946..995 */
+  padding: 0 13px;
+  gap: 3px;
+  background: var(--pw-status-bar-background-color);
+  border-top: 1px solid var(--pw-divider-color);
+  font-size: 0.72em; /* ≈10px — кегль строки эталона 09 */
   white-space: nowrap;
 }
 .dl-board-status .dl-status-group {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   white-space: nowrap;
 }
-.dl-board-status .dl-status-group:first-child {
-  flex: none;
+/* разделитель между левой и правой группами (эталон) */
+.dl-board-status .dl-status-group:last-of-type {
+  gap: 3px;
+  padding-left: 8px;
+  border-left: 1px solid var(--pw-divider-color);
 }
 .dl-board-status .dl-status-sep {
   margin: 0;
 }
 .dl-board-status .dl-status-dot {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
 }
 .dl-board-status .dl-status-item,
 .dl-board-status .dl-status-mute {
   white-space: nowrap;
 }
+/* кнопка терминала: база — эталонный акцент α53% (ref5/09),
+ * нажатие — сплошной акцент (живой тумблер, aria-pressed) */
 .dl-board-status .dl-status-term {
   gap: 5px;
-  height: 24px;
-  padding: 0 7px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
 }
-.dl-board-status .dl-status-ico svg {
-  display: block;
-  transform: scale(0.85);
-  transform-origin: center;
-}
-/* правая группа: без принудительных отступов между элементами (главный источник ширины) */
-.dl-board-status .dl-status-group:last-of-type {
-  margin-left: auto;
-  gap: 2px;
-}
-.dl-board-status-hit {
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 104px;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-.dl-board-status .dl-status-hit,
-.dl-board-status .dl-board-status-hit {
-  z-index: 2;
-}
-.dl-board-status .dl-board-sub {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 8px);
-  margin: 0;
-}
-.dl-board-status.is-on .dl-status-term {
+.dl-board-status .dl-status-term[aria-pressed="true"] {
   background: var(--pw-button-primary-background-color);
   color: var(--pw-button-primary-text-color);
 }
-.dl-board-status {
-  margin-bottom: 26px;
+.dl-board-status .dl-status-ico svg {
+  display: block;
+  transform: scale(0.92);
+  transform-origin: center;
 }
 
 /* ── Адаптив (сетка board) ──────────────────────────────────── */

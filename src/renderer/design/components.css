@@ -2152,3 +2152,27 @@
 .dl-frame[data-layout="app"] .dl-term-dock {
   max-height: calc(100% - 220px);
 }
+
+/* Review r2: короткие окна — сайдбар сам по себе скроллится как fallback,
+ * чтобы навигация была достижима, когда flex-none блоков не хватает высоты. */
+.dl-frame[data-layout="app"] .dl-sidebar {
+  overflow-y: auto;
+}
+
+/* Review r2 P1-nav: декоративный 129px-разделитель — только визуал лабы;
+ * продукту нужен компактный разделитель, иначе nav уезжает за обрез. */
+html:not([data-design-lab]) .dl-frame[data-layout="app"] .dl-side-divider {
+  margin-top: 24px;
+}
+
+/* Review r2 P1-code: область кода §9.3 (чат, история, любые markdown-регионы
+ * продукта) управляется code-токенами: семейство/начертание/интерлиньяж. */
+.dl-frame[data-layout="app"] code {
+  font-family: var(--pw-font-code-family, var(--dl-font-mono));
+  font-weight: var(--pw-font-code-weight, 400);
+}
+
+.dl-frame[data-layout="app"] pre,
+.dl-frame[data-layout="app"] pre code {
+  line-height: var(--pw-font-code-line-height, 1.5);
+}

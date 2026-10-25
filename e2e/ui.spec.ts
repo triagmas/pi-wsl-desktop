@@ -9,14 +9,19 @@
  */
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import path from 'node:path';
 import { fakePi, launchApp } from './launchApp';
+
+const repoRoot = path.join(__dirname, '..');
+/** Рабочий фикстурный Pi RPC (как в m1.spec) — нужен для открытия истории. */
+const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
 
 /** Body background per theme — proves the tokens actually reach the DOM. */
 const DARK_BG = 'rgb(32, 34, 31)'; // #20221F
 const LIGHT_BG = 'rgb(250, 249, 246)'; // #FAF9F6
 
-async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
-  return launchApp({ PI_WS_DESKTOP_PI: fakePi });
+async function launch(pi = fakePi): Promise<{ app: ElectronApplication; page: Page }> {
+  return launchApp({ PI_WS_DESKTOP_PI: pi });
 }
 
 async function bodyBackground(page: Page): Promise<string> {
@@ -261,9 +266,15 @@ test.describe('UI-A application shell E2E', () => {
 });
 
 test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', async () => {
-  const { app, page } = await launch();
+  const { app, page } = await launch(fakePiRpc);
   try {
     await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+
+    // P1-code: открываем сессию и вкладку «История» — фикстурная история
+    // содержит markdown с inline- и fenced-кодом для проверки области §9.3.
+    await page.getByText('E2E fixture session').click();
+    await page.getByTestId('tab-history').click();
+    await expect(page.locator('.history code').first()).toBeVisible();
 
     // P1-3: продуктовое дерево проектов/сессий — скроллируемая область
     const treeOverflow = await page.evaluate(() => {
@@ -304,6 +315,34 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
       return { parentH: parent.clientHeight, dockH: dockEl.getBoundingClientRect().height };
     });
     expect(sizes.dockH).toBeLessThanOrEqual(sizes.parentH - 200);
+
+    // P1-nav: в коротком окне навигация остаётся достижимой (fallback-скролл
+    // сайдбара), а не срезается за обрезом flex-none блоков.
+    await page.setViewportSize({ width: 1024, height: 600 });
+    const settingsNav = page.getByTestId('nav-settings');
+    await settingsNav.scrollIntoViewIfNeeded();
+    await expect(settingsNav).toBeVisible();
+
+    // P1-code: шрифт области кода управляется code-токеном настроек,
+    // а не унаследованной константой response-зоны.
+    const code = page.locator('.history code').first();
+    await expect(code).toBeVisible();
+    const family = await code.evaluate((el) => {
+      const w = window as unknown as { getComputedStyle: (e: unknown) => { fontFamily: string } };
+      return w.getComputedStyle(el).fontFamily;
+    });
+    const token = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { getPropertyValue: (n: string) => string };
+      };
+      const root = w.getComputedStyle(w.document.querySelector('html'));
+      return root.getPropertyValue('--pw-font-code-family').trim();
+    });
+    expect(token.length).toBeGreaterThan(0);
+    // вычисленный шрифт кода совпадает с токеном настроек, а не с унаследованным
+    const firstFace = token.split(',')[0].replace(/["']/g, '').trim();
+    expect(family).toContain(firstFace);
   } finally {
     await app.close();
   }

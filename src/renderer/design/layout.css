@@ -321,3 +321,11 @@ button {
     display: none;
   }
 }
+
+@media (max-width: 800px) {
+  /* Review r2 P2: в лабе main должен лечь в ЕДИНСТВЕННУЮ колонку —
+   * иначе grid-колонка 2 создаётся неявно из-за grid-column: 2 у .dl-main. */
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-main {
+    grid-column: 1;
+  }
+}

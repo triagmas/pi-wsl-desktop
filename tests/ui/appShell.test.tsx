@@ -341,6 +341,23 @@ describe('D2 layout integration', () => {
     expect(screen.getByTestId('left-sidebar')).toHaveStyle({ width: '340px' });
   });
 
+  it('review N1: Settings are not editable until appearance load resolves', async () => {
+    const api = makeApi();
+    let resolveLoad!: (v: unknown) => void;
+    const pending = new Promise((r) => {
+      resolveLoad = r;
+    });
+    api.getAppearance = (async () => pending) as unknown as typeof api.getAppearance;
+    render(<App api={api} moduleDefinitions={[]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('nav-settings'));
+    // до ready экран настроек недоступен — иначе поздний load затирает
+    // выбор пользователя полным сохранённым объектом (N1)
+    expect(screen.queryByTestId('settings-root')).not.toBeInTheDocument();
+    resolveLoad(undefined);
+    await waitFor(() => expect(screen.getByTestId('settings-root')).toBeInTheDocument());
+  });
+
   it('review P2-7: right panel keyboard follows separator direction (invert)', async () => {
     const user = userEvent.setup();
     const api = makeApi();

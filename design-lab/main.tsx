@@ -92,7 +92,7 @@ function buildState(state: StateId): StateView {
             }
             details={{ header: <DetailsHeader title="Детали действия" />, body: <DetailsPanel {...F.DETAILS_DATA} /> }}
           >
-            <ChatView turns={F.TURNS_ACTIVE} composer={{ density: 'standard', context: 'Контекст 18%' }} stepCircle={32} />
+            <ChatView turns={F.TURNS_ACTIVE} composer={{  density: 'standard', context: 'Контекст 18%', model: 'MiMo v2.6' }} stepCircle={32} />
           </AppFrame>
         ),
       };
@@ -109,7 +109,7 @@ function buildState(state: StateId): StateView {
                 </button>
               }
               turns={chatTurns(false)}
-              composer={{ density: 'relaxed', context: 'Контекст 18%' }}
+              composer={{  density: 'relaxed', context: 'Контекст 18%', model: 'MiMo v2.6' }}
               hint={F.HINT}
               stepCircle={24}
             />
@@ -144,7 +144,7 @@ function buildState(state: StateId): StateView {
                 </button>
               }
               turns={chatTurns(false)}
-              composer={{ density: 'relaxed', context: 'Контекст 18%' }}
+              composer={{  density: 'relaxed', context: 'Контекст 18%', model: 'MiMo v2.6' }}
               hint={F.HINT}
               stepCircle={24}
             />
@@ -189,7 +189,7 @@ function buildState(state: StateId): StateView {
           >
             <ChatView
               turns={F.TURNS_ACTIVE}
-              composer={{ density: 'compact', context: 'Контекст 18%' }}
+              composer={{  density: 'compact', context: 'Контекст 18%', model: 'MiMo v2.6' }}
               stepCircle={32}
               showIdentity={false}
               terminal={<TerminalPane tabs={F.TERMINAL_TABS} lines={F.TERMINAL_LINES} />}
@@ -235,7 +235,7 @@ function buildState(state: StateId): StateView {
                 </button>
               }
               turns={chatTurns(true)}
-              composer={{ density: 'relaxed', context: 'Контекст 18%' }}
+              composer={{  density: 'relaxed', context: 'Контекст 18%', model: 'MiMo v2.6' }}
               hint={F.HINT}
               stepCircle={24}
             />

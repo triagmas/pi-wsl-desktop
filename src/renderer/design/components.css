@@ -2165,14 +2165,17 @@ html:not([data-design-lab]) .dl-frame[data-layout="app"] .dl-side-divider {
   margin-top: 24px;
 }
 
-/* Review r2 P1-code: область кода §9.3 (чат, история, любые markdown-регионы
- * продукта) управляется code-токенами: семейство/начертание/интерлиньяж. */
+/* Review r2/r3 P1-code: область кода §9.3 (чат, история, любые markdown-регионы
+ * продукта) целиком управляется code-токенами: семейство, начертание, размер
+ * и интерлиньяж — inline- и fenced-код не наследуют ответ/историю. */
 .dl-frame[data-layout="app"] code {
   font-family: var(--pw-font-code-family, var(--dl-font-mono));
   font-weight: var(--pw-font-code-weight, 400);
+  font-size: var(--pw-font-code-size, var(--dl-fs-code));
 }
 
 .dl-frame[data-layout="app"] pre,
-.dl-frame[data-layout="app"] pre code {
+.dl-frame[data-layout="app"] pre code,
+.dl-frame[data-layout="app"] code {
   line-height: var(--pw-font-code-line-height, 1.5);
 }

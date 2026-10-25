@@ -343,6 +343,33 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
     // вычисленный шрифт кода совпадает с токеном настроек, а не с унаследованным
     const firstFace = token.split(',')[0].replace(/["']/g, '').trim();
     expect(family).toContain(firstFace);
+
+    // Полный code-контракт §9.3 (round-3 P2): размер и интерлиньяж inline- и
+    // fenced-кода берутся из токенов настроек, а не наследуют ответ/историю.
+    const codeZone = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => {
+          getPropertyValue: (n: string) => string;
+          fontSize: string;
+          lineHeight: string;
+        };
+      };
+      const rootStyle = w.getComputedStyle(w.document.querySelector('html'));
+      return {
+        size: rootStyle.getPropertyValue('--pw-font-code-size').trim(),
+        lineHeight: rootStyle.getPropertyValue('--pw-font-code-line-height').trim(),
+        elFontSize: w.getComputedStyle(w.document.querySelector('.history code')).fontSize,
+        elLineHeight: w.getComputedStyle(w.document.querySelector('.history code')).lineHeight,
+        fencFontSize: w.getComputedStyle(w.document.querySelector('.history pre code')).fontSize,
+      };
+    });
+    expect(codeZone.size).toMatch(/px$/);
+    expect(codeZone.elFontSize).toBe(codeZone.size);
+    // line-height токен безразмерный (например 1.6) → used value в px
+    const expectedLh = parseFloat(codeZone.lineHeight) * parseFloat(codeZone.elFontSize);
+    expect(Math.abs(parseFloat(codeZone.elLineHeight) - expectedLh)).toBeLessThan(0.6);
+    expect(codeZone.fencFontSize).toBe(codeZone.size);
   } finally {
     await app.close();
   }

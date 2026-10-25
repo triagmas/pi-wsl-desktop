@@ -2092,3 +2092,63 @@
   display: flex;
   flex-direction: column;
 }
+
+/* ── Review-фиксы D2 (независимое ревью, только app-layout/продукт) ─────── */
+
+/* P1-6: типографика §9.3 управляет ВСЕМИ свойствами областей, не только
+ * кеглем — family/weight/line-height доходят до реальных регионов. */
+.dl-frame[data-layout="app"] {
+  font-family: var(--pw-font-ui-family, var(--dl-font-stack));
+}
+
+.dl-frame[data-layout="app"] .dl-md {
+  font-family: var(--pw-font-chat-response-family, inherit);
+  font-weight: var(--pw-font-chat-response-weight, inherit);
+  line-height: var(--pw-font-chat-response-line-height, 1.6);
+}
+
+.dl-frame[data-layout="app"] .dl-composer-input {
+  font-family: var(--pw-font-chat-input-family, inherit);
+  font-size: var(--pw-font-chat-input-size, 14px);
+  font-weight: var(--pw-font-chat-input-weight, inherit);
+  line-height: var(--pw-font-chat-input-line-height, 1.5);
+}
+
+.dl-frame[data-layout="app"] .dl-sidebar {
+  font-family: var(--pw-font-sidebar-family, inherit);
+  font-weight: var(--pw-font-sidebar-weight, inherit);
+  line-height: var(--pw-font-sidebar-line-height, 1.45);
+}
+
+.dl-frame[data-layout="app"] .dl-status {
+  font-family: var(--pw-font-status-bar-family, inherit);
+  font-weight: var(--pw-font-status-bar-weight, inherit);
+}
+
+.dl-frame[data-layout="app"] .dl-term-dock {
+  font-family: var(--pw-font-terminal-family, inherit);
+  font-weight: var(--pw-font-terminal-weight, inherit);
+  line-height: var(--pw-font-terminal-line-height, 1.5);
+}
+
+/* P1-3: реальные списки проектов/сессий скроллятся, навигация остаётся
+ * доступной внизу (overflow:hidden сайдбара раньше обрезал длинные выдачи). */
+.dl-frame[data-layout="app"] .dl-sidebar-top,
+.dl-frame[data-layout="app"] .dl-side-label,
+.dl-frame[data-layout="app"] .dl-side-divider,
+.dl-frame[data-layout="app"] .dl-nav-rows {
+  flex: none;
+}
+
+.dl-frame[data-layout="app"] .dl-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* P1-5: док не съедает рабочую область чата — жёсткий предел от высоты
+ * центральной колонки с резервом на композер/сессию (сохранённые 600px
+ * применяются только пока хватает места). */
+.dl-frame[data-layout="app"] .dl-term-dock {
+  max-height: calc(100% - 220px);
+}

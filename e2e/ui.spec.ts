@@ -57,7 +57,8 @@ test.describe('UI-A application shell E2E', () => {
       // о PTY-контракте (без фиктивного вывода).
       await expect(page.getByTestId('status-terminal-btn')).not.toBeDisabled();
       await expect(page.getByTestId('status-terminal-btn')).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.getByTestId('terminal-slot')).toBeVisible(); // слот резерва (пустой, без фиктивного вывода)
+      await expect(page.getByTestId('terminal-slot')).toBeVisible();
+      await expect(page.getByTestId('terminal-slot')).toHaveText(''); // инвариант: в слоте НЕТ фиктивного вывода
       await expect(page.getByTestId('terminal-dock')).toHaveText(/PTY/i); // честная надпись дока о реальном PTY в UI-B
 
       // Right details panel: open → focus lands in the panel context; close →
@@ -256,4 +257,54 @@ test.describe('UI-A application shell E2E', () => {
       await app.close();
     }
   });
+
+});
+
+test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', async () => {
+  const { app, page } = await launch();
+  try {
+    await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+
+    // P1-3: продуктовое дерево проектов/сессий — скроллируемая область
+    const treeOverflow = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { overflowY: string };
+      };
+      const el = w.document.querySelector('.dl-tree');
+      return el ? w.getComputedStyle(el).overflowY : 'missing';
+    });
+    expect(treeOverflow).toBe('auto');
+
+    // P1-2: узкое окно — развёрнутая левая панель ложится overlay-ом
+    // поверх центральной колонки, а не сжимается в 71px-треке
+    await page.setViewportSize({ width: 760, height: 800 });
+    const sidePos = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { position: string };
+      };
+      const el = w.document.querySelector('aside.left-sidebar');
+      return el ? w.getComputedStyle(el).position : 'missing';
+    });
+    expect(sidePos).toBe('absolute');
+
+    // P1-5: низкое окно — док не съедает чат (max-height: 100% - 220px)
+    await page.setViewportSize({ width: 1280, height: 440 });
+    const dock = page.getByTestId('terminal-dock');
+    await expect(dock).toBeVisible();
+    const sizes = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+      };
+      const parent = w.document.querySelector('.center-workspace') as unknown as { clientHeight: number };
+      const dockEl = w.document.querySelector('[data-testid="terminal-dock"]') as unknown as {
+        getBoundingClientRect: () => { height: number };
+      };
+      return { parentH: parent.clientHeight, dockH: dockEl.getBoundingClientRect().height };
+    });
+    expect(sizes.dockH).toBeLessThanOrEqual(sizes.parentH - 200);
+  } finally {
+    await app.close();
+  }
 });

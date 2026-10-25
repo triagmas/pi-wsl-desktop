@@ -157,7 +157,7 @@ function AssistantTurn({
 
 function Composer({
   placeholder = 'Напишите сообщение…',
-  model = 'MiMo v2.6',
+  model,
   context,
   density = 'relaxed',
   value,
@@ -194,12 +194,16 @@ function Composer({
         )}
       </div>
       <div className="dl-composer-row2">
-        <button type="button" className="dl-chip">
-          {model}
-          <span className="dl-chip-chevron" aria-hidden="true">
-            <IconChevronDown size={16} />
-          </span>
-        </button>
+        {/* Review P1-1: без подтверждённого источника модели чип не рендерится —
+         * выдуманный runtime-идентификатор в рабочем приложении запрещён. */}
+        {model ? (
+          <button type="button" className="dl-chip">
+            {model}
+            <span className="dl-chip-chevron" aria-hidden="true">
+              <IconChevronDown size={16} />
+            </span>
+          </button>
+        ) : null}
         {context ? (
           <span className="dl-context">
             {context}

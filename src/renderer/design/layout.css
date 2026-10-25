@@ -280,7 +280,7 @@ button {
     grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
   }
 
-  .dl-frame[data-layout="app"] .left-sidebar:not(.sidebar-collapsed) {
+  .dl-frame[data-layout="app"] .dl-side > .left-sidebar:not(.sidebar-collapsed) {
     position: absolute;
     top: 0;
     bottom: 0;
@@ -302,6 +302,17 @@ button {
 @media (max-width: 1100px) {
   html[data-design-lab] .dl-frame[data-layout="app"] .dl-details {
     display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-details {
+    display: none;
+  }
+  /* Review P2-8: лаба возвращает прежнюю ОДНУ центральную колонку —
+   * rail-трек71px остаётся только продуктовой стратегией. */
+  html[data-design-lab] .dl-frame[data-layout="app"] {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

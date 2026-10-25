@@ -87,19 +87,24 @@ export function useResizeHandle({
 
   const onKeyDown = useCallback(
     (event: { key: string; preventDefault: () => void }) => {
+      // Стрелки кодируют pointer-эквивалент (ArrowUp = «мышь на step вверх»),
+      // затем действует та же формула drag с invert: для верхней границы дока
+      // (invert) «мышь вверх» расширяет док, для левого края правой панели
+      // «мышь влево» расширяет панель — клавиатура и мышь согласованы (P2-7).
       const deltaByKey: Record<string, number> =
         axis === 'x'
           ? { ArrowRight: step, ArrowLeft: -step }
-          : { ArrowUp: step, ArrowDown: -step };
+          : { ArrowUp: -step, ArrowDown: step };
       const delta = deltaByKey[event.key];
       if (delta === undefined) return;
       event.preventDefault();
-      const next = clamp(value + delta, min, max);
+      const dir = invert ? -1 : 1;
+      const next = clamp(value + delta * dir, min, max);
       lastRef.current = next;
       onPreview(next);
       onCommit(next);
     },
-    [axis, value, min, max, step, onPreview, onCommit],
+    [axis, invert, value, min, max, step, onPreview, onCommit],
   );
 
   return { onMouseDown, onKeyDown };

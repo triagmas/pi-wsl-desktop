@@ -101,9 +101,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** No API (tests/no preload) ⇒ defaults are already the final state. */
   const appearanceReady = appearanceLoaded || effectiveApi === null;
   const saveAppearanceRef = useRef<ReturnType<DesktopApi['saveAppearance']> | null>(null);
-  /** Мутации пользователя отменяют позднюю загрузку (гонка: load-resolve
-   * после drag-коммита перетирал состояние сохранённым старым значением). */
-  const appearanceMutationRef = useRef(0);
+  /** Review P1-4: layout-жесты ДО завершения загрузки применяются к UI сразу,
+   * но персистятся один раз — слиянием патча с загруженными настройками
+   * (полный default-объект не должен затирать сохранённую тему/типографику). */
+  const pendingLayoutPatchRef = useRef<Partial<AppearanceSettings['layout']>>({});
 
   // M1 invariant: the chat topic subscription must be registered exactly once
   // the bridge is READY — it used to ride on the (formerly default)
@@ -121,13 +122,19 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       .getAppearance()
       .then((raw) => {
         if (cancelled) return;
-        if (appearanceMutationRef.current > 0) {
-          setAppearanceLoaded(true); // пользователь уже изменил — гонку не проигрываем
-          return;
-        }
-        const next = migrateAppearance(raw);
-        setAppearance(next);
+        const loaded = migrateAppearance(raw);
+        const patch = pendingLayoutPatchRef.current;
+        const hasPatch = Object.keys(patch).length > 0;
+        const merged = hasPatch
+          ? { ...loaded, layout: { ...loaded.layout, ...patch } }
+          : loaded;
+        pendingLayoutPatchRef.current = {};
+        setAppearance(merged);
         setAppearanceLoaded(true);
+        if (hasPatch && effectiveApi) {
+          // ровно одно сохранение — уже с загруженными настройками + патчем
+          saveAppearanceRef.current = effectiveApi.saveAppearance(merged).catch(() => undefined);
+        }
       })
       .catch(() => {
         if (!cancelled) setAppearanceLoaded(true); // fail-safe default, no crash
@@ -147,7 +154,6 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   }, [themeTokens, appearance.typography]);
 
   const persistAppearance = (next: AppearanceSettings): void => {
-    appearanceMutationRef.current += 1;
     setAppearance(next);
     if (!effectiveApi) return;
     saveAppearanceRef.current = effectiveApi.saveAppearance(next).catch(() => undefined);
@@ -172,7 +178,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
 
   const commitLayout = (patch: Partial<AppearanceSettings['layout']>): void => {
     setLayoutPreview({});
-    persistAppearance({ ...appearance, layout: { ...appearance.layout, ...patch } });
+    const next = { ...appearance, layout: { ...appearance.layout, ...patch } };
+    if (!appearanceReady) {
+      // review P1-4: очередь до ready — UI отражает жест, персист после слияния
+      pendingLayoutPatchRef.current = { ...pendingLayoutPatchRef.current, ...patch };
+      setAppearance(next);
+      return;
+    }
+    persistAppearance(next);
   };
 
   const openDetails = (): void => {

@@ -308,4 +308,59 @@ describe('D2 layout integration', () => {
     expect(api._windowControls.maximize).toHaveBeenCalledTimes(1);
     expect(api._windowControls.close).toHaveBeenCalledTimes(1);
   });
+
+  it('review P1-4: an early layout gesture never clobbers stored theme/typography (queued persist)', async () => {
+    const api = makeApi();
+    let resolveLoad!: (v: unknown) => void;
+    const pending = new Promise((r) => {
+      resolveLoad = r;
+    });
+    api.getAppearance = (async () => pending) as unknown as typeof api.getAppearance;
+    render(<App api={api} moduleDefinitions={[]} />);
+
+    // жест ДО завершения загрузки appearance
+    const handle = screen.getByRole('separator', { name: /ширина левой панели/i });
+    fireEvent.mouseDown(handle, { clientX: 260, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 340, clientY: 100 });
+    fireEvent.mouseUp(window, { clientX: 340, clientY: 100 });
+    // сохранение не уходит полным default-объектом раньше загрузки
+    expect(api._saveAppearance).not.toHaveBeenCalled();
+
+    // поздняя загрузка приходит с сохранёнными nondefault настройками
+    resolveLoad({
+      theme: { preset: 'light', custom: null },
+      typography: { ui: { fontFamily: 'Inter', fontSizePx: 19, lineHeight: 1.4, weight: 500 } },
+      layout: { leftWidth: 300 },
+    });
+
+    await waitFor(() => expect(api._saveAppearance).toHaveBeenCalledTimes(1));
+    const saved = api._saveAppearance.mock.calls[0][0];
+    expect(saved.theme.preset).toBe('light'); // сохранённая тема не затёрта
+    expect(saved.typography.ui.fontSizePx).toBe(19); // и типографика тоже
+    expect(saved.layout.leftWidth).toBe(340); // жест применился поверх загруженного
+    expect(screen.getByTestId('left-sidebar')).toHaveStyle({ width: '340px' });
+  });
+
+  it('review P2-7: right panel keyboard follows separator direction (invert)', async () => {
+    const user = userEvent.setup();
+    const api = makeApi();
+    render(<App api={api} moduleDefinitions={[]} />);
+    await user.click(screen.getByTestId('open-details'));
+    const handle = screen.getByRole('separator', { name: /ширина правой панели/i });
+    expect(handle).toHaveAttribute('aria-valuenow', '340');
+    // ArrowLeft = «переместить левый край влево» → панель шире (invert)
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    await waitFor(() =>
+      expect(api._saveAppearance).toHaveBeenCalledWith(
+        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 356 }) }),
+      ),
+    );
+    // ArrowRight = обратно
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    await waitFor(() =>
+      expect(api._saveAppearance).toHaveBeenCalledWith(
+        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 340 }) }),
+      ),
+    );
+  });
 });

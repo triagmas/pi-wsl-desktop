@@ -13,5 +13,5 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "tests/ui/**/*.ts", "tests/ui/**/*.tsx"]
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "tests/ui/**/*.ts", "tests/ui/**/*.tsx", "design-lab/**/*.ts", "design-lab/**/*.tsx"]
 }

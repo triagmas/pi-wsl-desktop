@@ -1,0 +1,178 @@
+/*
+ * Design Lab — геометрия каркаса приложения (Issue #21, D1).
+ *
+ * Все размеры — измеренные по эталонным мокапам ref px (холст 1586×992, 1:1).
+ * Ширины колонок ВКЛЮЧАЮТ их 1px границу (box-sizing: border-box).
+ *
+ * Два layout-режима (по design-system.md маппингу мокапов):
+ *   inline  — ref2/3/4/6: titlebar 63 + sidebar 357 | main;
+ *   split   — ref1/5:     titlebar 51 + toolbar 64  + rail 71 | main | details 462
+ *             (+ statusbar 49 в ref5, терминал строго под композером в main).
+ *
+ * Responsive зеркалит поведение приложения: ≤1100px правая панель скрывается;
+ * ≤800px левая панель скрывается (в лаборатории — без swap в rail; rail-режим
+ * показан состояниями split; поведенческий swap — задача интеграции D2/D3).
+ */
+
+:root {
+  --dl-titlebar-inline-h: 63px; /* 62 контента + 1 border-bottom */
+  --dl-titlebar-split-h: 51px;  /* 50 + 1 border-bottom */
+  --dl-toolbar-h: 64px;         /* 63 + 1 border-bottom */
+  --dl-rail-w: 71px;            /* 70 контента + 1 border-right */
+  --dl-sidebar-w: 357px;        /* 356 + 1 border-right */
+  --dl-details-w: 462px;        /* 461 + 1 border-left */
+  --dl-statusbar-h: 49px;
+
+  /* инсеты сообщений относительно колонок main (измерены) */
+  --dl-msgs-left: 85px;
+  --dl-msgs-right: 61px;
+  --dl-crumb-offset: 44px; /* inline: breadcrumb от края main */
+  --dl-toolbar-crumb-offset: 188px; /* split: breadcrumb от края main */
+}
+
+.dl-frame,
+.dl-frame *,
+.dl-frame *::before,
+.dl-frame *::after {
+  box-sizing: border-box;
+}
+
+/* Сбросы — ЭЛЕМЕНТНЫМИ селекторами (специфичность 0,0,1), чтобы класс-правила
+ * компонентов (.dl-btn-primary и др., 0,1,0) всегда их перекрывали. Раньше
+ * использовался .dl-frame button (0,1,1) и невидимо отменял фоны/рамки кнопок. */
+h1,
+h2,
+h3,
+p,
+ul,
+pre {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* в эталонах видимых полос прокрутки нет */
+.dl-frame ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.dl-frame {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--pw-window-background-color);
+  color: var(--pw-body-text-color);
+  font-family: var(--dl-font-stack);
+  font-size: var(--dl-fs-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+.dl-frame[data-layout="inline"] {
+  grid-template-columns: var(--dl-sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--dl-titlebar-inline-h) minmax(0, 1fr) auto;
+}
+
+.dl-frame[data-layout="split"] {
+  grid-template-columns: var(--dl-rail-w) minmax(0, 1fr) var(--dl-details-w);
+  grid-template-rows: var(--dl-titlebar-split-h) var(--dl-toolbar-h) minmax(0, 1fr) auto;
+}
+
+.dl-titlebar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.dl-toolbar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: var(--dl-rail-w) minmax(0, 1fr) var(--dl-details-w);
+}
+
+.dl-frame[data-layout="inline"] .dl-side {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dl-frame[data-layout="inline"] .dl-main {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.dl-frame[data-layout="split"] .dl-side {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.dl-frame[data-layout="split"] .dl-main {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.dl-frame[data-layout="split"] .dl-details {
+  grid-column: 3;
+  grid-row: 3;
+}
+
+.dl-frame[data-statusbar="on"] {
+  grid-template-rows: var(--dl-titlebar-split-h) var(--dl-toolbar-h) minmax(0, 1fr) var(--dl-statusbar-h);
+}
+
+.dl-frame[data-layout="inline"][data-statusbar="on"] {
+  grid-template-rows: var(--dl-titlebar-inline-h) minmax(0, 1fr) var(--dl-statusbar-h);
+}
+
+/* Без явного размещения Chrome трактует grid-row:-1 как неявную 5-ю строку
+   (пустой трек 49px + статус-бар в неявной) и 1fr сжимается до 779px. */
+.dl-frame[data-statusbar="on"] > .dl-status {
+  grid-row: 4;
+}
+
+.dl-frame[data-layout="inline"][data-statusbar="on"] > .dl-status {
+  grid-row: 3;
+}
+
+.dl-status {
+  grid-column: 1 / -1;
+  grid-row: -1;
+}
+
+@media (max-width: 1100px) {
+  .dl-frame[data-layout="split"] {
+    grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
+  }
+
+  .dl-frame[data-layout="split"] .dl-toolbar {
+    grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
+  }
+
+  .dl-frame[data-layout="split"] .dl-details,
+  .dl-frame[data-layout="split"] .dl-toolbar-details {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .dl-frame[data-layout="inline"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dl-frame[data-layout="inline"] .dl-side {
+    display: none;
+  }
+}

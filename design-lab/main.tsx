@@ -1,0 +1,300 @@
+/**
+ * Design Lab — точка входа (Issue #21, D1).
+ *
+ * Изолированный Vite dev-server: React + CSS-слой БЕЗ Electron, Pi, WSL Bridge,
+ * IPC и user ~/.pi. Данные состояний — только fixtures.tsx (DEMO).
+ * Выбор состояния: ?state=ref1..ref6 | settings | demo; ?bare=1 скрывает picker
+ * (используется скриптом capture.mjs для чистых скриншотов).
+ */
+import { StrictMode, type ReactNode } from 'react';
+import { createRoot } from 'react-dom/client';
+import '../src/renderer/design/typography.css';
+import '../src/renderer/design/layout.css';
+import '../src/renderer/design/components.css';
+import { applyTheme } from '../src/renderer/design/applyTheme';
+import { applyTypography } from '../src/renderer/design/applyTypography';
+import { defaultTypography } from '../src/shared/appearance';
+import { THEME_PRESETS, type ThemePresetId } from '../src/shared/design/presets';
+import { AppFrame } from '../src/renderer/ui/AppFrame';
+import { ChatView } from '../src/renderer/ui/ChatView';
+import { DetailsHeader, DetailsPanel } from '../src/renderer/ui/DetailsPanel';
+import { Rail } from '../src/renderer/ui/Rail';
+import { ResourcesScreen } from '../src/renderer/ui/ResourcesScreen';
+import { SettingsScreen } from '../src/renderer/ui/SettingsScreen';
+import { Sidebar } from '../src/renderer/ui/Sidebar';
+import { StatusBar } from '../src/renderer/ui/StatusBar';
+import { TerminalPane } from '../src/renderer/ui/TerminalPane';
+import { IconDots, IconPanelExpand } from '../src/renderer/ui/icons';
+import * as F from './fixtures';
+
+const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo'] as const;
+type StateId = (typeof STATES)[number];
+
+interface StateView {
+  label: string;
+  theme: ThemePresetId;
+  node: ReactNode;
+}
+
+function sidebar(activeSessionId: string | undefined, navActive: string | undefined) {
+  return (
+    <Sidebar
+      projects={F.SIDEBAR_PROJECTS}
+      nav={F.SIDEBAR_NAV.map((item) => ({ ...item, active: item.id === navActive }))}
+      activeSessionId={activeSessionId}
+      connection={F.CONNECTION}
+    />
+  );
+}
+
+function rail(tooltip: string | undefined) {
+  return <Rail top={F.RAIL_TOP} bottom={F.RAIL_BOTTOM} tooltip={tooltip} />;
+}
+
+function chatTurns(markdown: boolean) {
+  return markdown ? F.TURNS_MARKDOWN : F.TURNS_DONE;
+}
+
+function buildState(state: StateId): StateView {
+  switch (state) {
+    case 'ref1':
+      return {
+        label: 'ref1 · тёмный, rail + Детали',
+        theme: 'dark',
+        node: (
+          <AppFrame
+            layout="split"
+            theme="dark"
+            side={rail('Показать проекты')}
+            breadcrumb={F.BREADCRUMB_CHAT}
+            railToggle={
+              <button type="button" className="dl-rail-toggle" aria-label="Показать проекты">
+                <IconPanelExpand size={22} />
+              </button>
+            }
+            toolbarActions={
+              <>
+                <button type="button" className="dl-btn-ghost dl-toolbar-dots" aria-label="Ещё действия">
+                  <IconDots size={19} />
+                </button>
+                <button type="button" className="dl-btn-accent dl-toolbar-expand" aria-label="Развернуть список">
+                  <IconPanelExpand size={22} />
+                </button>
+              </>
+            }
+            details={{ header: <DetailsHeader title="Детали действия" />, body: <DetailsPanel {...F.DETAILS_DATA} /> }}
+          >
+            <ChatView turns={F.TURNS_ACTIVE} composer={{ density: 'standard', context: 'Контекст 18%' }} stepCircle={32} />
+          </AppFrame>
+        ),
+      };
+    case 'ref2':
+      return {
+        label: 'ref2 · тёмный, sidebar, чат',
+        theme: 'dark',
+        node: (
+          <AppFrame layout="inline" theme="dark" side={sidebar('search-history', undefined)} breadcrumb={F.BREADCRUMB_CHAT}>
+            <ChatView
+              header={
+                <button type="button" className="dl-btn-ghost dl-btn-dots" aria-label="Ещё действия">
+                  <IconDots size={19} />
+                </button>
+              }
+              turns={chatTurns(false)}
+              composer={{ density: 'relaxed', context: 'Контекст 18%' }}
+              hint={F.HINT}
+              stepCircle={24}
+            />
+          </AppFrame>
+        ),
+      };
+    case 'ref3':
+      return {
+        label: 'ref3 · тёмный, Ресурсы',
+        theme: 'dark',
+        node: (
+          <AppFrame layout="inline" theme="dark" side={sidebar(undefined, 'resources')} breadcrumb={F.BREADCRUMB_RESOURCES}>
+            <ResourcesScreen
+              tabs={F.RESOURCE_TABS}
+              meta={F.RESOURCE_META}
+              rows={F.SKILLS}
+              note={F.RESOURCE_NOTE}
+            />
+          </AppFrame>
+        ),
+      };
+    case 'ref4':
+      return {
+        label: 'ref4 · СВЕТЛЫЙ, sidebar, чат',
+        theme: 'light',
+        node: (
+          <AppFrame layout="inline" theme="light" side={sidebar('search-history', undefined)} breadcrumb={F.BREADCRUMB_CHAT}>
+            <ChatView
+              header={
+                <button type="button" className="dl-btn-ghost dl-btn-dots" aria-label="Ещё действия">
+                  <IconDots size={19} />
+                </button>
+              }
+              turns={chatTurns(false)}
+              composer={{ density: 'relaxed', context: 'Контекст 18%' }}
+              hint={F.HINT}
+              stepCircle={24}
+            />
+          </AppFrame>
+        ),
+      };
+    case 'ref5':
+      return {
+        label: 'ref5 · тёмный, терминал + статус-бар',
+        theme: 'dark',
+        node: (
+          <AppFrame
+            layout="split"
+            theme="dark"
+            side={rail(undefined)}
+            breadcrumb={F.BREADCRUMB_CHAT}
+            railToggle={
+              <button type="button" className="dl-rail-toggle" aria-label="Показать проекты">
+                <IconPanelExpand size={22} />
+              </button>
+            }
+            toolbarActions={
+              <>
+                <button type="button" className="dl-btn-ghost dl-toolbar-dots" aria-label="Ещё действия">
+                  <IconDots size={19} />
+                </button>
+                <button type="button" className="dl-btn-accent dl-toolbar-expand" aria-label="Развернуть список">
+                  <IconPanelExpand size={22} />
+                </button>
+              </>
+            }
+            details={{ header: <DetailsHeader title="Детали действия" />, body: <DetailsPanel {...F.DETAILS_DATA} /> }}
+            statusBar={
+              <StatusBar
+                connection={{ label: 'Pi подключён' }}
+                distro="Ubuntu · WSL"
+                right={F.STATUS_RIGHT}
+                terminalLabel="Терминал"
+              />
+            }
+            terminal
+          >
+            <ChatView
+              turns={F.TURNS_ACTIVE}
+              composer={{ density: 'compact', context: 'Контекст 18%' }}
+              stepCircle={32}
+              showIdentity={false}
+              terminal={<TerminalPane tabs={F.TERMINAL_TABS} lines={F.TERMINAL_LINES} />}
+            />
+          </AppFrame>
+        ),
+      };
+    case 'ref6':
+      return {
+        label: 'ref6 · СВЕТЛЫЙ, Ресурсы',
+        theme: 'light',
+        node: (
+          <AppFrame layout="inline" theme="light" side={sidebar(undefined, 'resources')} breadcrumb={F.BREADCRUMB_RESOURCES}>
+            <ResourcesScreen
+              tabs={F.RESOURCE_TABS}
+              meta={F.RESOURCE_META}
+              rows={F.SKILLS}
+              note={F.RESOURCE_NOTE}
+            />
+          </AppFrame>
+        ),
+      };
+    case 'settings':
+      return {
+        label: 'settings · Настройки (БЕЗ эталона)',
+        theme: 'dark',
+        node: (
+          <AppFrame layout="inline" theme="dark" side={sidebar(undefined, 'settings')} breadcrumb={<span>Настройки</span>}>
+            <SettingsScreen activeThemeId="dark" connection={F.CONNECTION} />
+          </AppFrame>
+        ),
+      };
+    case 'demo':
+      return {
+        label: 'demo · Markdown-тело (БЕЗ эталона)',
+        theme: 'dark',
+        node: (
+          <AppFrame layout="inline" theme="dark" side={sidebar('search-history', undefined)} breadcrumb={F.BREADCRUMB_CHAT}>
+            <ChatView
+              header={
+                <button type="button" className="dl-btn-ghost dl-btn-dots" aria-label="Ещё действия">
+                  <IconDots size={19} />
+                </button>
+              }
+              turns={chatTurns(true)}
+              composer={{ density: 'relaxed', context: 'Контекст 18%' }}
+              hint={F.HINT}
+              stepCircle={24}
+            />
+          </AppFrame>
+        ),
+      };
+  }
+}
+
+function Picker({ current }: { current: StateId }) {
+  return (
+    <nav
+      className="dl-lab-picker"
+      aria-label="Состояния Design Lab (DEMO)"
+      style={{
+        position: 'fixed',
+        right: 14,
+        bottom: 12,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '7px 10px',
+        background: 'var(--pw-tool-card-background-color)',
+        border: '1px solid var(--pw-divider-color)',
+        borderRadius: 'var(--pw-radius-medium)',
+        fontFamily: 'var(--dl-font-stack)',
+        fontSize: 13,
+        color: 'var(--pw-muted-text-color)',
+      }}
+    >
+      <span style={{ fontWeight: 700, color: 'var(--pw-warning-color)' }}>DEMO · Design Lab</span>
+      {STATES.map((id) => (
+        <a
+          key={id}
+          href={`?state=${id}`}
+          style={{
+            color: id === current ? 'var(--pw-accent-text-color)' : 'var(--pw-body-text-color)',
+            background: id === current ? 'var(--pw-accent-color)' : 'transparent',
+            textDecoration: 'none',
+            padding: '2px 7px',
+            borderRadius: 'var(--pw-radius-small)',
+          }}
+        >
+          {id}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+const params = new URLSearchParams(window.location.search);
+const rawState = params.get('state') ?? 'ref2';
+const state: StateId = (STATES as readonly string[]).includes(rawState) ? (rawState as StateId) : 'ref2';
+const bare = params.get('bare') === '1';
+
+const view = buildState(state);
+const rootEl = document.getElementById('root');
+if (!rootEl) {
+  throw new Error('#root not found');
+}
+applyTheme(rootEl, THEME_PRESETS[view.theme].tokens);
+applyTypography(rootEl, defaultTypography());
+
+createRoot(rootEl).render(
+  <StrictMode>
+    {view.node}
+    {bare ? null : <Picker current={state} />}
+  </StrictMode>,
+);

@@ -19,6 +19,7 @@
     "test:e2e": "playwright test",
     "test:smoke:real": "REAL_WSL=1 vitest run --project smoke",
     "build": "node scripts/build.mjs",
+    "design": "vite --config design-lab/vite.config.ts",
     "start": "npm run build && electron ."
   },
   "dependencies": {

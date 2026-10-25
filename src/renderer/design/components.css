@@ -1,0 +1,1548 @@
+/*
+ * Design Lab — стили presentational-компонентов (Issue #21, D1).
+ *
+ * Геометрия измерена по шести эталонам (ref px @1586×992).
+ * Цвета — ТОЛЬКО var(--pw-*) токены ( Issue §1/presets.ts ); литовых цветов нет.
+ * Допустимые производные: color-mix() от токенов (пill «Выполнено» и др.)
+ * и opacity для иконок. Известные расхождения токен ↔ эталон задокументированы
+ * в docs/ui/design-lab-comparison.md (владелец решает в D2).
+ */
+
+/* ─────────────────────────── TitleBar ─────────────────────────── */
+
+.dl-titlebar {
+  display: grid;
+  align-items: center;
+  background: var(--pw-title-bar-background-color);
+  border-bottom: 1px solid var(--pw-divider-color);
+  user-select: none;
+}
+
+.dl-frame[data-layout="inline"] .dl-titlebar {
+  grid-template-columns: var(--dl-sidebar-w) minmax(0, 1fr) auto;
+}
+
+.dl-frame[data-layout="split"] .dl-titlebar {
+  grid-template-columns: minmax(0, 1fr) 0px auto;
+}
+
+.dl-wordmark {
+  display: flex;
+  align-self: start;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-left: 26px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--pw-body-text-color);
+  white-space: nowrap;
+}
+
+.dl-crumb {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: var(--dl-fs-ui);
+  line-height: var(--dl-lh-ui);
+  font-weight: 500;
+  color: var(--pw-body-text-color);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dl-frame[data-layout="inline"] .dl-crumb {
+  padding-left: var(--dl-crumb-offset);
+}
+
+.dl-crumb-part {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-crumb-sep {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-wc {
+  display: flex;
+  height: 100%;
+}
+
+.dl-wc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 40px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-wc-btn:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-wc-btn:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: -2px;
+}
+
+/* ─────────────────────────── Toolbar (split) ─────────────────────────── */
+
+.dl-toolbar {
+  align-items: stretch;
+  background: var(--pw-window-background-color);
+}
+
+.dl-toolbar-rail {
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
+  background: var(--pw-sidebar-left-background-color);
+  border-right: 1px solid var(--pw-divider-color);
+}
+
+.dl-toolbar-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-toolbar-main .dl-crumb {
+  padding-left: var(--dl-toolbar-crumb-offset);
+  flex: 0 1 auto;
+}
+
+.dl-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+  margin-right: 20px;
+}
+
+.dl-toolbar-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+  padding-left: 31px;
+  padding-right: 22px;
+  background: var(--pw-sidebar-right-background-color);
+}
+
+.dl-btn-ghost.dl-toolbar-dots {
+  background: none;
+  border: 0;
+}
+
+.dl-toolbar-dots {
+  width: 36px;
+  height: 36px;
+}
+
+.dl-toolbar-expand {
+  width: 44px;
+  height: 44px;
+}
+
+/* зелёная кнопка-разворот в Toolbar — эталон: заливка accent α36% поверх
+   window-фона (измерение ref1: (65,83,66) над (37,40,35)) */
+.dl-btn-accent.dl-toolbar-expand {
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 36%,
+    transparent);
+  color: var(--pw-body-text-color);
+}
+
+.dl-btn-accent.dl-toolbar-expand:hover {
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 50%,
+    transparent);
+}
+
+.dl-details-title {
+  font-size: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────── Общие кнопки ─────────────────────────── */
+
+.dl-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  background: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+  border-radius: var(--pw-radius-medium);
+}
+
+.dl-btn-primary:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+.dl-btn-primary:active {
+  background: var(--pw-button-primary-active-color);
+}
+
+.dl-btn-primary:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 2px;
+}
+
+.dl-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  background: var(--pw-tool-card-background-color);
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-btn-ghost:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-btn-ghost:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 1px;
+}
+
+.dl-btn-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  background: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+  border-radius: var(--pw-radius-medium);
+}
+
+.dl-btn-accent:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+/* зелёная кнопка-тумблер rail («Показать/Скрыть панель») в эталоне:
+   кольцо accent α55% + тёмная внутренняя часть (ref1: (18..53, 68..102)) */
+.dl-rail-toggle {
+  width: 36px;
+  height: 35px;
+  background: none;
+  border: 5px solid color-mix(in srgb, var(--pw-button-primary-background-color) 55%,
+    transparent);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-rail-toggle:hover {
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 18%,
+    transparent);
+}
+
+/* ─────────────────────────── Rail ─────────────────────────── */
+
+.dl-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--pw-sidebar-left-background-color);
+  border-right: 1px solid var(--pw-divider-color);
+  padding-top: 15px;
+  padding-bottom: 47px;
+  overflow: visible;
+}
+
+.dl-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 16px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-rail-btn:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-rail-glyph {
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--pw-body-text-color);
+}
+
+.dl-rail-spacer {
+  flex: 1;
+}
+
+.dl-rail-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--pw-success-color);
+  margin-top: 27px;
+}
+
+.dl-rail-tooltip {
+  position: absolute;
+  left: 86px;
+  background: var(--pw-tool-card-background-color);
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-small);
+  color: var(--pw-body-text-color);
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 10px 7px;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* ─────────────────────────── Sidebar ─────────────────────────── */
+
+/* обёртки grid-ячейки: панель рисует сама себя */
+.dl-side {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.dl-sidebar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pw-sidebar-left-background-color);
+  border-right: 1px solid var(--pw-divider-color);
+  overflow: hidden;
+}
+
+.dl-sidebar-top {
+  padding: 4px 25px 0 24px;
+}
+
+.dl-newchat {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  margin: 0;
+  height: 52px;
+  padding-left: 24px;
+  background: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+  border-radius: var(--pw-radius-medium);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.dl-newchat:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+.dl-search {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 49px;
+  margin-top: 17px;
+  padding-left: 16px;
+  background: var(--pw-input-background-color);
+  border: 1px solid transparent;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-placeholder-color);
+  font-size: var(--dl-fs-sidebar);
+}
+
+.dl-search:focus-within {
+  border-color: var(--pw-focus-ring-color);
+}
+
+.dl-side-label {
+  margin-top: 33px;
+  padding-left: 36px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-side-label-first {
+  margin-top: 33px;
+}
+
+.dl-tree {
+  padding-top: 13px;
+}
+
+.dl-tree-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+
+/* высота строки-проекта без вложенных сессий (эталон: шаг проектов 58px) */
+.dl-row-project + .dl-row-project {
+  margin-top: 6px;
+}
+
+.dl-row {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 32px);
+  margin: 0 16px;
+  height: 52px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-sidebar);
+  text-align: left;
+  overflow: hidden;
+}
+
+.dl-row:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-row:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: -2px;
+}
+
+.dl-row-active,
+.dl-row-active:hover {
+  background: var(--pw-selected-background-color);
+}
+
+.dl-row-project {
+  padding-left: 24px;
+  gap: 20px;
+}
+
+.dl-row-project .dl-row-text {
+  font-weight: 500;
+}
+
+.dl-row-session {
+  padding-left: 62px;
+  gap: 22px;
+}
+
+.dl-row-nav {
+  padding-left: 20px;
+  gap: 25px;
+}
+
+.dl-row-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-row-chevron {
+  flex: none;
+  color: var(--pw-muted-text-color);
+  padding-right: 14px;
+}
+
+.dl-row-chevron-session {
+  padding-right: 14px;
+}
+
+.dl-side-divider {
+  height: 1px;
+  margin: 129px 16px 0;
+  background: var(--pw-divider-color);
+}
+
+.dl-nav-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 17px;
+}
+
+.dl-nav-rows .dl-row {
+  height: 50px;
+}
+
+.dl-conn {
+  margin-top: auto;
+  padding: 0 0 31px 36px;
+}
+
+.dl-conn-main {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 17px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--pw-success-color);
+  flex: none;
+}
+
+.dl-conn-detail {
+  margin-top: 6px;
+  margin-left: 21px;
+  font-size: 15px;
+  color: var(--pw-muted-text-color);
+}
+
+/* ─────────────────────────── Main / Chat ─────────────────────────── */
+
+.dl-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--pw-window-background-color);
+}
+
+.dl-chat-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  height: 38px;
+  padding: 1px 24px 0;
+  flex: none;
+}
+
+.dl-btn-dots {
+  width: 36px;
+  height: 28px;
+}
+
+.dl-msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--dl-msgs-right) 8px var(--dl-msgs-left);
+}
+
+.dl-frame[data-layout="split"] .dl-msgs {
+  --dl-msgs-left: 56px;
+  --dl-msgs-right: 21px;
+  padding-top: 33px;
+}
+
+/* ref5 (terminal-on): макет смещает колонку контента до x=442 (rail + 371px). */
+.dl-frame[data-terminal="on"] .dl-msgs {
+  padding-top: 8px;
+  --dl-msgs-left: 371px;
+}
+
+.dl-frame[data-terminal="on"] .dl-turn-user {
+  padding-bottom: 0;
+}
+
+.dl-turn-user {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dl-bubble-user {
+  max-width: 526px;
+  background: var(--pw-chat-bubble-user-background-color);
+  color: var(--pw-body-text-color);
+  border-radius: var(--pw-radius-large);
+  padding: 11px 26px;
+  font-size: var(--dl-fs-chat-input);
+  line-height: 30px;
+}
+
+/* эталоны 03-panels/05 (dark): фон user-пузыря равен surface,
+   а не chat-bubble-user (token-vs-reference delta, см. design-lab-comparison.md) */
+.dl-frame[data-theme="dark"] .dl-bubble-user {
+  background: var(--pw-surface-background-color);
+}
+
+.dl-frame[data-terminal="on"] .dl-bubble-user {
+  padding-top: 10px;
+  /* эталон 05: нижний край пузыря 198 при тексте 185 */
+  padding-bottom: 4px;
+}
+
+.dl-turn-assistant {
+  display: flex;
+  gap: 20px;
+  margin-top: 27px;
+}
+
+.dl-avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  background: var(--pw-elevated-surface-background-color);
+  color: var(--pw-body-text-color);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.dl-assistant-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-name {
+  font-size: var(--dl-fs-name);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dl-md {
+  margin-top: 21px;
+  max-width: 740px;
+  font-size: var(--dl-fs-chat-response);
+  line-height: 31px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-md p + p {
+  margin-top: 12px;
+}
+
+.dl-md code {
+  font-family: var(--dl-font-mono);
+  font-size: var(--dl-fs-code);
+  background: var(--pw-code-background-color);
+  color: var(--pw-code-foreground-color);
+  border-radius: var(--pw-radius-small);
+  padding: 1px 6px;
+}
+
+.dl-md pre {
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--pw-code-background-color);
+  border: 1px solid var(--pw-tool-card-border-color);
+  border-radius: var(--pw-radius-medium);
+  overflow-x: auto;
+}
+
+.dl-md pre code {
+  background: none;
+  padding: 0;
+  font-size: var(--dl-fs-code);
+  line-height: 1.5;
+  color: var(--pw-code-foreground-color);
+}
+
+.dl-md ul {
+  margin-top: 14px;
+}
+
+.dl-md li {
+  position: relative;
+  padding-left: 35px;
+}
+
+.dl-md li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 13px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pw-muted-text-color);
+}
+
+.dl-steps {
+  margin-top: 23px;
+  margin-left: -4px;
+  padding: 5px 0 5px 32px;
+  border-left: 2px solid var(--pw-divider-color);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dl-step {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  /* эталон 01-chat: pitch шагов 51.5 (height46+gap4 = 50) */
+  height: 47.5px;
+  border-radius: var(--pw-radius-medium);
+  padding-right: 20px;
+}
+
+.dl-step-active {
+  background: var(--pw-selected-background-color);
+}
+
+/* IconCheckCircle: круг = currentColor (success), галка внутри — bodyText */
+.dl-step-check {
+  flex: none;
+  display: flex;
+  width: var(--dl-step-circle, 26px);
+  height: var(--dl-step-circle, 26px);
+  border-radius: 999px;
+  /* эталоны: кружок шага = success поверх фона (измеренный 03-panels: 97,136,103) */
+  color: color-mix(in srgb, var(--pw-success-color) 70%, transparent);
+}
+
+/* light-эталон 01-chat: кружок = accent (измеренный 102,126,105 ≈ light accent #65816D),
+   не прозрачный success (0.7×success по light-фону даёт светлее эталона) */
+.dl-frame[data-theme="light"] .dl-step-check {
+  color: var(--pw-accent-color);
+}
+
+.dl-step-text {
+  font-size: var(--dl-fs-step);
+  white-space: nowrap;
+}
+
+.dl-step-chevron {
+  color: var(--pw-muted-text-color);
+  display: flex;
+}
+
+.dl-step-more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  font-size: var(--dl-fs-step);
+  color: var(--pw-link-color);
+}
+
+.dl-step-more span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dl-heading {
+  margin-top: 25px;
+  /* эталон 01-chat: «Готово» w69 (наш 56 при 18px) → 22px */
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.dl-bullets {
+  /* эталон 01-chat/03-panels: до первого маркера после блока шагов/заголовка */
+  margin-top: 8px;
+}
+
+.dl-bullets li {
+  position: relative;
+  padding-left: 35px;
+  font-size: var(--dl-fs-bullet);
+  line-height: 31px;
+}
+
+.dl-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pw-muted-text-color);
+}
+
+.dl-actions {
+  display: flex;
+  align-items: center;
+  gap: 33px;
+  margin-top: 39px;
+}
+
+.dl-action {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: var(--dl-fs-ui);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-action:hover {
+  color: var(--pw-body-text-color);
+}
+
+/* ─────────────────────────── Composer ─────────────────────────── */
+
+.dl-composer-wrap {
+  flex: none;
+  margin: 0 24px 41px;
+}
+
+/* при видимой hint-строке блок ниже композера = hint (измерено ref2/ref4) */
+.dl-composer-wrap:has(.dl-hint) {
+  margin-bottom: 13px;
+}
+
+.dl-frame[data-layout="split"] .dl-composer-wrap {
+  margin: 0 20px 41px;
+}
+
+.dl-frame[data-terminal="on"] .dl-composer-wrap {
+  margin: 0 13px 11px 9px;
+}
+
+.dl-composer {
+  position: relative;
+  background: var(--pw-chat-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: 16px;
+  padding: 20px 12px 17px 23px;
+}
+
+.dl-composer-row1 {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.dl-composer-attach {
+  flex: none;
+  display: flex;
+  color: var(--pw-muted-text-color);
+  padding-top: 3px;
+}
+
+.dl-composer-placeholder {
+  font-size: var(--dl-fs-chat-input);
+  line-height: 29px;
+  color: var(--pw-placeholder-color);
+}
+
+.dl-composer-row2 {
+  display: flex;
+  align-items: center;
+  margin-left: 41px;
+  margin-top: 20px;
+}
+
+.dl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 16px;
+  font-weight: 500;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-chat-input);
+}
+
+.dl-chip:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-chip-chevron {
+  display: flex;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 20px;
+  font-size: var(--dl-fs-ui);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+  white-space: nowrap;
+}
+
+.dl-send {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  width: 54px;
+  height: 52px;
+  border-radius: var(--pw-radius-large);
+  /* эталон ref1: заливка accent α70% поверх chat-input (93,121,96), белый глиф */
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 70%,
+    transparent);
+  color: var(--pw-body-text-color);
+}
+
+.dl-send:hover {
+  background: color-mix(in srgb, var(--pw-button-primary-hover-color) 78%,
+    transparent);
+}
+
+/* плотности композера, измеренные по эталонам */
+.dl-composer[data-density="standard"] {
+  padding-top: 20px;
+  padding-bottom: 16px;
+}
+
+.dl-composer[data-density="compact"] {
+  padding-top: 10px;
+  padding-bottom: 3px;
+}
+
+.dl-composer[data-density="compact"] .dl-composer-row2 {
+  margin-top: 4px;
+}
+
+.dl-composer[data-density="compact"] .dl-chip {
+  height: 34px;
+}
+
+.dl-composer[data-density="compact"] .dl-send {
+  right: 6px;
+  top: auto;
+  bottom: 9px;
+  width: 54px;
+  height: 49px;
+}
+
+.dl-hint {
+  flex: none;
+  margin-top: 16px;
+  text-align: center;
+  font-size: var(--dl-fs-hint);
+  line-height: 1;
+  color: var(--pw-muted-text-color);
+  padding-bottom: 4px;
+}
+
+/* ─────────────────────────── Terminal ─────────────────────────── */
+
+.dl-terminal {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 231px; /* ref5: tabbar 49 + тело 182 */
+  min-height: 0;
+}
+
+.dl-grip {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 118px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pw-divider-color);
+}
+
+.dl-term-tabs {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 49px;
+  padding: 0 15px 0 12px;
+  background: var(--pw-sidebar-left-background-color);
+  border-top: 1px solid var(--pw-divider-color);
+}
+
+.dl-term-tab {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--pw-radius-medium);
+  font-size: var(--dl-fs-terminal);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-term-tab-active,
+.dl-term-tab-active:hover {
+  background: var(--pw-surface-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.dl-term-tab-close {
+  display: flex;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-term-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-term-add:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-term-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.dl-term-iconbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-term-iconbtn:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-term-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--pw-terminal-background-color);
+  color: var(--pw-terminal-foreground-color);
+  font-family: var(--dl-font-mono);
+  font-size: var(--dl-fs-terminal);
+  line-height: 19px; /* замер строк эталона: шаг 18-19px */
+  padding: 14px 27px;
+  white-space: pre-wrap;
+}
+
+/* пустая строка вывода (fixtures: после `> vitest run`) */
+.dl-term-body > div:empty {
+  min-height: 19px;
+}
+
+.t-green {
+  color: var(--pw-terminal-ansi-green-color);
+}
+
+.t-blue {
+  color: var(--pw-terminal-ansi-blue-color);
+}
+
+.t-muted {
+  color: var(--pw-terminal-ansi-bright-black-color);
+}
+
+.t-bold {
+  font-weight: 700;
+}
+
+.t-cursor {
+  display: inline-block;
+  width: 9px;
+  height: 18px;
+  margin-left: 2px;
+  vertical-align: -3px;
+  background: var(--pw-terminal-cursor-color);
+}
+
+/* ─────────────────────────── StatusBar ─────────────────────────── */
+
+.dl-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--dl-statusbar-h);
+  /* эталон 05: левый край 28 (наш 25 при 24px) */
+  padding: 0 27px;
+  background: var(--pw-status-bar-background-color);
+  border-top: 1px solid var(--pw-divider-color);
+  font-size: var(--dl-fs-status);
+  color: var(--pw-status-bar-text-color, var(--pw-body-text-color));
+}
+
+.dl-status-group {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.dl-status-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dl-status-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--pw-divider-color);
+}
+
+.dl-status-mute {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-status-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  /* эталон 05: точка подключения lime (измеренный 96,193,73), не success */
+  background: var(--dl-online-color, #60C149);
+}
+
+/* иконки CPU/RAM в эталоне — глиф в тонкой рамке-боксе 22×22 */
+.dl-status-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--pw-divider-color);
+  border-radius: 4px;
+}
+
+.dl-status-ico svg {
+  color: var(--pw-body-text-color);
+}
+
+.dl-status-term {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  /* эталон 05: кнопка w134 = icon+gap12+text+padding20×2 */
+  padding: 0 20px;
+  border-radius: var(--pw-radius-small);
+  /* эталон 05: заливка accent α53% поверх statusbar (измеренный 75,95,74) */
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 53%,
+    transparent);
+  /* в эталоне подпись светло-зелёная (измеренный контраст), а не тёмная */
+  color: color-mix(in srgb, var(--pw-accent-hover-color) 70%, white);
+}
+
+.dl-status-term:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+/* ─────────────────────────── DetailsPanel ─────────────────────────── */
+
+.dl-details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 21px 30px 70px;
+  background: var(--pw-sidebar-right-background-color);
+  border-left: 1px solid var(--pw-divider-color);
+}
+
+.dl-details-tabs {
+  position: relative;
+  display: flex;
+  gap: 46px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-tab {
+  position: relative;
+  font-size: 18px;
+  line-height: var(--dl-lh-ui);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-tab-active {
+  color: var(--pw-body-text-color);
+  font-weight: 600;
+}
+
+.dl-tab-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  height: 4px;
+  background: var(--pw-accent-active-color);
+  border-radius: 2px;
+}
+
+.dl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  align-self: flex-start;
+  margin-top: 32px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pw-success-color) 17%,
+    var(--pw-sidebar-right-background-color));
+  color: var(--pw-body-text-color);
+  font-size: 17px;
+}
+
+.dl-pill-icon {
+  display: flex;
+  color: var(--pw-success-color);
+}
+
+.dl-details h2 {
+  margin-top: 20px;
+}
+
+.dl-details-sub {
+  margin-top: 11px;
+  font-size: 18px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-details-divider {
+  height: 1px;
+  background: var(--pw-divider-color);
+  margin: 31px -30px 0;
+}
+
+.dl-details-section {
+  margin-top: 21px;
+}
+
+.dl-details-section-late {
+  margin-top: 27px;
+}
+
+.dl-file-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 15px;
+}
+
+.dl-file {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 40px;
+  font-size: 18px;
+}
+
+.dl-file-icon {
+  flex: none;
+  display: flex;
+  color: var(--pw-body-text-color);
+}
+
+.dl-check-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.dl-check {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 40px;
+  font-size: 18px;
+}
+
+.dl-check-icon {
+  flex: none;
+  display: flex;
+  color: var(--pw-success-color);
+}
+
+.dl-details-divider-bottom {
+  margin-top: 24px;
+}
+
+.dl-details-foot-block {
+  margin-top: auto;
+}
+
+.dl-details-foot-block .dl-details-divider {
+  margin-top: 0;
+}
+
+.dl-details-foot {
+  margin-top: 22px;
+  font-size: 16px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-collapse-btn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--pw-input-border-color);
+  background: var(--pw-sidebar-left-background-color);
+}
+
+/* ─────────────────────────── Screens (Resources / Settings) ───────────── */
+
+.dl-screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 29px 33px 32px 44px;
+}
+
+.dl-screen-sub {
+  margin-top: 8px;
+}
+
+.dl-res-tabs {
+  position: relative;
+  display: flex;
+  gap: 52px;
+  margin-top: 31px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-res-tab {
+  position: relative;
+  font-size: 19px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-res-tab-active {
+  color: var(--pw-body-text-color);
+  font-weight: 600;
+}
+
+.dl-res-tab-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  /* эталон 02-skills: underline 401..495 (w94) = текст таба + gap52 к следующему */
+  right: -52px;
+  /* эталон 02-skills: y245..249 (bottom −15 от текста таба) */
+  bottom: -15px;
+  height: 5px;
+  background: var(--pw-accent-active-color);
+}
+
+.dl-res-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 25px;
+}
+
+.dl-input-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 474px;
+  height: 50px;
+  padding-left: 16px;
+  background: var(--pw-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-placeholder-color);
+  font-size: var(--dl-fs-sidebar);
+}
+
+.dl-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 191px;
+  height: 50px;
+  padding: 0 14px 0 16px;
+  background: var(--pw-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-sidebar);
+}
+
+.dl-install {
+  margin-left: auto;
+  width: 247px;
+  height: 51px;
+  gap: 16px;
+  font-size: var(--dl-fs-ui);
+  font-weight: 600;
+  border-radius: var(--pw-radius-medium);
+}
+
+.dl-res-meta {
+  margin-top: 22px;
+}
+
+.dl-list {
+  margin-top: 15px;
+  border-top: 1px solid var(--pw-divider-color);
+}
+
+.dl-skill {
+  display: flex;
+  align-items: center;
+  height: 87px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-skill-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 73px;
+  height: 60px;
+  border-radius: var(--pw-radius-large);
+  background: var(--pw-surface-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.dl-skill-text {
+  flex: 1;
+  min-width: 0;
+  margin-left: 22px;
+}
+
+.dl-skill-title {
+  font-size: 19px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-skill-desc {
+  margin-top: 4px;
+  font-size: 17px;
+  color: var(--pw-muted-text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-skill-badge {
+  flex: none;
+  width: 276px;
+  font-size: 16px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-skill-link {
+  flex: none;
+  width: 135px;
+  font-size: 16px;
+  color: var(--pw-muted-text-color);
+  text-align: left;
+}
+
+.dl-skill-link:hover {
+  color: var(--pw-link-color);
+}
+
+.dl-skill-dots {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 31px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-note {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}
+
+/* ─────────────────────────── Settings (fixture, без эталона) ───────────── */
+
+.dl-set-section {
+  margin-top: 44px;
+}
+
+.dl-set-section h2 {
+  font-size: var(--dl-fs-h2);
+  font-weight: 700;
+}
+
+.dl-set-section-sub {
+  margin-top: 8px;
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.dl-theme-card {
+  padding: 16px;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  background: var(--pw-tool-card-background-color);
+}
+
+.dl-theme-card-active {
+  border-color: var(--pw-accent-color);
+}
+
+.dl-theme-swatches {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dl-theme-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--pw-radius-small);
+  border: 1px solid var(--pw-divider-color);
+}
+
+.dl-type-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-type-name {
+  width: 220px;
+  font-weight: 500;
+}
+
+.dl-type-preview {
+  flex: 1;
+  min-width: 0;
+  color: var(--pw-body-text-color);
+}
+
+.dl-type-spec {
+  width: 240px;
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}

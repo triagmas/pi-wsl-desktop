@@ -903,15 +903,17 @@ function ThemeCell() {
           ] as const
         ).map(([label, key]) => (
           <label key={key} className="v5-theme-row">
-            <input
-              type="color"
-              value={draft[key]}
-              aria-label={`Цвет: ${label}`}
-              onChange={(e) => {
-                setDraft((d) => ({ ...d, [key]: e.target.value }));
-                setSaved(false);
-              }}
-            />
+            <span className="v5-swatch" style={{ background: draft[key] }}>
+              <input
+                type="color"
+                value={draft[key]}
+                aria-label={`Цвет: ${label}`}
+                onChange={(e) => {
+                  setDraft((d) => ({ ...d, [key]: e.target.value }));
+                  setSaved(false);
+                }}
+              />
+            </span>
             <span className="v5-theme-lbl">{label}</span>
             <code>{draft[key]}</code>
           </label>
@@ -1100,18 +1102,21 @@ function ChartCell() {
       />
       {mode === 'line' ? (
         <div className="v5-chart">
-          <svg viewBox="0 0 240 64" preserveAspectRatio="none" role="img" aria-label="Запросы по дням: 4, 7, 5, 9, 6, 8, 11">
-            <line x1="0" y1="60" x2="240" y2="60" className="axis" />
-            <line x1="0" y1="8" x2="240" y2="8" className="grid" />
-            <polyline points={pts} className="line" />
+          <div className="v5-chart-plot">
+            <svg viewBox="0 0 240 64" preserveAspectRatio="none" role="img" aria-label="Запросы по дням: 4, 7, 5, 9, 6, 8, 11">
+              <line x1="0" y1="60" x2="240" y2="60" className="axis" />
+              <line x1="0" y1="8" x2="240" y2="8" className="grid" />
+              <polyline points={pts} className="line" />
+            </svg>
             {vals.map((v, i) => (
-              <circle key={days[i]} cx={(i * 240) / 6} cy={60 - (v / max) * 52} r="3">
-                <title>
-                  {days[i]}: {v}
-                </title>
-              </circle>
+              <i
+                key={days[i]}
+                className="v5-dot"
+                style={{ left: `${(i * 100) / 6}%`, bottom: `${((4 + (v / max) * 52) / 64) * 100}%` }}
+                title={`${days[i]}: ${v}`}
+              />
             ))}
-          </svg>
+          </div>
           <div className="v5-chart-x">
             {days.map((d) => (
               <span key={d}>{d}</span>

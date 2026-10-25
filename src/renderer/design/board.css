@@ -1059,6 +1059,8 @@
   top: calc(100% + 4px);
   left: 0;
   min-width: 100%;
+  max-height: 150px;
+  overflow-y: auto;
   margin: 0;
   padding: 4px;
   list-style: none;
@@ -1066,6 +1068,21 @@
   border: 1px solid var(--pw-divider-color);
   border-radius: var(--pw-radius-medium);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* выпадашки не должны клипаться ячейкой; контент 12/17 — по центру высоты */
+.dl-board-cell.cell-select,
+.dl-board-cell.cell-menu {
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+}
+.dl-board-cell.cell-select .dl-board-cell-body,
+.dl-board-cell.cell-menu .dl-board-cell-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .v5-listbox li button,
 .v5-listbox > button {
@@ -1098,7 +1115,7 @@
 .v5-srow {
   display: flex;
   gap: 10px;
-  align-items: flex-start;
+  align-items: center;
 }
 .v5-srow.is-off {
   opacity: 0.72;
@@ -1108,7 +1125,6 @@
   flex: 0 0 auto;
   width: 36px;
   height: 20px;
-  margin-top: 2px;
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -1125,7 +1141,7 @@
 }
 .v5-thumb {
   position: absolute;
-  top: 2px;
+  top: 3px;
   left: 2px;
   width: 14px;
   height: 14px;
@@ -1134,7 +1150,7 @@
   transition: transform 0.12s ease, background 0.12s ease;
 }
 .v5-track[aria-checked="true"] .v5-thumb {
-  transform: translateX(16px);
+  transform: translateX(18px);
   background: var(--pw-button-primary-text-color);
 }
 .v5-srow-txt {
@@ -1776,26 +1792,44 @@
 .v5-theme-tokens {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 .v5-theme-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   font-size: 0.86em;
 }
+.v5-swatch {
+  flex: 0 0 auto;
+  display: inline-block;
+  width: 34px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid var(--pw-divider-color);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+/* нативный color-input лежит поверх свотча: клик по кнопке → системный палиттер */
 .v5-theme-row input[type="color"] {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
   width: 34px;
   height: 24px;
   padding: 0;
-  background: none;
-  border: 1px solid var(--pw-divider-color);
-  border-radius: 7px;
+  border: 0;
+  opacity: 0;
   cursor: pointer;
 }
 .v5-theme-lbl {
-  min-width: 52px;
+  min-width: 48px;
   color: var(--pw-muted-text-color);
+}
+.v5-theme-row code {
+  font-size: 0.93em;
+  color: var(--pw-body-text-color);
 }
 .v5-theme-prev {
   display: flex;
@@ -1934,6 +1968,27 @@
   display: block;
   width: 100%;
   height: 64px;
+}
+.v5-chart-plot {
+  position: relative;
+  height: 64px;
+}
+.v5-chart-plot svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* точки-вершины: отдельными элементами, чтобы оставаться кругами
+   (SVG растягивается preserveAspectRatio=none и деформировал бы circle) */
+.v5-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pw-window-background-color);
+  border: 2px solid var(--pw-accent-color);
+  transform: translate(-50%, 50%);
 }
 .v5-chart .axis {
   stroke: var(--pw-divider-color);

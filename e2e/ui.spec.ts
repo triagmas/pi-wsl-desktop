@@ -362,6 +362,7 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
         elFontSize: w.getComputedStyle(w.document.querySelector('.history code')).fontSize,
         elLineHeight: w.getComputedStyle(w.document.querySelector('.history code')).lineHeight,
         fencFontSize: w.getComputedStyle(w.document.querySelector('.history pre code')).fontSize,
+        fencLineHeight: w.getComputedStyle(w.document.querySelector('.history pre code')).lineHeight,
       };
     });
     expect(codeZone.size).toMatch(/px$/);
@@ -370,6 +371,8 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
     const expectedLh = parseFloat(codeZone.lineHeight) * parseFloat(codeZone.elFontSize);
     expect(Math.abs(parseFloat(codeZone.elLineHeight) - expectedLh)).toBeLessThan(0.6);
     expect(codeZone.fencFontSize).toBe(codeZone.size);
+    const fencLh = parseFloat(codeZone.fencLineHeight);
+    expect(Math.abs(fencLh - expectedLh)).toBeLessThan(0.6);
   } finally {
     await app.close();
   }

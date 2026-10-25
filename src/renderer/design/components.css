@@ -1073,7 +1073,9 @@
   background: var(--pw-status-bar-background-color);
   border-top: 1px solid var(--pw-divider-color);
   font-size: var(--dl-fs-status);
-  color: var(--pw-status-bar-text-color, var(--pw-body-text-color));
+  /* D3: фантомный legacy-токен удалён — он никогда не производился пресетом,
+   * всегда брался fallback, поэтому замена эквивалентна (без изменения вида). */
+  color: var(--pw-body-text-color);
 }
 
 .dl-status-group {
@@ -1850,33 +1852,11 @@
  * Только app-layout ([data-layout="app"]) и нейтральные новые классы;
  * состояния design-lab ref1–ref6/settings не трогаются. */
 
-/* Пользовательская типографика (applyTypography → --pw-font-*) управляет
- * кеглями app-интерфейса; значения по умолчанию = DEFAULT_TYPOGRAPHY. */
-.dl-frame[data-layout="app"] {
-  --dl-fs-ui: var(--pw-font-ui-size, 14px);
-  --dl-fs-sidebar: var(--pw-font-sidebar-size, 13px);
-  --dl-fs-chat-input: var(--pw-font-chat-input-size, 14px);
-  --dl-fs-chat-response: var(--pw-font-chat-response-size, 15px);
-  --dl-fs-status: var(--pw-font-status-bar-size, 12px);
-  --dl-fs-step: var(--pw-font-chat-response-size, 15px);
-  --dl-fs-bullet: var(--pw-font-chat-response-size, 15px);
-  --dl-fs-name: var(--pw-font-chat-response-size, 15px);
-  --dl-fs-meta: var(--pw-font-ui-size, 14px);
-  --dl-fs-code: var(--pw-font-code-size, 13px);
-  --dl-fs-tool-output: var(--pw-font-tool-output-size, 12px);
-  --dl-fs-terminal: var(--pw-font-terminal-size, 13px);
-}
-
-/* Цепочка высот: .dl-side (grid item) > aside (LeftSidebar) > wrap > Sidebar */
-.dl-frame[data-layout="app"] .dl-side > .left-sidebar {
-  height: 100%;
-  position: relative;
-}
-
-/* свёрнутая панель = rail-трек (71px), legacy --pw-rail-w (48) не подходит */
-.dl-frame[data-layout="app"] .left-sidebar.sidebar-collapsed {
-  width: var(--dl-rail-w);
-}
+/* D3: app-переопределения --dl-fs-* УДАЛЕНЫ (owner #6398531407) — канон
+ * типографики приходит из typography.css/DEFAULT_TYPOGRAPHY через единый
+ * applyTypography, который пишет и lab-переменные (--dl-fs-*, --dl-font-*)
+ * напрямую.
+ * Мёртвые legacy-правила .left-sidebar удалены вместе с обёртками D2. */
 
 .dl-side-wrap {
   flex: 1;
@@ -1966,28 +1946,8 @@
 }
 
 /* ── Терминальный док (только центральная колонка) ────────────────────── */
-.dl-term-dock {
-  position: relative;
-  flex: 0 0 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--pw-terminal-background-color);
-  border-top: 1px solid var(--pw-divider-color);
-  color: var(--pw-terminal-foreground-color);
-}
-
-.dl-term-head {
-  position: relative;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 5px 14px;
-  font-size: var(--dl-fs-hint);
-  line-height: 1.3;
-}
-
+/* D3: legacy-док shell/TerminalSlot удалён — док = approved ui/TerminalPane
+ * (.dl-terminal) с честным содержимым; тело дока несёт PTY-уведомление. */
 .dl-term-note {
   flex: 1;
   min-width: 0;
@@ -1996,7 +1956,7 @@
   white-space: nowrap;
 }
 
-.dl-term-dock .terminal-slot {
+.dl-terminal .terminal-slot {
   flex: 1;
   min-height: 0;
   border-top: 0;
@@ -2077,10 +2037,10 @@
 }
 
 /* Legacy-текстовые элементы внутри frame: восстанавливаем UA-ритм,
- * сброшенный глобальными reset-ами layout.css (h/p/ul → margin 0). */
+ * сброшенный глобальными reset-ами layout.css (h/p/ul → margin 0).
+ * D3: правило обёртки .center-body удалено вместе с обёрткой. */
 .dl-session-body p,
-.dl-session-body h3,
-.dl-frame[data-layout="app"] .center-body > .dl-app-crumb + * p {
+.dl-session-body h3 {
   margin-bottom: 0.75em;
 }
 
@@ -2125,7 +2085,7 @@
   font-weight: var(--pw-font-status-bar-weight, inherit);
 }
 
-.dl-frame[data-layout="app"] .dl-term-dock {
+.dl-frame[data-layout="app"] .dl-terminal {
   font-family: var(--pw-font-terminal-family, inherit);
   font-weight: var(--pw-font-terminal-weight, inherit);
   line-height: var(--pw-font-terminal-line-height, 1.5);
@@ -2148,8 +2108,8 @@
 
 /* P1-5: док не съедает рабочую область чата — жёсткий предел от высоты
  * центральной колонки с резервом на композер/сессию (сохранённые 600px
- * применяются только пока хватает места). */
-.dl-frame[data-layout="app"] .dl-term-dock {
+ * применяются только пока хватает места). D3: селектор approved .dl-terminal. */
+.dl-frame[data-layout="app"] .dl-terminal {
   max-height: calc(100% - 220px);
 }
 

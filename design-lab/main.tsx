@@ -22,7 +22,7 @@ import { applyTypography } from '../src/renderer/design/applyTypography';
 import { defaultTypography } from '../src/shared/appearance';
 import { THEME_PRESETS, type ThemePresetId } from '../src/shared/design/presets';
 import { AppFrame } from '../src/renderer/ui/AppFrame';
-import { AppScreen, type AppVariant } from './AppScreen';
+import { AppScreenLab as AppScreen, type AppVariant } from './AppScreen';
 import { BoardScreen } from '../src/renderer/ui/BoardScreen';
 import { ChatView } from '../src/renderer/ui/ChatView';
 import { DetailsHeader, DetailsPanel } from '../src/renderer/ui/DetailsPanel';

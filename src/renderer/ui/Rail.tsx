@@ -18,6 +18,10 @@ export interface RailItem {
 export interface RailProps {
   top: RailItem[];
   bottom: RailItem[];
+  /** D3: продуктовый testid корня (контракт left-sidebar при сворачивании). */
+  testid?: string;
+  /** D3: признак свёрнутого состояния (контракт data-collapsed). */
+  dataCollapsed?: boolean;
   /** Фикстурный тултип у кнопки-тумблера (ref1). */
   tooltip?: string;
   connectionDot?: boolean;
@@ -25,9 +29,14 @@ export interface RailProps {
   onItemClick?: (id: string) => void;
 }
 
-export function Rail({ top, bottom, tooltip, connectionDot = true, onItemClick }: RailProps) {
+export function Rail({ top, bottom, tooltip, connectionDot = true, onItemClick, testid, dataCollapsed }: RailProps) {
   return (
-    <nav className="dl-rail" aria-label="Быстрая навигация">
+    <nav
+      className="dl-rail"
+      aria-label="Быстрая навигация"
+      data-testid={testid}
+      data-collapsed={dataCollapsed ? '' : null}
+    >
       {top.map((item) => (
         <button
           key={item.id}

@@ -46,7 +46,8 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
 
       // §5: left sidebar expanded by default, details panel hidden, status bar present.
-      const sidebar = page.getByRole('complementary').first();
+      // D3: approved DOM — корень ui/Sidebar (div), поэтому по testid, не по aside-роли.
+      const sidebar = page.getByTestId('left-sidebar');
       await expect(sidebar).toBeVisible();
       await expect(page.getByTestId('open-details')).toHaveAttribute('aria-pressed', 'false');
 
@@ -75,9 +76,10 @@ test.describe('UI-A application shell E2E', () => {
 
       // Sidebar collapse: labels hide, rail stays, saved state persists.
       await page.getByTestId('sidebar-collapse').click();
-      await expect(sidebar).toHaveClass(/sidebar-collapsed/);
+      // D3: свёрнутая панель — approved ui/Rail (data-collapsed), не legacy-класс.
+      await expect(sidebar).toHaveClass(/dl-rail/);
       await page.getByTestId('sidebar-collapse').click();
-      await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+      await expect(sidebar).not.toHaveClass(/dl-rail/);
       // Don't snapshot mid-transition (width animates 140ms — round-2 review).
       await expect
         .poll(() => sidebar.evaluate((el) => (el as unknown as { offsetWidth: number }).offsetWidth))
@@ -174,7 +176,7 @@ test.describe('UI-A application shell E2E', () => {
               document: { querySelector: (s: string) => unknown };
               getComputedStyle: (el: unknown) => { fontSize: string };
             };
-            const el = w.document.querySelector('.status-bar');
+            const el = w.document.querySelector('.dl-status') ?? w.document.querySelector('.status-bar');
             return el ? w.getComputedStyle(el).fontSize : 'missing';
           }),
         )
@@ -295,7 +297,9 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
         document: { querySelector: (s: string) => unknown };
         getComputedStyle: (el: unknown) => { position: string };
       };
-      const el = w.document.querySelector('aside.left-sidebar');
+      const el =
+        w.document.querySelector('.dl-side .dl-sidebar') ??
+        w.document.querySelector('aside.left-sidebar');
       return el ? w.getComputedStyle(el).position : 'missing';
     });
     expect(sidePos).toBe('absolute');

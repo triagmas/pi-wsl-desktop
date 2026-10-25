@@ -55,6 +55,15 @@ export interface SidebarProps {
   connection?: { label: string; detail?: string; testid?: string };
   /** D2: блок уведомлений (например ошибка загрузки списка сессий). */
   notice?: ReactNode;
+  /** D3: продуктовый testid корня (e2e/тесты общей композиции). */
+  testid?: string;
+  /** D3: признак свёрнутого состояния (контракт data-collapsed). */
+  dataCollapsed?: boolean;
+  /** D3: живая ширина (Electron drag-preview); Design Lab width не передаёт
+   * и следует CSS-переменным оболочки. */
+  width?: number;
+  /** D3: testid списка проектов/сессий (m1 discovery-контракт). */
+  projectsTestId?: string;
   onNewChat?: () => void;
   onToggleProject?: (id: string) => void;
   onSelectSession?: (id: string) => void;
@@ -62,9 +71,13 @@ export interface SidebarProps {
 }
 
 export function Sidebar({
+  width,
   projects,
   nav,
   activeSessionId,
+  testid,
+  dataCollapsed,
+  projectsTestId,
   header,
   projectsTitle,
   searchFirst,
@@ -104,7 +117,12 @@ export function Sidebar({
     </button>
   );
   return (
-    <div className="dl-sidebar">
+    <div
+      className="dl-sidebar"
+      data-testid={testid}
+      data-collapsed={dataCollapsed ? '' : null}
+      style={width === undefined ? undefined : { width: `${width}px` }}
+    >
       {header ? <div className="dl-sidebar-head">{header}</div> : null}
       {notice ? <div className="dl-sidebar-notice">{notice}</div> : null}
       <div className="dl-sidebar-top">
@@ -122,7 +140,7 @@ export function Sidebar({
       </div>
 
       <div className="dl-side-label dl-side-label-first">{projectsTitle ?? 'Проекты'}</div>
-      <div className="dl-tree">
+      <div className="dl-tree" data-testid={projectsTestId}>
         {projects.map((project) => (
           <div key={project.id}>
             <button

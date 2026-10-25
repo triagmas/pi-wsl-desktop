@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
-import { StatusPanel } from './StatusPanel';
+import { phaseText } from './StatusPanel';
+import { HistoryView } from './HistoryView';
+import { ChatPane } from './ChatPane';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
 import { SettingsView } from './SettingsView';
@@ -21,10 +23,10 @@ import {
 } from './modules/registry';
 import { LeftSidebar } from './shell/LeftSidebar';
 import { RightSidebar, RightSidebarHead, RightSidebarResize } from './shell/RightSidebar';
-import { StatusBar } from './shell/StatusBar';
-import { TerminalSlot } from './shell/TerminalSlot';
-import { ChatWorkspace } from './shell/ChatWorkspace';
-import { AppFrame } from './ui/AppFrame';
+import { TerminalDock } from './shell/TerminalDock';
+import { AppScreen } from './ui/AppScreen';
+import { ChatView } from './ui/ChatView';
+import { IconPanelExpand } from './ui/icons';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
 import { THEME_PRESETS } from '../shared/design/presets';
@@ -55,6 +57,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
   /** §9.6 step 2: chat is the default workspace (details of the base screen). */
   const [view, setView] = useState<View>('chat');
+  /** D3: режим сессии (История | Чат) — кнопки в общей crumb-row AppScreen.
+   * Derived-состояние (без setState-in-effect): режим, сохранённый для ДРУГОЙ
+   * сессии, игнорируется — новая сессия всегда открывается в «Истории», как и
+   * прежний remount ChatWorkspace со своим локальным tab-state. */
+  const [sessionTabState, setSessionTabState] = useState<{
+    file: string | null;
+    tab: 'history' | 'chat';
+  }>({ file: null, tab: 'history' });
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
@@ -205,6 +215,11 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * ------------------------------------------------------------------ */
   const [activeSession, setActiveSession] = useState<SessionInfoT | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionInfoT | null>(null);
+  // D3 derived: режим привязан к сессии, которая его выбрала.
+  const sessionTab =
+    sessionTabState.file === (activeSession?.file ?? null) ? sessionTabState.tab : 'history';
+  const setSessionTab = (tab: 'history' | 'chat') =>
+    setSessionTabState({ file: activeSession?.file ?? null, tab });
   const chat = useChat(effectiveApi, activeSession?.file ?? '');
   const [draft, setDraft] = useState('');
   const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
@@ -453,46 +468,101 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * ------------------------------------------------------------------ */
   /** Toggle панели деталей: §8 — одна кнопка в chat-crumbs (пустое состояние
    * и активная сессия — взаимоисключающие строки, обе с detailsRef). */
+  /** D3: тумблер правой панели в утверждённом обличье Design Lab
+   * (иконка/классы лаба-cumb actions; поведение и testid прежние). */
   const detailsToggleBtn = (
     <button
       type="button"
-      className="dl-btn-ghost"
-      onClick={() => (detailsOpen ? closeDetails() : openDetails())}
-      data-testid="open-details"
-      aria-pressed={detailsOpen}
-      aria-label="Панель деталей"
       ref={detailsRef}
+      data-testid="open-details"
+      className={
+        detailsOpen ? 'dl-btn-accent dl-toolbar-expand' : 'dl-btn-ghost dl-toolbar-dots'
+      }
+      aria-pressed={detailsOpen}
+      aria-label="Показать панель деталей"
+      title="Показать панель деталей"
+      onClick={() => (detailsOpen ? closeDetails() : openDetails())}
     >
-      <span aria-hidden="true">◫</span> Панель деталей
+      <IconPanelExpand size={22} />
     </button>
   );
 
-  const centerHeader =
-    view === 'chat' ? (
-      activeSession ? null : (
-        <div className="dl-app-crumb" data-testid="view-head">
-          <div className="dl-crumb">
-            <strong>Диалог</strong>
-          </div>
-          <div className="dl-toolbar-actions">{detailsToggleBtn}</div>
-        </div>
-      )
-    ) : (
-      <div className="dl-app-crumb" data-testid="view-head">
-        <div className="dl-crumb">
-          <strong>
-            {view === 'resources'
-              ? 'Ресурсы'
-              : view === 'modules' || view.startsWith('module:')
-                ? 'Модули'
-                : 'Настройки'}
-          </strong>
-        </div>
+  /** D3: единственная crumb-row главного экрана (структура Design Lab):
+   * crumb-данные слева, actions (режим сессии + тумблер панели) справа. */
+  const sessionCrumb = activeSession ? (
+    <>
+      <span
+        className="muted"
+        title={activeSession.projectPath}
+      >
+        {activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект'}
+      </span>
+      <span aria-hidden="true">/</span>
+      <strong title={activeSession.file}>
+        {activeSession.name ?? activeSession.id.slice(0, 8)}
+      </strong>
+      {activeSession.activeWrite && <span className="badge badge-active">запись</span>}
+      {activeSession.availability !== 'ok' && (
+        <span className="badge badge-warn">⚠ {activeSession.diagnostics ?? activeSession.availability}</span>
+      )}
+    </>
+  ) : null;
+
+  const sessionTabs =
+    view === 'chat' && activeSession ? (
+      <div className="dl-session-tabs" role="tablist" aria-label="Режим сессии">
+        <button
+          type="button"
+          role="tab"
+          data-testid="tab-history"
+          aria-selected={sessionTab === 'history'}
+          className={`dl-session-tab${sessionTab === 'history' ? ' dl-session-tab-active' : ''}`}
+          onClick={() => setSessionTab('history')}
+        >
+          История
+        </button>
+        <button
+          type="button"
+          role="tab"
+          data-testid="tab-chat"
+          aria-selected={sessionTab === 'chat'}
+          className={`dl-session-tab${sessionTab === 'chat' ? ' dl-session-tab-active' : ''}`}
+          onClick={() => setSessionTab('chat')}
+        >
+          Чат
+        </button>
       </div>
-    );
+    ) : null;
+
+  const headerRow =
+    view === 'chat'
+      ? {
+          crumb: sessionCrumb ?? <strong>Диалог</strong>,
+          actions: (
+            <>
+              {sessionTabs}
+              {detailsToggleBtn}
+            </>
+          ),
+        }
+      : {
+          crumb: (
+            <strong>
+              {view === 'resources'
+                ? 'Ресурсы'
+                : view === 'modules' || view.startsWith('module:')
+                  ? 'Модули'
+                  : 'Настройки'}
+            </strong>
+          ),
+          actions: undefined as React.ReactNode,
+        };
 
   let centerBody: React.ReactNode;
   if (view === 'chat') {
+    // D3 (owner #6398531407): тот же утверждённый чат-контур Design Lab;
+    // legacy-диагностика (StatusPanel) заменена компактной информацией
+    // о подключении внутри пустого состояния чата.
     centerBody = (
       <div className="chat-workspace" data-testid="view-chat">
         {pendingSession && (
@@ -515,45 +585,106 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           </div>
         )}
         {activeSession ? (
-          <ChatWorkspace
-            api={effectiveApi as DesktopApi}
-            session={activeSession}
-            chat={chat}
-            draft={draft}
-            onDraftChange={setDraft}
-            detailsRef={detailsRef}
-            detailsOpen={detailsOpen}
-            onOpenDetails={openDetails}
-          />
-        ) : (
-          <div className="empty-state" data-testid="chat-empty">
-            <h2>Выберите диалог слева</h2>
-            <p className="muted">
-              Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
-              сессию; создание файлов сессий доступно в Pi CLI.
-            </p>
-            <button type="button" className="btn-primary" onClick={newChat}>
-              Открыть последний диалог
-            </button>
-            <div className="empty-status">
-              <StatusPanel
-                snapshot={snapshot}
-                requestError={requestError}
-                api={effectiveApi}
-                onRetry={() => void retry()}
-                onRefresh={() => void refreshRuntime()}
-                onSelectDistro={(d) => void selectDistro(d)}
-              />
+          <section className="dl-session-detail" data-testid="session-detail">
+            <div className="dl-session-body">
+              {sessionTab === 'history' ? (
+                <HistoryView api={effectiveApi as DesktopApi} file={activeSession.file} />
+              ) : (
+                <ChatPane chat={chat} draft={draft} onDraftChange={setDraft} />
+              )}
             </div>
-          </div>
+          </section>
+        ) : (
+          <ChatView
+            turns={[]}
+            composer={null}
+            notice={
+              <div data-testid="chat-empty">
+                <h2>Выберите диалог слева</h2>
+                <p className="muted">
+                  Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
+                  сессию; создание файлов сессий доступно в Pi CLI.
+                </p>
+                <button type="button" className="dl-btn-primary" onClick={newChat}>
+                  Открыть последний диалог
+                </button>
+                {/* D3: честная компактная статус-цепь §5 ВНУТРИ утверждённой
+                    пустой композиции чата (без legacy StatusPanel-обёртки
+                    region/runtime-testid). */}
+                <div className="empty-status">
+                  {snapshot.phase !== 'error' && snapshot.phase !== 'ready' ? (
+                    <span data-testid="spinner" className="spinner" aria-hidden="true" />
+                  ) : null}
+                  <span data-testid="status-phase">{phaseText(snapshot)}</span>
+                  {snapshot.phase === 'error' && snapshot.lastError ? (
+                    <div className="error-box" role="alert">
+                      <div>
+                        <strong data-testid="error-code">{snapshot.lastError.code}</strong>
+                        <span> — {snapshot.lastError.message}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="dl-btn-ghost"
+                        onClick={() => void retry()}
+                      >
+                        Повторить подключение
+                      </button>
+                    </div>
+                  ) : null}
+                  {snapshot.distros && snapshot.distros.length > 0 ? (
+                    <label className="distro-row">
+                      <span>Дистрибутив</span>
+                      <select
+                        data-testid="distro"
+                        value={snapshot.distro ?? snapshot.distros[0] ?? ''}
+                        onChange={(e) => void selectDistro(e.target.value)}
+                      >
+                        {snapshot.distros.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {snapshot.phase === 'ready' && snapshot.runtime ? (
+                    <span className="muted">
+                      Pi <span>{snapshot.runtime.pi.version}</span> · Node{' '}
+                      <span>{snapshot.runtime.node.version}</span>
+                    </span>
+                  ) : null}
+                  {snapshot.phase === 'ready' ? (
+                    <button
+                      type="button"
+                      className="dl-btn-ghost"
+                      onClick={() => void refreshRuntime()}
+                    >
+                      Обновить данные
+                    </button>
+                  ) : null}
+                  {requestError ? (
+                    <span className="request-error" role="alert" data-testid="request-error">
+                      {' '}
+                      {requestError}
+                    </span>
+                  ) : null}
+                  {!effectiveApi && snapshot.phase !== 'error' ? (
+                    <span className="request-error" role="status" data-testid="request-error">
+                      Preload API unavailable
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            }
+          />
         )}
-        <TerminalSlot
-          height={terminalHeight}
-          visible={terminalVisible}
-          onToggle={toggleTerminal}
-          onHeightPreview={(h) => setLayoutPreview((p) => ({ ...p, terminalSlotHeight: h }))}
-          onHeightCommit={(h) => commitLayout({ terminalSlotHeight: h })}
-        />
+        {terminalVisible ? (
+          <TerminalDock
+            height={terminalHeight}
+            onHeightPreview={(h) => setLayoutPreview((p) => ({ ...p, terminalSlotHeight: h }))}
+            onHeightCommit={(h) => commitLayout({ terminalSlotHeight: h })}
+          />
+        ) : null}
       </div>
     );
   } else if (view === 'resources') {
@@ -634,6 +765,42 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     centerBody = <div data-testid="view-chat" />;
   }
 
+  const modulePanelsSection =
+    panels.length > 0 ? (
+      <section className="module-panels" aria-label="Панели модулей">
+        {panels.map((panel, index) => {
+          const manifest = panel.entry.manifest;
+          const ownsNoTab = !!manifest && !manifest.ui.some((ui) => ui.kind === 'tab');
+          const firstSurfaceOfModule =
+            panels.findIndex((other) => other.entry.key === panel.entry.key) === index;
+          return (
+            <ModulePanel
+              key={panel.tabKey}
+              panel={panel}
+              actions={ownsNoTab && firstSurfaceOfModule ? (manifest?.actions ?? []) : undefined}
+              onAction={(action) => runModuleAction(panel.entry.id, action)}
+              onDisable={() => toggleModule(panel.entry.id, false)}
+            />
+          );
+        })}
+      </section>
+    ) : null;
+
+  const moduleErrors = (
+    <>
+      {persistError && (
+        <p className="request-error" role="alert" data-testid="modules-persist-error">
+          {persistError}
+        </p>
+      )}
+      {actionError && (
+        <p className="request-error" role="alert" data-testid="module-action-error">
+          {actionError}
+        </p>
+      )}
+    </>
+  );
+
   return (
     <main
       data-testid="app-root"
@@ -641,15 +808,16 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       style={
         {
           // Единый источник правды — persisted appearance (+ живой preview):
-          // AppFrame читает CSS-переменные для grid-колонок; на узких экранах
-          // media-query переопределяет переменную локально (rail/overlay).
+          // AppScreen/AppFrame читают CSS-переменные для grid-колонок; на узких
+          // экранах media-query переопределяет переменную локально (rail/overlay).
           '--dl-app-side-w': appearance.layout.leftCollapsed ? 'var(--dl-rail-w)' : `${leftWidth}px`,
           '--dl-app-details-w': `${rightWidth}px`,
         } as React.CSSProperties
       }
     >
-      <AppFrame
-        layout="app"
+      {/* D3: ОДНА композиция с Design Lab (src/renderer/ui/AppScreen) —
+          разница только в данных и callback-биндингах. */}
+      <AppScreen
         testid="app-shell"
         theme={appearance.theme.preset === 'light' ? 'light' : 'dark'}
         windowControls={{
@@ -664,12 +832,12 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           },
         }}
         side={
-        <LeftSidebar
-          api={effectiveApi}
-          collapsed={appearance.layout.leftCollapsed}
-          width={leftWidth}
-          view={view}
-          activeFile={activeSession?.file ?? null}
+          <LeftSidebar
+            api={effectiveApi}
+            collapsed={appearance.layout.leftCollapsed}
+            width={leftWidth}
+            view={view}
+            activeFile={activeSession?.file ?? null}
             onToggleCollapsed={() => commitLayout({ leftCollapsed: !appearance.layout.leftCollapsed })}
             onNewChat={newChat}
             connectionReady={snapshot.phase === 'ready'}
@@ -701,50 +869,34 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
               }
             : null
         }
-        statusBar={
-          <StatusBar
-            phase={snapshot.phase}
-            distro={snapshot.distro}
-            terminalVisible={terminalVisible}
-            onTerminalToggle={toggleTerminal}
-            testids={{ connection: 'status-connection', distro: 'status-distro' }}
-          />
-        }
-      >
-          {centerHeader}
-          {panels.length > 0 && (
-            <section className="module-panels" aria-label="Панели модулей">
-              {panels.map((panel, index) => {
-                const manifest = panel.entry.manifest;
-                const ownsNoTab = !!manifest && !manifest.ui.some((ui) => ui.kind === 'tab');
-                const firstSurfaceOfModule =
-                  panels.findIndex((other) => other.entry.key === panel.entry.key) === index;
-                return (
-                  <ModulePanel
-                    key={panel.tabKey}
-                    panel={panel}
-                    actions={
-                      ownsNoTab && firstSurfaceOfModule ? (manifest?.actions ?? []) : undefined
-                    }
-                    onAction={(action) => runModuleAction(panel.entry.id, action)}
-                    onDisable={() => toggleModule(panel.entry.id, false)}
-                  />
-                );
-              })}
-            </section>
-          )}
-          <div className="center-body">{centerBody}</div>
-          {persistError && (
-            <p className="request-error" role="alert" data-testid="modules-persist-error">
-              {persistError}
-            </p>
-          )}
-          {actionError && (
-            <p className="request-error" role="alert" data-testid="module-action-error">
-              {actionError}
-            </p>
-          )}
-      </AppFrame>
+        header={headerRow}
+        panels={modulePanelsSection}
+        body={centerBody}
+        errors={moduleErrors}
+        statusBar={{
+          connection: {
+            label:
+              snapshot.phase === 'ready'
+                ? 'Pi подключён'
+                : snapshot.phase === 'error'
+                  ? 'Ошибка подключения'
+                  : 'Подключение…',
+            dot: snapshot.phase === 'ready',
+            testid: 'status-connection',
+          },
+          distro: `${snapshot.distro ?? '—'} · WSL`,
+          distroTestId: 'status-distro',
+          right: [
+            { id: 'status-os', text: 'Windows', mute: true },
+            { id: 'status-cpu', text: 'CPU —', mute: true },
+            { id: 'status-ram', text: 'RAM —', mute: true },
+          ],
+          terminalLabel: 'Терминал',
+          terminalTestId: 'status-terminal-btn',
+          terminalActive: terminalVisible,
+          onTerminalToggle: toggleTerminal,
+        }}
+      />
     </main>
   );
 }

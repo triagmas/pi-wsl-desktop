@@ -214,6 +214,44 @@ describe('App shell', () => {
  * D2 integration contract (Issue #21 owner decision #6395777040):
  * resizable+persisted panels, honest button labels, wired window controls.
  */
+describe('D3: single approved Design Lab composition', () => {
+  it('mounts the Design Lab hierarchy — .dl-side children directly, no legacy wrappers', () => {
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    const frame = document.querySelector('.dl-frame[data-layout="app"]');
+    expect(frame).not.toBeNull();
+    const side = frame!.querySelector(':scope > .dl-side');
+    expect(side).not.toBeNull();
+    // старые обёртки D2 (shell-контейнеры) упразднены
+    expect(side!.querySelector(':scope > .left-sidebar')).toBeNull();
+    expect(side!.querySelector('.dl-side-wrap')).toBeNull();
+    // approved-узлы: Sidebar (aside.dl-sidebar) или Rail
+    expect(
+      side!.querySelector('.dl-sidebar[data-testid], .dl-rail[data-testid]')?.getAttribute(
+        'data-testid',
+      ),
+    ).toBe('left-sidebar');
+    // один crumb-row главного экрана (нет отдельного legacy centerHeader)
+    expect(frame!.querySelectorAll('.dl-app-crumb')).toHaveLength(1);
+    // статус-бар: ui/StatusBar без legacy-обёртки .status-bar
+    const footer = frame!.querySelector('footer[data-testid="status-bar"]');
+    expect(footer).not.toBeNull();
+    expect(footer!.querySelector('.status-bar')).toBeNull();
+    expect(footer!.querySelector('.dl-status-group')).not.toBeNull();
+  });
+
+  it('empty chat: no legacy StatusPanel diagnostics — compact connection inside the approved chat chain', () => {
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
+    // компактная информация о подключении сохраняет контракт phaseText
+    expect(screen.getByTestId('status-phase')).toBeInTheDocument();
+    // legacy StatusPanel-диагностика (runtime dl/distro-блок) убрана из главного экрана
+    expect(screen.queryByRole('region', { name: 'Состояние подключения' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('runtime')).not.toBeInTheDocument();
+    // пустое состояние живёт внутри чат-композиции (цепь ChatView)
+    expect(document.querySelector('.dl-msgs')).not.toBeNull();
+  });
+});
+
 describe('D2 layout integration', () => {
   it('left sidebar resizes by drag and persists the width on release', async () => {
     const api = makeApi();

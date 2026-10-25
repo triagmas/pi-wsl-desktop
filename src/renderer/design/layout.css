@@ -280,7 +280,9 @@ button {
     grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
   }
 
-  .dl-frame[data-layout="app"] .dl-side > .left-sidebar:not(.sidebar-collapsed) {
+  /* D2-overlay (P1-2) для approved-компонента: развёрнутый ui/Sidebar ложится
+   * поверх центра, свёрнутый живёт в 71px-треке (data-collapsed). */
+  .dl-frame[data-layout="app"] .dl-side > .dl-sidebar:not([data-collapsed]) {
     position: absolute;
     top: 0;
     bottom: 0;

@@ -86,6 +86,26 @@ describe('design system presets', () => {
   });
 });
 
+describe('D3: approved typography defaults (Design Lab canonical scale)', () => {
+  it('DEFAULT_TYPOGRAPHY equals typography.css canonical values (owner #6398531407)', async () => {
+    const { DEFAULT_APPEARANCE } = await import('../../src/shared/appearance');
+    const t = DEFAULT_APPEARANCE.typography;
+    expect(t.ui).toMatchObject({ fontSizePx: 18, lineHeight: 1.4, weight: 500 });
+    expect(t.sidebar).toMatchObject({ fontSizePx: 17, lineHeight: 1.5, weight: 400 });
+    expect(t.chatInput).toMatchObject({ fontSizePx: 20, lineHeight: 1.45, weight: 400 });
+    expect(t.chatResponse).toMatchObject({ fontSizePx: 20, lineHeight: 1.55, weight: 400 });
+    expect(t.code).toMatchObject({ fontSizePx: 17, lineHeight: 1.5, weight: 500 });
+    expect(t.toolOutput).toMatchObject({ fontSizePx: 16, lineHeight: 1.5, weight: 400 });
+    expect(t.terminal).toMatchObject({ fontSizePx: 17, lineHeight: 1.5, weight: 400 });
+    expect(t.statusBar).toMatchObject({ fontSizePx: 16, lineHeight: 1.4, weight: 400 });
+    // стеки = canonical --dl-font-stack / --dl-font-mono
+    expect(t.ui.fontFamily).toContain('Segoe UI');
+    expect(t.ui.fontFamily).toContain('Helvetica Neue');
+    expect(t.code.fontFamily).toContain('Cascadia Mono');
+    expect(t.code.fontFamily).toContain('ui-monospace');
+  });
+});
+
 describe('contrast math', () => {
   it('computes WCAG ratios (black on white = 21)', () => {
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 1);

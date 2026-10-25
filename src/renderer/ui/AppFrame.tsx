@@ -22,6 +22,8 @@ export interface AppFrameProps {
    * app (D1-этап 2): header — строка колонки (вкладки), body — под ней. */
   details?: { header: ReactNode; body: ReactNode; handle?: ReactNode } | null;
   statusBar?: ReactNode | null;
+  /** D3: testid футура статус-бара (продуктовый контракт e2e/тестов). */
+  statusbarTestId?: string;
   /** D2: data-testid (продуктовый контракт App shell). */
   testid?: string;
   /** D2: обработчики оконных кнопок TitleBar (frameless). */
@@ -45,6 +47,7 @@ export function AppFrame({
   toolbarActions,
   details,
   statusBar,
+  statusbarTestId,
   theme,
   terminal,
   testid,
@@ -105,7 +108,11 @@ export function AppFrame({
           )}
         </aside>
       ) : null}
-      {statusBar ? <footer className="dl-status">{statusBar}</footer> : null}
+      {statusBar ? (
+        <footer className="dl-status" data-testid={statusbarTestId}>
+          {statusBar}
+        </footer>
+      ) : null}
     </div>
   );
 }

@@ -58,19 +58,25 @@ export interface AppearanceSettings {
 }
 
 const UI_STACK =
-  '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+  '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif';
 const MONO_STACK =
-  '"Cascadia Mono", Consolas, "Liberation Mono", "Courier New", monospace';
+  '"Cascadia Mono", "Consolas", ui-monospace, monospace';
 
+/**
+ * D3 (owner #6398531407): дефолты = канон Design Lab typography.css
+ * (--dl-fs-* и стеки --dl-font-stack/--dl-font-mono). Настройка поверх
+ * дефолта продолжает работать; сохранённые пользовательские значения
+ * не мигрируются.
+ */
 const DEFAULT_TYPOGRAPHY: Record<TypographyArea, TypographyZone> = {
-  ui: { fontFamily: UI_STACK, fontSizePx: 14, lineHeight: 1.5, weight: 400 },
-  sidebar: { fontFamily: UI_STACK, fontSizePx: 13, lineHeight: 1.45, weight: 400 },
-  chatInput: { fontFamily: UI_STACK, fontSizePx: 14, lineHeight: 1.5, weight: 400 },
-  chatResponse: { fontFamily: UI_STACK, fontSizePx: 15, lineHeight: 1.6, weight: 400 },
-  code: { fontFamily: MONO_STACK, fontSizePx: 13, lineHeight: 1.5, weight: 400 },
-  toolOutput: { fontFamily: MONO_STACK, fontSizePx: 12, lineHeight: 1.45, weight: 400 },
-  terminal: { fontFamily: MONO_STACK, fontSizePx: 13, lineHeight: 1.4, weight: 400 },
-  statusBar: { fontFamily: UI_STACK, fontSizePx: 12, lineHeight: 1.2, weight: 400 },
+  ui: { fontFamily: UI_STACK, fontSizePx: 18, lineHeight: 1.4, weight: 500 },
+  sidebar: { fontFamily: UI_STACK, fontSizePx: 17, lineHeight: 1.5, weight: 400 },
+  chatInput: { fontFamily: UI_STACK, fontSizePx: 20, lineHeight: 1.45, weight: 400 },
+  chatResponse: { fontFamily: UI_STACK, fontSizePx: 20, lineHeight: 1.55, weight: 400 },
+  code: { fontFamily: MONO_STACK, fontSizePx: 17, lineHeight: 1.5, weight: 500 },
+  toolOutput: { fontFamily: MONO_STACK, fontSizePx: 16, lineHeight: 1.5, weight: 400 },
+  terminal: { fontFamily: MONO_STACK, fontSizePx: 17, lineHeight: 1.5, weight: 400 },
+  statusBar: { fontFamily: UI_STACK, fontSizePx: 16, lineHeight: 1.4, weight: 400 },
 };
 
 export const TYPOGRAPHY_AREAS = Object.keys(DEFAULT_TYPOGRAPHY) as TypographyArea[];

@@ -16,7 +16,13 @@ import { THEME_PRESETS } from '../../src/shared/design/presets';
 import { TYPOGRAPHY_AREAS } from '../../src/shared/appearance';
 
 const cssPath = path.join(__dirname, '..', '..', 'src', 'renderer', 'index.css');
-const css = readFileSync(cssPath, 'utf8');
+const designPaths = ['components.css', 'layout.css'].map((f) =>
+  path.join(__dirname, '..', '..', 'src', 'renderer', 'design', f),
+);
+// D3: одобренные компоненты живут в design-слое — контракт читает и его,
+// иначе потребление токена вне legacy index.css считается «мёртвым».
+const css =
+  readFileSync(cssPath, 'utf8') + designPaths.map((p) => readFileSync(p, 'utf8')).join('\n');
 
 const used = new Set([...css.matchAll(/var\((--pw-[a-z0-9-]+)/g)].map((m) => m[1]));
 const declaredLocally = new Set(

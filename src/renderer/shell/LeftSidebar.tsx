@@ -203,16 +203,15 @@ export function LeftSidebar({
     </p>
   ) : null;
 
+  // D3 (owner #6398531407): без собственных обёрток — approved-узлы
+  // Sidebar/Rail идут напрямую в .dl-side (ширина — grid-трек --dl-app-side-w),
+  // resize-handle остаётся прямым братом-узлом в слоте side.
   return (
-    <aside
-      data-testid="left-sidebar"
-      data-collapsed={collapsed ? '' : null}
-      className={`left-sidebar${collapsed ? ' sidebar-collapsed' : ''}`}
-      style={collapsed ? undefined : { width: `${width}px` }}
-      aria-label="Проекты и диалоги"
-    >
+    <>
       {collapsed ? (
         <Rail
+          testid="left-sidebar"
+          dataCollapsed
           top={[
             {
               id: 'sidebar-expand',
@@ -231,8 +230,10 @@ export function LeftSidebar({
           }}
         />
       ) : (
-        <div className="dl-side-wrap" data-testid="project-list">
           <Sidebar
+            testid="left-sidebar"
+            width={width}
+            projectsTestId="project-list"
             header={collapseToggle}
             notice={notice}
             searchFirst
@@ -263,7 +264,6 @@ export function LeftSidebar({
             }}
             onNavigate={(id) => onView(id)}
           />
-        </div>
       )}
       {!collapsed && (
         <div
@@ -280,6 +280,6 @@ export function LeftSidebar({
           onKeyDown={resize.onKeyDown}
         />
       )}
-    </aside>
+    </>
   );
 }

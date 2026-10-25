@@ -10,7 +10,7 @@ export interface StatusPanelProps {
   onSelectDistro: (distro: string) => void;
 }
 
-function phaseText(snapshot: RendererSnapshot): string {
+export function phaseText(snapshot: RendererSnapshot): string {
   switch (snapshot.phase) {
     case 'idle':
       return 'Подключение…';

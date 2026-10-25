@@ -83,7 +83,7 @@ test.describe('UI-A application shell E2E', () => {
       // Don't snapshot mid-transition (width animates 140ms — round-2 review).
       await expect
         .poll(() => sidebar.evaluate((el) => (el as unknown as { offsetWidth: number }).offsetWidth))
-        .toBe(260);
+        .toBe(321); // DEFAULT leftWidth = канон лабы
 
       // Fresh dark profile: the preset tokens must actually paint the body
       // (the stylesheet consumes exactly what applyTheme writes — review P1).

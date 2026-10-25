@@ -1978,6 +1978,19 @@
   overflow: hidden;
 }
 
+/* D3: сессионная цепь использует отступы app-контура чата (14/25 — те же
+ * значения, что на .dl-msgs), иначе пузыри read-only истории читают
+ * эталон-глобальные 85/61 и упираются в края окна. */
+.dl-frame[data-layout="app"] .dl-session-body {
+  --dl-msgs-left: 14px;
+  --dl-msgs-right: 25px;
+}
+
+.dl-frame[data-layout="app"] .dl-session-body .history {
+  padding-left: var(--dl-msgs-left, 14px);
+  padding-right: var(--dl-msgs-right, 25px);
+}
+
 .dl-session-tabs {
   display: flex;
   gap: 6px;

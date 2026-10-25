@@ -89,7 +89,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: APPEARANCE_VERSION,
   theme: { preset: 'dark', customName: 'Моя тема', custom: structuredClone(THEME_PRESETS.dark.tokens) },
   typography: DEFAULT_TYPOGRAPHY,
-  layout: { leftWidth: 260, rightWidth: 340, leftCollapsed: false, rightVisible: false, terminalSlotHeight: 240, terminalVisible: true },
+  layout: { leftWidth: 321, rightWidth: 340, /* leftWidth = канон лабы --dl-app-side-w (321px, замер эталона) */ leftCollapsed: false, rightVisible: false, terminalSlotHeight: 240, terminalVisible: true },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;

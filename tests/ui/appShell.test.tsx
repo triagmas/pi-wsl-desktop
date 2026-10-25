@@ -258,8 +258,8 @@ describe('D2 layout integration', () => {
     render(<App api={api} moduleDefinitions={[]} />);
     const handle = screen.getByRole('separator', { name: /ширина левой панели/i });
     const aside = screen.getByTestId('left-sidebar');
-    expect(aside).toHaveStyle({ width: '260px' }); // DEFAULT_APPEARANCE.layout.leftWidth
-    fireEvent.mouseDown(handle, { clientX: 260, clientY: 100 });
+    expect(aside).toHaveStyle({ width: '321px' }); // DEFAULT_APPEARANCE.layout.leftWidth = канон лабы
+    fireEvent.mouseDown(handle, { clientX: 321, clientY: 100 });
     fireEvent.mouseMove(window, { clientX: 340, clientY: 100 });
     expect(aside).toHaveStyle({ width: '340px' }); // live preview
     fireEvent.mouseUp(window, { clientX: 340, clientY: 100 });
@@ -274,7 +274,7 @@ describe('D2 layout integration', () => {
     const api = makeApi();
     render(<App api={api} moduleDefinitions={[]} />);
     const handle = screen.getByRole('separator', { name: /ширина левой панели/i });
-    fireEvent.mouseDown(handle, { clientX: 260, clientY: 100 });
+    fireEvent.mouseDown(handle, { clientX: 321, clientY: 100 });
     fireEvent.mouseMove(window, { clientX: 50, clientY: 100 });
     fireEvent.mouseUp(window, { clientX: 50, clientY: 100 });
     await waitFor(() =>
@@ -358,7 +358,7 @@ describe('D2 layout integration', () => {
 
     // жест ДО завершения загрузки appearance
     const handle = screen.getByRole('separator', { name: /ширина левой панели/i });
-    fireEvent.mouseDown(handle, { clientX: 260, clientY: 100 });
+    fireEvent.mouseDown(handle, { clientX: 321, clientY: 100 });
     fireEvent.mouseMove(window, { clientX: 340, clientY: 100 });
     fireEvent.mouseUp(window, { clientX: 340, clientY: 100 });
     // сохранение не уходит полным default-объектом раньше загрузки

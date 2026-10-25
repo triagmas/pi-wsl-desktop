@@ -600,7 +600,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             composer={null}
             notice={
               <div data-testid="chat-empty">
-                <h2>Выберите диалог слева</h2>
+                <h2 className="dl-h2">Выберите диалог слева</h2>
                 <p className="muted">
                   Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
                   сессию; создание файлов сессий доступно в Pi CLI.

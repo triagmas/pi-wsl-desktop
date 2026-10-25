@@ -13,6 +13,8 @@ export interface StatusBarProps {
   /** Состояние нижнего терминального дока (aria-pressed кнопки). */
   terminalVisible: boolean;
   onTerminalToggle: () => void;
+  /** D2: проброс продуктовых testid (e2e-контракты UI-A/M1) на элементы. */
+  testids?: { connection?: string; distro?: string };
 }
 
 function connectionLabel(phase: string): { text: string; kind: 'ok' | 'wait' | 'bad' } {
@@ -21,19 +23,27 @@ function connectionLabel(phase: string): { text: string; kind: 'ok' | 'wait' | '
   return { text: 'Подключение…', kind: 'wait' };
 }
 
-export function StatusBar({ phase, distro, terminalVisible, onTerminalToggle }: StatusBarProps) {
+export function StatusBar({
+  phase,
+  distro,
+  terminalVisible,
+  onTerminalToggle,
+  testids,
+}: StatusBarProps) {
   const conn = connectionLabel(phase);
   return (
-    <div data-testid="status-bar" className="dl-status-inner">
+    <div data-testid="status-bar" className="dl-status-inner status-bar">
       <DesignStatusBar
-        connection={{ label: conn.text, dot: conn.kind === 'ok' }}
+        connection={{ label: conn.text, dot: conn.kind === 'ok', testid: testids?.connection }}
         distro={`${distro ?? '—'} · WSL`}
+        distroTestId={testids?.distro}
         right={[
-          { id: 'os', text: 'Windows', mute: true },
-          { id: 'cpu', text: 'CPU —', mute: true },
-          { id: 'ram', text: 'RAM —', mute: true },
+          { id: 'status-os', text: 'Windows', mute: true },
+          { id: 'status-cpu', text: 'CPU —', mute: true },
+          { id: 'status-ram', text: 'RAM —', mute: true },
         ]}
         terminalLabel="Терминал"
+        terminalTestId="status-terminal-btn"
         terminalActive={terminalVisible}
         onTerminalToggle={onTerminalToggle}
       />

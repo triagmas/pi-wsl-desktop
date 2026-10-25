@@ -41,7 +41,7 @@ describe('App shell', () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     await user.click(screen.getByTestId('sidebar-collapse'));
     expect(screen.getByTestId('left-sidebar')).toHaveAttribute('data-collapsed');
-    expect(screen.queryByTestId('sidebar-projects')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('project-list')).not.toBeInTheDocument();
     expect(screen.getByTestId('nav-resources')).toBeInTheDocument();
     expect(screen.getByTestId('nav-modules')).toBeInTheDocument();
     expect(screen.getByTestId('nav-settings')).toBeInTheDocument();

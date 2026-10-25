@@ -72,7 +72,9 @@ export interface ChatViewProps {
   /** D2: блок-уведомление в начале ленты (banner/error/спиннер/статус чата). */
   notice?: ReactNode;
   turns: ChatTurn[];
-  composer: ComposerProps;
+  /** D2/M1 write-boundary: null → композер не рендерится вообще (textarea
+   * появляется только после явного «Открыть чат»); объект → своя зона. */
+  composer?: ComposerProps | null;
   /** Подсказка под композером (ref2/ref4). */
   hint?: string;
   /** false → ответы без аватара и имени (эталон 05: контент от x442). */
@@ -244,7 +246,7 @@ export function ChatView({
         )}
       </div>
       <div className="dl-composer-wrap">
-        <Composer {...composer} />
+        {composer ? <Composer {...composer} /> : null}
         {hint ? <div className="dl-hint">{hint}</div> : null}
       </div>
       {terminal}

@@ -131,15 +131,19 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
         turns={turns}
         showIdentity={false}
         stepCircle={26}
-        composer={{
-          placeholder: 'Сообщение…',
-          density: 'standard',
-          value: draft,
-          onValueChange: onDraftChange,
-          onSubmit: () => submit(),
-          submitDisabled: !canSubmit,
-          inputDisabled: state.status !== 'open',
-        }}
+        composer={
+          isOpenLike
+            ? {
+                placeholder: 'Сообщение…',
+                density: 'standard',
+                value: draft,
+                onValueChange: onDraftChange,
+                onSubmit: () => submit(),
+                submitDisabled: !canSubmit,
+                inputDisabled: state.status !== 'open',
+              }
+            : null
+        }
       />
     </div>
   );

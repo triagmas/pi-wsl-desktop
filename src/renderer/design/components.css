@@ -2083,3 +2083,12 @@
 .dl-frame[data-layout="app"] .center-body > .dl-app-crumb + * p {
   margin-bottom: 0.75em;
 }
+
+/* Обёртка центральной колонки AppFrame: прод-правило живёт в index.css, но
+ * design-lab его не подключает — дублируем в общем слое (то же значение). */
+.center-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

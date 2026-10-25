@@ -294,3 +294,19 @@ button {
     display: none;
   }
 }
+
+/* ── Design-lab: прежний визуальный адаптив (D1-контракт) ───────────────
+ * Прод (без html[data-design-lab]) использует overlay/rail-стратегию выше;
+ * лаба скрывает панели, как было принято визуально. Специфика (0,4,1) >
+ * (0,4,0) overlay-правил. */
+@media (max-width: 1100px) {
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-details {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-side {
+    display: none;
+  }
+}

@@ -52,16 +52,19 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('status-connection')).toBeVisible();
       await expect(page.getByTestId('status-distro')).toContainText('Ubuntu');
 
-      // Terminal toggle is disabled in UI-A; the reserved slot renders inert.
-      await expect(page.getByTestId('status-terminal-btn')).toBeDisabled();
-      await expect(page.getByTestId('terminal-slot')).toBeVisible();
-      await expect(page.getByTestId('terminal-slot')).toHaveText(''); // inert
+      // D2 (owner #6395777040): честный тумблер терминала — НЕ disabled:
+      // кнопка показывает состояние нижнего дока, слот несёт честное уведомление
+      // о PTY-контракте (без фиктивного вывода).
+      await expect(page.getByTestId('status-terminal-btn')).not.toBeDisabled();
+      await expect(page.getByTestId('status-terminal-btn')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('terminal-slot')).toBeVisible(); // слот резерва (пустой, без фиктивного вывода)
+      await expect(page.getByTestId('terminal-dock')).toHaveText(/PTY/i); // честная надпись дока о реальном PTY в UI-B
 
       // Right details panel: open → focus lands in the panel context; close →
       // §8 focus returns to the opening button.
       await page.getByTestId('open-details').click();
-      await expect(page.getByTestId('details-body')).toBeVisible();
-      await page.getByRole('button', { name: 'Скрыть панель деталей' }).click();
+      await expect(page.getByTestId('right-sidebar')).toBeVisible();
+      await page.getByTestId('close-details').click();
       await expect(page.getByTestId('open-details')).toBeFocused();
 
       // Sidebar collapse: labels hide, rail stays, saved state persists.
@@ -208,27 +211,40 @@ test.describe('UI-A application shell E2E', () => {
 
       const matrix = async (theme: 'dark' | 'light'): Promise<void> => {
         // Each iteration re-asserts desktop size: the previous one ends at
-        // 1024 where the right panel is media-hidden (≤1100).
+        // 1024 where the right panel becomes an overlay (≤1100).
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.getByTestId('nav-settings').click();
         await page.getByTestId(`theme-card-${theme}`).click();
         await expect.poll(() => bodyBackground(page)).toBe(theme === 'dark' ? DARK_BG : LIGHT_BG);
         await chatScreen();
-        await page.getByTestId('open-details').click();
-        await expect(page.getByTestId('details-body')).toBeVisible();
+        // open-details — toggle: после первой матрицы панель уже открыта
+        // (rightVisible живёт в appearance), повторный клик закрыл бы её.
+        const od = page.getByTestId('open-details');
+        if ((await od.getAttribute('aria-pressed')) !== 'true') await od.click();
+        await expect(page.getByTestId('right-sidebar')).toBeVisible();
         for (const [w, h] of [
           [1440, 900],
           [1280, 800],
           [1024, 768],
         ] as const) {
           await page.setViewportSize({ width: w, height: h });
-          // Hide order (§7): the right details panel hides first (≤1100),
-          // while the left sidebar survives down to the rail (≤800).
-          if (w <= 1100) {
-            await expect(page.getByTestId('right-sidebar')).toBeHidden();
-          } else {
-            await expect(page.getByTestId('right-sidebar')).toBeVisible();
-          }
+          // D2 overlay-адаптив (Issue #21, owner #6395777040): на узком окне
+          // открытая правая панель не вытесняет центральную колонку — она
+          // ложится overlay-ом (position:absolute); на десктопе — обычная
+          // колонка grid. Левая панель видима на всех трёх ширинах
+          // (≤800 развёрнутая — overlay поверх центра).
+          await expect(page.getByTestId('right-sidebar')).toBeVisible();
+          const detailsPos = await page.evaluate((sel) => {
+            const w = window as unknown as {
+              document: { querySelector: (s: string) => unknown };
+              getComputedStyle: (el: unknown) => { position: string };
+            };
+            const el = w.document.querySelector(sel);
+            return el ? w.getComputedStyle(el).position : 'missing';
+          }, 'aside.dl-details');
+          // десктоп: обычная колонка grid (relative — контекст для resize-handle);
+          // ≤1100: overlay (absolute) поверх центральной колонки.
+          expect(detailsPos).toBe(w <= 1100 ? 'absolute' : 'relative');
           await expect(page.getByTestId('left-sidebar')).toBeVisible();
           await page.screenshot({ path: testInfo.outputPath(`ui-chat-${theme}-${w}x${h}.png`) });
         }

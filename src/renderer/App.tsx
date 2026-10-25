@@ -446,7 +446,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       className="dl-btn-ghost"
       onClick={() => (detailsOpen ? closeDetails() : openDetails())}
       data-testid="open-details"
-      aria-expanded={detailsOpen}
+      aria-pressed={detailsOpen}
       aria-label="Панель деталей"
       ref={detailsRef}
     >
@@ -688,6 +688,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             distro={snapshot.distro}
             terminalVisible={terminalVisible}
             onTerminalToggle={toggleTerminal}
+            testids={{ connection: 'status-connection', distro: 'status-distro' }}
           />
         }
       >

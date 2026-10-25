@@ -231,7 +231,7 @@ export function LeftSidebar({
           }}
         />
       ) : (
-        <div className="dl-side-wrap" data-testid="sidebar-projects">
+        <div className="dl-side-wrap" data-testid="project-list">
           <Sidebar
             header={collapseToggle}
             notice={notice}

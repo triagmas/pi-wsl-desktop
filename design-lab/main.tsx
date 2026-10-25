@@ -14,6 +14,9 @@ import '../src/renderer/design/typography.css';
 import '../src/renderer/design/layout.css';
 import '../src/renderer/design/components.css';
 import '../src/renderer/design/board.css';
+// D2: маркер лабы — общий CSS отдаёт ей прежний визуальный адаптив
+// (панели скрыты в стеснённых видах), а продукту — overlay/rail-стратегию.
+document.documentElement.dataset.designLab = '1';
 import { applyTheme } from '../src/renderer/design/applyTheme';
 import { applyTypography } from '../src/renderer/design/applyTypography';
 import { defaultTypography } from '../src/shared/appearance';

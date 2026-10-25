@@ -127,7 +127,7 @@ export function Sidebar({
           <div key={project.id}>
             <button
               type="button"
-              className="dl-row dl-row-project"
+              className="dl-row dl-row-project project-row"
               aria-expanded={project.expanded}
               data-testid={project.testid}
               onClick={() => onToggleProject?.(project.id)}
@@ -148,7 +148,7 @@ export function Sidebar({
                   <button
                     key={session.id}
                     type="button"
-                    className={`dl-row dl-row-session${session.id === activeSessionId ? ' dl-row-active' : ''}`}
+                    className={`dl-row dl-row-session session-row${session.id === activeSessionId ? ' dl-row-active' : ''}`}
                     data-testid={session.testid}
                     aria-current={session.id === activeSessionId}
                     onClick={() => onSelectSession?.(session.id)}

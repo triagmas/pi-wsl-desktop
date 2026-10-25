@@ -19,6 +19,12 @@ export interface ShellMockApi extends DesktopApi {
   _retry: ReturnType<typeof vi.fn>;
   _request: ReturnType<typeof vi.fn>;
   _getStatus: ReturnType<typeof vi.fn>;
+  _saveAppearance: ReturnType<typeof vi.fn>;
+  _windowControls: {
+    minimize: ReturnType<typeof vi.fn>;
+    maximize: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  };
 }
 
 /** Shared UI-test API double for the App Shell suites. */
@@ -47,6 +53,12 @@ export function makeApi(initial: RendererSnapshot = READY_SNAPSHOT): ShellMockAp
     return { ok: true };
   });
   const getStatus = vi.fn(async () => current);
+  const saveAppearance = vi.fn(async () => undefined);
+  const windowControls = {
+    minimize: vi.fn(async () => undefined),
+    maximize: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+  };
   const api: ShellMockApi = {
     request: request as DesktopApi['request'],
     getStatus: getStatus as unknown as DesktopApi['getStatus'],
@@ -59,11 +71,15 @@ export function makeApi(initial: RendererSnapshot = READY_SNAPSHOT): ShellMockAp
     },
     onChatEvent: () => () => undefined,
     getAppearance: async () => undefined,
-    saveAppearance: async () => undefined,
+    saveAppearance,
     resetAppearance: async () => undefined,
+    // D2: frameless window controls — observable in the shell contract tests.
+    windowControls,
     _retry: retry,
     _request: request,
     _getStatus: getStatus,
+    _saveAppearance: saveAppearance,
+    _windowControls: windowControls,
   };
   return api;
 }

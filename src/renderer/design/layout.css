@@ -107,6 +107,12 @@ button {
 .dl-titlebar {
   grid-column: 1 / -1;
   grid-row: 1;
+  /* D2 frameless: строка перетаскивает окно; кнопки окна — no-drag. */
+  -webkit-app-region: drag;
+}
+
+.dl-titlebar button {
+  -webkit-app-region: no-drag;
 }
 
 .dl-toolbar {
@@ -251,18 +257,40 @@ button {
     grid-template-columns: var(--dl-app-side-w) minmax(0, 1fr);
   }
 
-  .dl-frame[data-layout="app"] .dl-details {
-    display: none;
+  /* D2: правая панель на узком окне — overlay (кнопка open-details работает,
+   * а не «включает» невидимую колонку). Треки колонок не меняются. */
+  .dl-frame[data-layout="app"][data-details="on"] .dl-details {
+    position: absolute;
+    top: var(--dl-app-titlebar-h);
+    bottom: var(--dl-app-status-h);
+    right: 0;
+    width: var(--dl-app-details-w);
+    max-width: 84vw;
+    z-index: 6;
+    box-shadow: -10px 0 28px rgb(0 0 0 / 0.38);
   }
 }
 
 @media (max-width: 800px) {
+  /* D2: узкое окно — rail-трек; развёрнутая левая панель ложится overlay-ом
+   * поверх центра (сессии достижимы на любом размере окна), свёрнутая —
+   * занимает 71px-трек как обычный rail. */
   .dl-frame[data-layout="app"],
   .dl-frame[data-layout="app"][data-details="on"] {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
   }
 
-  .dl-frame[data-layout="app"] .dl-side {
+  .dl-frame[data-layout="app"] .left-sidebar:not(.sidebar-collapsed) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    z-index: 7;
+    box-shadow: 10px 0 28px rgb(0 0 0 / 0.38);
+  }
+
+  .dl-frame[data-layout="app"] .dl-resize-left {
     display: none;
   }
 }

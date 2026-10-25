@@ -1,11 +1,15 @@
 /**
- * Chat pane (M1): the user-facing write boundary. The session is never
- * opened automatically — only an explicit button click calls openSession;
- * prompts, interrupt and close are explicit actions too (Issue #5 gate 5).
+ * Chat pane (D2): тот же явный write-boundary (M1: открытие/промпт/прерывание
+ * только по клику, финализация по message_end, ошибки/реконнект), но
+ * презентация — одобренный ui/ChatView: user-пузыри, ответы Pi, живые шаги
+ * инструментов (steps реального tool-state), notice-блок уведомлений и
+ * управляемый композер (textarea + отправка + прерывание).
+ * Поведенческие контракты tests/ui/m1Chat.test.tsx сохранены 1:1.
  */
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
 import type { ChatController } from './useChat';
+import { ChatView, type ChatTurn, type ChatTurnAssistant } from './ui/ChatView';
 
 export interface ChatPaneProps {
   /** Controller + composer draft live above the panel (§9.1 item 4): hiding
@@ -18,17 +22,22 @@ export interface ChatPaneProps {
 export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
   const { state, open, send, interrupt, closeChat } = chat;
 
-  const submit = (e: FormEvent): void => {
-    e.preventDefault();
+  const submit = (e?: FormEvent): void => {
+    e?.preventDefault();
     if (draft.trim() === '' || state.status !== 'open') return;
     void send(draft);
     onDraftChange('');
   };
 
   const isOpenLike = state.status === 'open' || state.status === 'sending';
+  const canSubmit = state.status === 'open' && draft.trim() !== '';
 
-  return (
-    <div className="chat" data-testid="chat-pane">
+  /* ------------------------------------------------------------------ *
+   * Уведомления (notice-слот ChatView): banner / error+retry / спиннер /
+   * статус-строка с прерыванием / явный gate открытия.
+   * ------------------------------------------------------------------ */
+  const notice: ReactNode = (
+    <>
       {state.banner && (
         <div className="error-box" role="alert" data-testid="chat-banner">
           <strong>{state.banner.code}</strong> — {state.banner.message}. Откройте чат заново, когда будет готовы.
@@ -50,8 +59,9 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
           <span>Подключение к сессии…</span>
         </div>
       )}
-      {state.status === 'error' && !state.error && <div className="error-box" role="alert">Не удалось открыть чат</div>}
-
+      {state.status === 'error' && !state.error && (
+        <div className="error-box" role="alert">Не удалось открыть чат</div>
+      )}
       {!isOpenLike && state.status !== 'opening' && (
         <div className="chat-actions">
           <button type="button" className="primary" onClick={() => void open()}>
@@ -62,63 +72,75 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
           </p>
         </div>
       )}
-
       {isOpenLike && (
-        <>
-          <div className="chat-status-row">
-            <span data-testid="chat-status">{state.status === 'sending' ? 'Генерация…' : 'Чат открыт'}</span>
-            <button type="button" onClick={() => void closeChat()}>
-              Закрыть чат
+        <div className="chat-status-row">
+          <span data-testid="chat-status">
+            {state.status === 'sending' ? 'Генерация…' : 'Чат открыт'}
+          </span>
+          {state.status === 'sending' && (
+            <button type="button" data-testid="interrupt" onClick={() => void interrupt()}>
+              Прервать
             </button>
-          </div>
-          <div className="chat-tools" data-testid="tools">
-            {state.tools.map((t) => (
-              <span key={t.id} className={t.error ? 'tool tool-error' : 'tool'}>
-                {t.error ? '✗' : t.done ? '✓' : '⏳'} {t.name}
-              </span>
-            ))}
-          </div>
-          <div className="chat-entries" data-testid="chat-entries">
-            {state.entries.map((entry) => (
-              <div key={entry.key} className={`bubble bubble-${entry.kind}`}>
-                <span className="bubble-role">{entry.kind}</span>
-                <SafeMarkdown text={entry.text} />
-              </div>
-            ))}
-            {state.streamText !== '' && (
-              <div className="bubble bubble-assistant bubble-stream" data-testid="stream">
-                <span className="bubble-role">assistant</span>
-                <SafeMarkdown text={state.streamText} />
-              </div>
-            )}
-          </div>
-          <form className="chat-form" onSubmit={submit}>
-            <textarea
-              value={draft}
-              onChange={(e) => onDraftChange(e.target.value)}
-              placeholder="Сообщение…"
-              aria-label="Сообщение"
-              disabled={state.status !== 'open'}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  submit(e);
-                }
-              }}
-            />
-            <div className="chat-buttons">
-              <button type="submit" className="primary" disabled={state.status !== 'open' || draft.trim() === ''}>
-                Отправить
-              </button>
-              {state.status === 'sending' && (
-                <button type="button" data-testid="interrupt" onClick={() => void interrupt()}>
-                  Прервать
-                </button>
-              )}
-            </div>
-          </form>
-        </>
+          )}
+          <button type="button" onClick={() => void closeChat()}>
+            Закрыть чат
+          </button>
+        </div>
       )}
+    </>
+  );
+
+  /* ------------------------------------------------------------------ *
+   * Лента: записи сессии → user/assistant-ходы; стрим — отдельный ход
+   * с живыми шагами реального tool-state (state.tools).
+   * ------------------------------------------------------------------ */
+  const turns: ChatTurn[] = state.entries.map((entry) => {
+    if (entry.kind === 'user') {
+      return { kind: 'user', id: entry.key, text: entry.text };
+    }
+    const turn: ChatTurnAssistant = {
+      kind: 'assistant',
+      id: entry.key,
+      body: <SafeMarkdown text={entry.text} />,
+    };
+    return turn;
+  });
+
+  const toolSteps = state.tools.map((tool) => ({
+    id: tool.id,
+    // Глиф состояния в тексте: шаг честно показывает «выполняется/готово/ошибка».
+    text: `${tool.name} ${tool.error ? '✗' : tool.done ? '✓' : '⏳'}`,
+    active: !tool.done && !tool.error,
+    more: undefined,
+  }));
+  const streaming = state.status === 'sending' || state.streamText !== '' || state.tools.length > 0;
+  if (streaming && isOpenLike) {
+    turns.push({
+      kind: 'assistant',
+      id: 'live',
+      body: state.streamText !== '' ? <SafeMarkdown text={state.streamText} /> : null,
+      steps: toolSteps,
+      stepsTestId: 'tools',
+    });
+  }
+
+  return (
+    <div className="dl-chatpane" data-testid="chat-pane">
+      <ChatView
+        notice={notice}
+        turns={turns}
+        showIdentity={false}
+        stepCircle={26}
+        composer={{
+          placeholder: 'Сообщение…',
+          density: 'standard',
+          value: draft,
+          onValueChange: onDraftChange,
+          onSubmit: () => submit(),
+          submitDisabled: !canSubmit,
+          inputDisabled: state.status !== 'open',
+        }}
+      />
     </div>
   );
 }

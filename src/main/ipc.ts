@@ -25,6 +25,12 @@ export interface IpcOptions {
   onDistroChange?: (distro: string) => void;
   /** Directory for the appearance store (app userData in production). */
   appearanceDir?: string;
+  /** D2 frameless window: host-provided controls. Absent ⇒ channels unregistered (fail closed). */
+  windowControls?: {
+    minimize: () => void;
+    maximize: () => void;
+    close: () => void;
+  };
 }
 
 export function registerIpc(
@@ -76,6 +82,15 @@ export function registerIpc(
   ipc.handle('appearance:reset', () =>
     appearanceDir ? resetAppearance(appearanceDir) : migrateAppearance(undefined),
   );
+
+  // D2: frameless TitleBar controls — only wired when the host window exists;
+  // unit/test hosts get no channels at all (renderer guards on api presence).
+  const win = options.windowControls;
+  if (win) {
+    ipc.handle('window:minimize', () => win.minimize());
+    ipc.handle('window:maximize', () => win.maximize());
+    ipc.handle('window:close', () => win.close());
+  }
 
   const offState = conn.subscribe((snapshot) => send('bridge:state', snapshot));
   const offChat = conn.subscribeChat((payload) => send('bridge:chat', payload));

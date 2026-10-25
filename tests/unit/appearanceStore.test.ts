@@ -21,6 +21,7 @@ import {
   resetAppearance,
   saveAppearance,
 } from '../../src/main/appearanceStore';
+import { migrateAppearance } from '../../src/shared/appearance';
 import type { AppearanceSettings } from '../../src/shared/appearance';
 import { THEME_PRESETS } from '../../src/shared/design/presets';
 
@@ -64,6 +65,28 @@ describe('appearance store (versioned Desktop-only storage, §9.1)', () => {
     expect(loaded.layout.rightVisible).toBe(DEFAULT_APPEARANCE.layout.rightVisible);
   });
 
+  it('terminal dock visibility persists (default on) and repairs invalid values', () => {
+    // default: dock visible (поведение UI-A не меняется)
+    expect(DEFAULT_APPEARANCE.layout.terminalVisible).toBe(true);
+    expect(migrateAppearance(undefined).layout.terminalVisible).toBe(true);
+    const dir = freshDir();
+    // explicit false survives a round-trip (скрытый док переживает перезапуск)
+    writeFileSync(
+      path.join(dir, APPEARANCE_FILE),
+      JSON.stringify({ ...DEFAULT_APPEARANCE, layout: { ...DEFAULT_APPEARANCE.layout, terminalVisible: false } }),
+      'utf8',
+    );
+    expect(loadAppearance(dir).layout.terminalVisible).toBe(false);
+    // junk → default, остальные поля не затираются
+    writeFileSync(
+      path.join(dir, APPEARANCE_FILE),
+      JSON.stringify({ ...DEFAULT_APPEARANCE, layout: { ...DEFAULT_APPEARANCE.layout, terminalVisible: 'no' } }),
+      'utf8',
+    );
+    expect(loadAppearance(dir).layout.terminalVisible).toBe(true);
+    expect(loadAppearance(dir).layout.leftWidth).toBe(DEFAULT_APPEARANCE.layout.leftWidth);
+  });
+
   it('migrates an unversioned legacy file to the current version', () => {
     const dir = freshDir();
     writeFileSync(
@@ -99,7 +122,7 @@ describe('appearance store (versioned Desktop-only storage, §9.1)', () => {
         ...DEFAULT_APPEARANCE.typography,
         code: { fontFamily: 'Cascadia Mono, Consolas, monospace', fontSizePx: 13, lineHeight: 1.5, weight: 400 },
       },
-      layout: { leftWidth: 300, rightWidth: 360, leftCollapsed: true, rightVisible: true, terminalSlotHeight: 240 },
+      layout: { leftWidth: 300, rightWidth: 360, leftCollapsed: true, rightVisible: true, terminalSlotHeight: 240, terminalVisible: false },
     };
     const saved = saveAppearance(dir, patch);
     expect(saved).toEqual(patch);

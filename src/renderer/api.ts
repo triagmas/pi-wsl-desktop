@@ -13,6 +13,12 @@ export interface DesktopApi {
   getAppearance(): Promise<unknown>;
   saveAppearance(settings: unknown): Promise<unknown>;
   resetAppearance(): Promise<unknown>;
+  /** D2 frameless window: absent on test hosts and before preload injection. */
+  windowControls?: {
+    minimize(): Promise<void>;
+    maximize(): Promise<void>;
+    close(): Promise<void>;
+  };
 }
 
 declare global {

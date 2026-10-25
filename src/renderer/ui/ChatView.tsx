@@ -42,6 +42,8 @@ export interface ChatTurnAssistant {
   heading?: string;
   bullets?: string[];
   actions?: ChatAction[];
+  /** D2: data-testid контейнера steps (продуктовый контракт «инструменты живые»). */
+  stepsTestId?: string;
 }
 
 export type ChatTurn = ChatTurnUser | ChatTurnAssistant;
@@ -53,11 +55,22 @@ export interface ComposerProps {
   model?: string;
   context?: string;
   density?: ComposerDensity;
+  /** D2: управляемый ввод (продуктовый чат). Без value остаётся статичный дизайн-вид. */
+  value?: string;
+  onValueChange?: (value: string) => void;
+  /** D2: отправка (клик по кнопке/Enter в textarea). */
+  onSubmit?: () => void;
+  /** D2: кнопка отправки disabled (нет открытой сессии/пусто/идёт генерация). */
+  submitDisabled?: boolean;
+  /** D2: поле ввода disabled (явный write-gate: до/после открытой сессии). */
+  inputDisabled?: boolean;
 }
 
 export interface ChatViewProps {
   /** Правый верхний элемент над перепиской (ref2/ref4: кнопка «…»). */
   header?: ReactNode;
+  /** D2: блок-уведомление в начале ленты (banner/error/спиннер/статус чата). */
+  notice?: ReactNode;
   turns: ChatTurn[];
   composer: ComposerProps;
   /** Подсказка под композером (ref2/ref4). */
@@ -91,7 +104,11 @@ function AssistantTurn({
         {showIdentity ? <div className="dl-name">{turn.name ?? 'Pi'}</div> : null}
         <div className="dl-md">{turn.body}</div>
         {turn.steps?.length ? (
-          <div className="dl-steps" style={{ '--dl-step-circle': `${stepCircle}px` } as CSSProperties}>
+          <div
+            className="dl-steps"
+            data-testid={turn.stepsTestId}
+            style={{ '--dl-step-circle': `${stepCircle}px` } as CSSProperties}
+          >
             {turn.steps.map((step) => (
               <div key={step.id} className={`dl-step${step.active ? ' dl-step-active' : ''}`}>
                 <span className="dl-step-check" aria-hidden="true">
@@ -136,14 +153,43 @@ function AssistantTurn({
   );
 }
 
-function Composer({ placeholder = 'Напишите сообщение…', model = 'MiMo v2.6', context, density = 'relaxed' }: ComposerProps) {
+function Composer({
+  placeholder = 'Напишите сообщение…',
+  model = 'MiMo v2.6',
+  context,
+  density = 'relaxed',
+  value,
+  onValueChange,
+  onSubmit,
+  submitDisabled = false,
+  inputDisabled = false,
+}: ComposerProps) {
+  const controlled = value !== undefined && onValueChange !== undefined;
   return (
     <div className="dl-composer" data-density={density}>
       <div className="dl-composer-row1">
         <span className="dl-composer-attach" aria-hidden="true">
           <IconPaperclip size={24} />
         </span>
-        <div className="dl-composer-placeholder">{placeholder}</div>
+        {controlled ? (
+          <textarea
+            className="dl-composer-input"
+            rows={1}
+            value={value}
+            onChange={(e) => onValueChange(e.target.value)}
+            placeholder={placeholder}
+            aria-label={placeholder}
+            disabled={inputDisabled}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && onSubmit && !submitDisabled && !inputDisabled) {
+                e.preventDefault();
+                onSubmit();
+              }
+            }}
+          />
+        ) : (
+          <div className="dl-composer-placeholder">{placeholder}</div>
+        )}
       </div>
       <div className="dl-composer-row2">
         <button type="button" className="dl-chip">
@@ -159,7 +205,13 @@ function Composer({ placeholder = 'Напишите сообщение…', mode
           </span>
         ) : null}
       </div>
-      <button type="button" className="dl-btn-primary dl-send" aria-label="Отправить">
+      <button
+        type="button"
+        className="dl-btn-primary dl-send"
+        aria-label="Отправить"
+        disabled={submitDisabled}
+        onClick={onSubmit}
+      >
         <IconArrowUp size={20} />
       </button>
     </div>
@@ -168,6 +220,7 @@ function Composer({ placeholder = 'Напишите сообщение…', mode
 
 export function ChatView({
   header,
+  notice,
   turns,
   composer,
   hint,
@@ -179,6 +232,7 @@ export function ChatView({
     <>
       {header ? <div className="dl-chat-head">{header}</div> : null}
       <div className="dl-msgs">
+        {notice ? <div className="dl-notice">{notice}</div> : null}
         {turns.map((turn) =>
           turn.kind === 'user' ? (
             <div key={turn.id} className="dl-turn-user">

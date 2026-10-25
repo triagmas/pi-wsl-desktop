@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
-import { SessionDetail } from './SessionDetail';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
 import { SettingsView } from './SettingsView';
@@ -20,11 +19,12 @@ import {
   setModuleEnabled,
   type ModuleEntry,
 } from './modules/registry';
-import { AppShell } from './shell/AppShell';
 import { LeftSidebar } from './shell/LeftSidebar';
-import { RightSidebar } from './shell/RightSidebar';
+import { RightSidebar, RightSidebarHead, RightSidebarResize } from './shell/RightSidebar';
 import { StatusBar } from './shell/StatusBar';
 import { TerminalSlot } from './shell/TerminalSlot';
+import { ChatWorkspace } from './shell/ChatWorkspace';
+import { AppFrame } from './ui/AppFrame';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
 import { THEME_PRESETS } from '../shared/design/presets';
@@ -101,6 +101,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** No API (tests/no preload) ⇒ defaults are already the final state. */
   const appearanceReady = appearanceLoaded || effectiveApi === null;
   const saveAppearanceRef = useRef<ReturnType<DesktopApi['saveAppearance']> | null>(null);
+  /** Мутации пользователя отменяют позднюю загрузку (гонка: load-resolve
+   * после drag-коммита перетирал состояние сохранённым старым значением). */
+  const appearanceMutationRef = useRef(0);
 
   // M1 invariant: the chat topic subscription must be registered exactly once
   // the bridge is READY — it used to ride on the (formerly default)
@@ -118,6 +121,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       .getAppearance()
       .then((raw) => {
         if (cancelled) return;
+        if (appearanceMutationRef.current > 0) {
+          setAppearanceLoaded(true); // пользователь уже изменил — гонку не проигрываем
+          return;
+        }
         const next = migrateAppearance(raw);
         setAppearance(next);
         setAppearanceLoaded(true);
@@ -140,6 +147,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   }, [themeTokens, appearance.typography]);
 
   const persistAppearance = (next: AppearanceSettings): void => {
+    appearanceMutationRef.current += 1;
     setAppearance(next);
     if (!effectiveApi) return;
     saveAppearanceRef.current = effectiveApi.saveAppearance(next).catch(() => undefined);
@@ -147,27 +155,36 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
 
   /* ------------------------------------------------------------------ *
    * Layout state: independent sidebars, persisted widths/collapse. §9.4.
+   * D2: живой предпросмотр (drag) отделён от persistence — на каждое
+   * mousemove IPC-записи не уходят, на mouseup/клавишу — ровно одна.
    * ------------------------------------------------------------------ */
-  // Layout is a single source of truth (persisted appearance) — panels read and
-  // write it directly, so no effect-driven state sync can ever drift.
-  const rightWidth = appearance.layout.rightWidth;
-  const leftWidth = appearance.layout.leftWidth;
+  const [layoutPreview, setLayoutPreview] = useState<{
+    leftWidth?: number;
+    rightWidth?: number;
+    terminalSlotHeight?: number;
+  }>({});
+  const leftWidth = layoutPreview.leftWidth ?? appearance.layout.leftWidth;
+  const rightWidth = layoutPreview.rightWidth ?? appearance.layout.rightWidth;
+  const terminalHeight = layoutPreview.terminalSlotHeight ?? appearance.layout.terminalSlotHeight;
+  const terminalVisible = appearance.layout.terminalVisible;
   const detailsOpen = appearance.layout.rightVisible;
   const detailsRef = useRef<HTMLButtonElement | null>(null);
 
+  const commitLayout = (patch: Partial<AppearanceSettings['layout']>): void => {
+    setLayoutPreview({});
+    persistAppearance({ ...appearance, layout: { ...appearance.layout, ...patch } });
+  };
+
   const openDetails = (): void => {
-    persistAppearance({
-      ...appearance,
-      layout: { ...appearance.layout, rightVisible: true },
-    });
+    commitLayout({ rightVisible: true });
   };
   const closeDetails = (): void => {
-    persistAppearance({
-      ...appearance,
-      layout: { ...appearance.layout, rightVisible: false },
-    });
+    commitLayout({ rightVisible: false });
     // §8: focus returns to the button that opened the panel (it stays mounted).
     detailsRef.current?.focus();
+  };
+  const toggleTerminal = (): void => {
+    commitLayout({ terminalVisible: !terminalVisible });
   };
 
   /* ------------------------------------------------------------------ *
@@ -421,42 +438,35 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /* ------------------------------------------------------------------ *
    * Center column content
    * ------------------------------------------------------------------ */
+  /** Toggle панели деталей: §8 — одна кнопка в chat-crumbs (пустое состояние
+   * и активная сессия — взаимоисключающие строки, обе с detailsRef). */
+  const detailsToggleBtn = (
+    <button
+      type="button"
+      className="dl-btn-ghost"
+      onClick={() => (detailsOpen ? closeDetails() : openDetails())}
+      data-testid="open-details"
+      aria-expanded={detailsOpen}
+      aria-label="Панель деталей"
+      ref={detailsRef}
+    >
+      <span aria-hidden="true">◫</span> Панель деталей
+    </button>
+  );
+
   const centerHeader =
     view === 'chat' ? (
-      <header className="center-head" data-testid="chat-head">
-        <div className="center-title">
-          <span className="muted">
-            {activeSession ? activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект' : 'Pi Desktop'}
-          </span>
-          <span aria-hidden="true">/</span>
-          <strong>{activeSession ? activeSession.name ?? activeSession.id.slice(0, 8) : 'Диалог'}</strong>
+      activeSession ? null : (
+        <div className="dl-app-crumb" data-testid="view-head">
+          <div className="dl-crumb">
+            <strong>Диалог</strong>
+          </div>
+          <div className="dl-toolbar-actions">{detailsToggleBtn}</div>
         </div>
-        <div className="center-actions">
-          <button
-            type="button"
-            className="icon-btn"
-            title="Подробнее"
-            aria-label="Дополнительные действия"
-          >
-            <span aria-hidden="true">⋯</span>
-          </button>
-          <button
-            type="button"
-            ref={detailsRef}
-            data-testid="open-details"
-            className={`icon-btn${detailsOpen ? ' icon-btn-active' : ''}`}
-            title="Показать детали"
-            aria-label="Показать панель деталей"
-            aria-pressed={detailsOpen}
-            onClick={openDetails}
-          >
-            <span aria-hidden="true">|›</span>
-          </button>
-        </div>
-      </header>
+      )
     ) : (
-      <header className="center-head" data-testid="view-head">
-        <div className="center-title">
+      <div className="dl-app-crumb" data-testid="view-head">
+        <div className="dl-crumb">
           <strong>
             {view === 'resources'
               ? 'Ресурсы'
@@ -465,7 +475,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
                 : 'Настройки'}
           </strong>
         </div>
-      </header>
+      </div>
     );
 
   let centerBody: React.ReactNode;
@@ -492,24 +502,25 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           </div>
         )}
         {activeSession ? (
-          <div className="session-detail-wrap">
-            <SessionDetail
-              api={effectiveApi as DesktopApi}
-              session={activeSession}
-              chat={chat}
-              draft={draft}
-              onDraftChange={setDraft}
-            />
-          </div>
+          <ChatWorkspace
+            api={effectiveApi as DesktopApi}
+            session={activeSession}
+            chat={chat}
+            draft={draft}
+            onDraftChange={setDraft}
+            detailsRef={detailsRef}
+            detailsOpen={detailsOpen}
+            onOpenDetails={openDetails}
+          />
         ) : (
           <div className="empty-state" data-testid="chat-empty">
             <h2>Выберите диалог слева</h2>
             <p className="muted">
-              Проекты и чаты загружаются из Pi в WSL. Новый диалог открывает самую свежую сессию;
-              создание файлов сессий доступно в Pi CLI.
+              Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
+              сессию; создание файлов сессий доступно в Pi CLI.
             </p>
             <button type="button" className="btn-primary" onClick={newChat}>
-              Новый диалог
+              Открыть последний диалог
             </button>
             <div className="empty-status">
               <StatusPanel
@@ -523,7 +534,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             </div>
           </div>
         )}
-        <TerminalSlot height={appearance.layout.terminalSlotHeight} />
+        <TerminalSlot
+          height={terminalHeight}
+          visible={terminalVisible}
+          onToggle={toggleTerminal}
+          onHeightPreview={(h) => setLayoutPreview((p) => ({ ...p, terminalSlotHeight: h }))}
+          onHeightCommit={(h) => commitLayout({ terminalSlotHeight: h })}
+        />
       </div>
     );
   } else if (view === 'resources') {
@@ -599,29 +616,81 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   }
 
   return (
-    <main data-testid="app-root" className="app-root">
-    <AppShell
-      left={
+    <main
+      data-testid="app-root"
+      className="app-root"
+      style={
+        {
+          // Единый источник правды — persisted appearance (+ живой preview):
+          // AppFrame читает CSS-переменные для grid-колонок; на узких экранах
+          // media-query переопределяет переменную локально (rail/overlay).
+          '--dl-app-side-w': appearance.layout.leftCollapsed ? 'var(--dl-rail-w)' : `${leftWidth}px`,
+          '--dl-app-details-w': `${rightWidth}px`,
+        } as React.CSSProperties
+      }
+    >
+      <AppFrame
+        layout="app"
+        testid="app-shell"
+        theme={appearance.theme.preset === 'light' ? 'light' : 'dark'}
+        windowControls={{
+          onMinimize: () => {
+            void effectiveApi?.windowControls?.minimize();
+          },
+          onMaximize: () => {
+            void effectiveApi?.windowControls?.maximize();
+          },
+          onClose: () => {
+            void effectiveApi?.windowControls?.close();
+          },
+        }}
+        side={
         <LeftSidebar
           api={effectiveApi}
           collapsed={appearance.layout.leftCollapsed}
           width={leftWidth}
           view={view}
           activeFile={activeSession?.file ?? null}
-          onToggleCollapsed={() => {
-            const next = !appearance.layout.leftCollapsed;
-            persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
-          }}
-          onNewChat={newChat}
-          connectionReady={snapshot.phase === 'ready'}
-          moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
-          onView={(v) => setView(v as View)}
-          onPickSession={pickSession}
-          onPickProject={() => undefined}
-        />
-      }
-      center={
-        <>
+            onToggleCollapsed={() => commitLayout({ leftCollapsed: !appearance.layout.leftCollapsed })}
+            onNewChat={newChat}
+            connectionReady={snapshot.phase === 'ready'}
+            moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
+            onView={(v) => setView(v as View)}
+            onPickSession={pickSession}
+            onWidthPreview={(w) => setLayoutPreview((p) => ({ ...p, leftWidth: w }))}
+            onWidthCommit={(w) => commitLayout({ leftWidth: w })}
+          />
+        }
+        details={
+          detailsOpen && view === 'chat'
+            ? {
+                header: <RightSidebarHead onClose={closeDetails} />,
+                body: (
+                  <RightSidebar
+                    tools={chat.state.tools}
+                    streaming={chat.state.status === 'sending'}
+                    title={activeSession ? (activeSession.name ?? activeSession.id.slice(0, 8)) : undefined}
+                  />
+                ),
+                handle: (
+                  <RightSidebarResize
+                    width={rightWidth}
+                    onWidthPreview={(w) => setLayoutPreview((p) => ({ ...p, rightWidth: w }))}
+                    onWidthCommit={(w) => commitLayout({ rightWidth: w })}
+                  />
+                ),
+              }
+            : null
+        }
+        statusBar={
+          <StatusBar
+            phase={snapshot.phase}
+            distro={snapshot.distro}
+            terminalVisible={terminalVisible}
+            onTerminalToggle={toggleTerminal}
+          />
+        }
+      >
           {centerHeader}
           {panels.length > 0 && (
             <section className="module-panels" aria-label="Панели модулей">
@@ -655,26 +724,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
               {actionError}
             </p>
           )}
-        </>
-      }
-      right={
-        detailsOpen && view === 'chat' ? (
-          <RightSidebar
-            width={rightWidth}
-            tools={chat.state.tools}
-            streaming={chat.state.status === 'sending'}
-            onClose={closeDetails}
-          />
-        ) : null
-      }
-      status={
-        <StatusBar
-          phase={snapshot.phase}
-          distro={snapshot.distro}
-          onOpenSettings={() => setView('settings')}
-        />
-      }
-    />
+      </AppFrame>
     </main>
   );
 }

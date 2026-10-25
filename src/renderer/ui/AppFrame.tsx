@@ -20,8 +20,16 @@ export interface AppFrameProps {
   toolbarActions?: ReactNode;
   /** split: правая панель; header рендерится в Toolbar, body — в колонке details.
    * app (D1-этап 2): header — строка колонки (вкладки), body — под ней. */
-  details?: { header: ReactNode; body: ReactNode } | null;
+  details?: { header: ReactNode; body: ReactNode; handle?: ReactNode } | null;
   statusBar?: ReactNode | null;
+  /** D2: data-testid (продуктовый контракт App shell). */
+  testid?: string;
+  /** D2: обработчики оконных кнопок TitleBar (frameless). */
+  windowControls?: {
+    onMinimize?: () => void;
+    onMaximize?: () => void;
+    onClose?: () => void;
+  };
   /** data-terminal="on" → компактные инсеты сообщений/композера (ref5). */
   /** data-theme → тема-зависимые mapping-правила (например, user-bubble = surface в dark). */
   theme?: 'dark' | 'light';
@@ -39,19 +47,27 @@ export function AppFrame({
   statusBar,
   theme,
   terminal,
+  testid,
+  windowControls,
   children,
 }: AppFrameProps) {
   const split = layout === 'split';
   return (
     <div
       className="dl-frame"
+      data-testid={testid}
       data-layout={layout}
       data-theme={theme}
       data-terminal={terminal ? 'on' : undefined}
       data-details={details ? 'on' : undefined}
       data-statusbar={statusBar ? 'on' : undefined}
     >
-      <TitleBar breadcrumb={layout === 'inline' ? breadcrumb : undefined} />
+      <TitleBar
+        breadcrumb={layout === 'inline' ? breadcrumb : undefined}
+        onMinimize={windowControls?.onMinimize}
+        onMaximize={windowControls?.onMaximize}
+        onClose={windowControls?.onClose}
+      />
       {split ? (
         <div className="dl-toolbar">
           <div className="dl-toolbar-rail">{railToggle}</div>
@@ -69,13 +85,20 @@ export function AppFrame({
         </div>
       ) : null}
       <div className="dl-side">{side}</div>
-      <main className="dl-main">{children}</main>
+      <main className="dl-main">
+        {/* children живут в цепочке центра: .center-workspace (flex-column,
+         * min-height:0) — точка входа для тестов и e2e. */}
+        <div className="center-workspace" data-testid="center-workspace">
+          {children}
+        </div>
+      </main>
       {details ? (
         <aside className="dl-details">
           {layout === 'app' ? (
             <>
               <div className="dl-details-head">{details.header}</div>
               <div className="dl-details-body">{details.body}</div>
+              {details.handle}
             </>
           ) : (
             details.body

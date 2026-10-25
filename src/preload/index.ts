@@ -18,6 +18,12 @@ export interface DesktopApi {
   getAppearance(): Promise<unknown>;
   saveAppearance(settings: unknown): Promise<unknown>;
   resetAppearance(): Promise<unknown>;
+  /** D2 frameless window controls (channels registered by main). */
+  windowControls?: {
+    minimize(): Promise<void>;
+    maximize(): Promise<void>;
+    close(): Promise<void>;
+  };
 }
 
 const api: DesktopApi = {
@@ -44,6 +50,11 @@ const api: DesktopApi = {
   getAppearance: () => ipcRenderer.invoke('appearance:get'),
   saveAppearance: (settings) => ipcRenderer.invoke('appearance:set', settings),
   resetAppearance: () => ipcRenderer.invoke('appearance:reset'),
+  windowControls: {
+    minimize: () => ipcRenderer.invoke('window:minimize').then(() => undefined),
+    maximize: () => ipcRenderer.invoke('window:maximize').then(() => undefined),
+    close: () => ipcRenderer.invoke('window:close').then(() => undefined),
+  },
 };
 
 contextBridge.exposeInMainWorld('piDesktop', api);

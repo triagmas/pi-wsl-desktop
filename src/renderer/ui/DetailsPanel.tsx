@@ -4,7 +4,7 @@
  * в Toolbar (AppFrame details.header), здесь — тело: вкладки, pill, секции.
  * Реальные вкладки «Файлы/Изменения» не выдумываем (design-system.md): данные — фикстура.
  */
-import { IconCheckCircle, IconChevronRight, IconFileDoc } from './icons';
+import { IconCheckCircle, IconChevronRight, IconClose, IconDots, IconFileDoc } from './icons';
 
 export interface DetailsTab {
   id: string;
@@ -20,6 +20,8 @@ export interface DetailsFile {
 export interface DetailsCheck {
   id: string;
   text: string;
+  /** D2: состояние реального инструмента — иконка не выдаёт запущенное за готовое. */
+  state?: 'running' | 'done' | 'error';
 }
 
 export interface DetailsPanelProps {
@@ -27,8 +29,9 @@ export interface DetailsPanelProps {
   pill: string;
   title: string;
   subtitle?: string;
-  filesLabel: string;
-  files: DetailsFile[];
+  /** D2: секция «Файлы» рендерится только при непустых files (честное отсутствие). */
+  filesLabel?: string;
+  files?: DetailsFile[];
   checksLabel: string;
   checks: DetailsCheck[];
   footer?: string;
@@ -45,6 +48,7 @@ export function DetailsPanel({
   checks,
   footer,
 }: DetailsPanelProps) {
+  const hasFiles = !!files && files.length > 0;
   return (
     <>
       <div className="dl-details-tabs" role="tablist">
@@ -66,28 +70,36 @@ export function DetailsPanel({
       {subtitle ? <p className="dl-details-sub">{subtitle}</p> : null}
 
       <div className="dl-details-divider" />
-      <div className="dl-details-section">
-        <h3 className="dl-section-label">{filesLabel}</h3>
-        <div className="dl-file-rows">
-          {files.map((file) => (
-            <div key={file.id} className="dl-file">
-              <span className="dl-file-icon" aria-hidden="true">
-                <IconFileDoc size={24} />
-              </span>
-              {file.name}
-            </div>
-          ))}
+      {hasFiles ? (
+        <div className="dl-details-section">
+          <h3 className="dl-section-label">{filesLabel}</h3>
+          <div className="dl-file-rows">
+            {files?.map((file) => (
+              <div key={file.id} className="dl-file">
+                <span className="dl-file-icon" aria-hidden="true">
+                  <IconFileDoc size={24} />
+                </span>
+                {file.name}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="dl-details-divider dl-details-divider-bottom" />
       <div className="dl-details-section dl-details-section-late">
         <h3 className="dl-section-label">{checksLabel}</h3>
-        <div className="dl-check-rows">
+        <div className="dl-check-rows" data-testid="tool-details">
           {checks.map((check) => (
-            <div key={check.id} className="dl-check">
+            <div key={check.id} className="dl-check" data-state={check.state}>
               <span className="dl-check-icon" aria-hidden="true">
-                <IconCheckCircle size={26} />
+                {check.state === 'running' ? (
+                  <IconDots size={26} />
+                ) : check.state === 'error' ? (
+                  <IconClose size={24} />
+                ) : (
+                  <IconCheckCircle size={26} />
+                )}
               </span>
               {check.text}
             </div>
@@ -103,11 +115,25 @@ export function DetailsPanel({
   );
 }
 
-export function DetailsHeader({ title }: { title: string }) {
+export function DetailsHeader({
+  title,
+  collapseTestId,
+  onCollapse,
+}: {
+  title: string;
+  collapseTestId?: string;
+  onCollapse?: () => void;
+}) {
   return (
     <>
       <span className="dl-details-title">{title}</span>
-      <button type="button" className="dl-btn-ghost dl-collapse-btn" aria-label="Свернуть панель">
+      <button
+        type="button"
+        className="dl-btn-ghost dl-collapse-btn"
+        aria-label="Свернуть панель"
+        data-testid={collapseTestId}
+        onClick={onCollapse}
+      >
         <IconChevronRight size={18} />
       </button>
     </>

@@ -11,7 +11,7 @@ interface FakeConn {
   subscribeChat: ReturnType<typeof vi.fn>;
 }
 
-function makeHarness() {
+function makeHarness(options: Partial<Parameters<typeof registerIpc>[3]> = {}) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const ipc: IpcLike = {
     handle: (channel, fn) => {
@@ -40,9 +40,30 @@ function makeHarness() {
   const sent: Array<{ channel: string; payload: unknown }> = [];
   const unsubscribe = registerIpc(ipc, conn as unknown as Parameters<typeof registerIpc>[1], (channel, payload) =>
     sent.push({ channel, payload }),
+    options,
   );
   return { handlers, conn, sent, unsubscribe, connCallbacks, chatCallbacks };
 }
+
+describe('Window controls (D2: frameless titlebar buttons)', () => {
+  it('delegates minimize/maximize/close to the host-provided window', async () => {
+    const win = { minimize: vi.fn(), maximize: vi.fn(), close: vi.fn() };
+    const { handlers } = makeHarness({ windowControls: win });
+    await handlers.get('window:minimize')!({}, {});
+    await handlers.get('window:maximize')!({}, {});
+    await handlers.get('window:close')!({}, {});
+    expect(win.minimize).toHaveBeenCalledTimes(1);
+    expect(win.maximize).toHaveBeenCalledTimes(1);
+    expect(win.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when no window controls are wired (unit/test hosts)', () => {
+    const { handlers } = makeHarness();
+    expect(handlers.get('window:minimize')).toBeUndefined();
+    expect(handlers.get('window:maximize')).toBeUndefined();
+    expect(handlers.get('window:close')).toBeUndefined();
+  });
+});
 
 describe('IPC surface (main-side whitelist)', () => {
   it('rejects non-allowlisted methods before they reach the connection', async () => {

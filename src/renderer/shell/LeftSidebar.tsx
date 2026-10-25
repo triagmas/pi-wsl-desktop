@@ -1,34 +1,34 @@
 /**
- * Left sidebar (Issue #21 §2): «Новый диалог», honest search over real
- * session data, projects with nested chats, bottom navigation and the
- * collapse toggle. Collapsed = 48px icon rail with tooltips; expanded width
- * and collapsed state are persisted via the appearance layout settings.
+ * Left sidebar (D2): контейнер реальных данных m1 (проекты/сессии/поиск/
+ * сворачивание) + одобренная презентация ui/Sidebar (развёрнута) или ui/Rail
+ * (свернута) с handle изменения ширины. Никаких fixture-данных.
+ *
+ * «Новый диалог» подписан честно («Открыть последний диалог»): Bridge M1 не
+ * умеет создавать сессии (ALL_METHODS), выдавать открытие свежей сессии за
+ * создание запрещено решением владельца #6395777040.
  */
-import { useEffect, useState } from 'react';
-import type { DesktopApi } from '../api';
+import { useEffect, useState, type ReactNode } from 'react';
 import { m1 } from '../m1api';
-import type { ProjectInfoT, SessionInfoT } from '../types';
-
-/** Project display label: the last path segment (ProjectInfoT has no name). */
-export function projectName(project: { id: string; path: string }): string {
-  const trimmed = project.path.replace(/[\\/]+$/, '');
-  const base = trimmed.split(/[\\/]/).pop();
-  return base && base.length > 0 ? base : project.path;
-}
-
-export interface SidebarModuleTab {
-  tabKey: string;
-  title: string;
-}
+import type { DesktopApi } from '../api';
+import type { SessionInfoT, ProjectInfoT } from '../types';
+import { Sidebar, type SidebarNavItem, type SidebarProject } from '../ui/Sidebar';
+import { Rail } from '../ui/Rail';
+import {
+  IconChatBubble,
+  IconCode,
+  IconDatabase,
+  IconGear,
+  IconPanelExpand,
+  IconPuzzle,
+} from '../ui/icons';
+import { useResizeHandle } from './useResizeHandle';
 
 export interface LeftSidebarProps {
   api: DesktopApi | null;
-  /** Bridge connection readiness — the list reloads once it flips to true
-   *  (the first attempt at mount may race the bridge startup). */
   connectionReady: boolean;
-  /** M3 module tabs stay reachable from the sidebar (§5 keeps the contract). */
-  moduleTabs: SidebarModuleTab[];
+  moduleTabs: Array<{ tabKey: string; title: string }>;
   collapsed: boolean;
+  /** Эффективная ширина (stored + preview) — inline-стиль а사이да. */
   width: number;
   view: string;
   activeFile: string | null;
@@ -36,8 +36,18 @@ export interface LeftSidebarProps {
   onNewChat: () => void;
   onView: (view: string) => void;
   onPickSession: (session: SessionInfoT) => void;
-  onPickProject: (project: ProjectInfoT) => void;
+  /** Живой предпросмотр ширины (без записи) во время drag. */
+  onWidthPreview?: (width: number) => void;
+  /** Фиксация ширины (persist appearance): drag-end или клавиша. */
+  onWidthCommit?: (width: number) => void;
 }
+
+function projectName(project: ProjectInfoT): string {
+  return project.path.split(/[\\/]/).filter(Boolean).pop() ?? project.path;
+}
+
+const LEFT_MIN = 200;
+const LEFT_MAX = 480;
 
 export function LeftSidebar({
   api,
@@ -51,7 +61,8 @@ export function LeftSidebar({
   onNewChat,
   onView,
   onPickSession,
-  onPickProject,
+  onWidthPreview,
+  onWidthCommit,
 }: LeftSidebarProps) {
   const [projects, setProjects] = useState<ProjectInfoT[]>([]);
   const [sessions, setSessions] = useState<SessionInfoT[]>([]);
@@ -104,6 +115,94 @@ export function LeftSidebar({
       )
     : projects;
 
+  const activeSessionId = activeFile
+    ? sessions.find((s) => s.file === activeFile)?.id
+    : undefined;
+
+  const sidebarProjects: SidebarProject[] = visibleProjects.map((p) => ({
+    id: p.id,
+    name: projectName(p),
+    expanded: q ? true : openProjects.has(p.id),
+    testid: `project-${p.id}`,
+    sessions: visibleSessions
+      .filter((s) => s.projectId === p.id)
+      .map((s) => ({
+        id: s.id,
+        title: s.name ?? s.id.slice(0, 8),
+        testid: `session-${s.id}`,
+      })),
+  }));
+
+  const nav: SidebarNavItem[] = [
+    { id: 'chat', label: 'Чат', icon: <IconChatBubble size={20} />, active: view === 'chat', testid: 'nav-chat' },
+    ...moduleTabs.map(({ tabKey, title }) => ({
+      id: `module:${tabKey}`,
+      label: title,
+      icon: <IconCode size={20} />,
+      active: view === `module:${tabKey}`,
+      testid: `tab-module-${tabKey}`,
+    })),
+    {
+      id: 'resources',
+      label: 'Ресурсы',
+      icon: <IconDatabase size={20} />,
+      active: view === 'resources',
+      testid: 'nav-resources',
+    },
+    {
+      id: 'modules',
+      label: 'Модули',
+      icon: <IconPuzzle size={20} />,
+      active: view === 'modules' || view.startsWith('module:'),
+      testid: 'nav-modules',
+    },
+    {
+      id: 'settings',
+      label: 'Настройки',
+      icon: <IconGear size={20} />,
+      active: view === 'settings',
+      testid: 'nav-settings',
+    },
+  ];
+
+  const resize = useResizeHandle({
+    axis: 'x',
+    value: width,
+    min: LEFT_MIN,
+    max: LEFT_MAX,
+    onPreview: (w) => onWidthPreview?.(w),
+    onCommit: (w) => onWidthCommit?.(w),
+  });
+
+  // Rail (свёрнутое состояние): всё, кроме «Настройки», — сверху;
+  // «Настройки» + точка подключения — снизу (ref1/ref5 layout).
+  const stripActive = (item: SidebarNavItem): { id: string; label: string; icon: ReactNode; testid?: string; title: string } => {
+    const { icon, id, label, testid } = item;
+    return { id, label, icon, testid, title: label };
+  };
+  const railTop = nav.filter((item) => item.id !== 'settings').map(stripActive);
+  const railBottom = nav.filter((item) => item.id === 'settings').map(stripActive);
+
+  const collapseToggle = (
+    <button
+      type="button"
+      className="dl-btn-ghost dl-side-collapse"
+      data-testid="sidebar-collapse"
+      title={collapsed ? 'Показать проекты' : 'Скрыть проекты'}
+      aria-label={collapsed ? 'Показать проекты' : 'Скрыть проекты'}
+      aria-expanded={!collapsed}
+      onClick={onToggleCollapsed}
+    >
+      <IconPanelExpand size={20} />
+    </button>
+  );
+
+  const notice = error ? (
+    <p className="request-error" role="alert" data-testid="sidebar-error">
+      {error}
+    </p>
+  ) : null;
+
   return (
     <aside
       data-testid="left-sidebar"
@@ -112,189 +211,75 @@ export function LeftSidebar({
       style={collapsed ? undefined : { width: `${width}px` }}
       aria-label="Проекты и диалоги"
     >
-      <div className="sidebar-top">
-        <button
-          type="button"
-          data-testid="sidebar-collapse"
-          className="icon-btn"
-          title={collapsed ? 'Показать проекты' : 'Скрыть проекты'}
-          aria-label={collapsed ? 'Показать проекты' : 'Скрыть проекты'}
-          aria-expanded={!collapsed}
-          onClick={onToggleCollapsed}
-        >
-          <span aria-hidden="true" className="collapse-glyph">
-            {collapsed ? '▮›' : '▮‹'}
-          </span>
-        </button>
-        <span className="app-wordmark" aria-hidden="true">
-          π
-        </span>
-      </div>
-
-      {!collapsed && (
-        <div data-testid="sidebar-projects" className="sidebar-scroll">
-          <button type="button" className="btn-primary sidebar-new" onClick={onNewChat}>
-            <span aria-hidden="true">＋</span> Новый диалог
-          </button>
-
-          <label className="sidebar-search">
-            <span className="visually-hidden">Поиск чатов</span>
-            <input
-              data-testid="sidebar-search-input"
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={q ? 'Поиск по названиям и файлам…' : 'Поиск чатов'}
-              aria-label="Поиск чатов по названию и файлу"
-            />
-          </label>
-          {q && (
-            <p className="sidebar-search-note muted" data-testid="search-scope">
-              Поиск по названиям и путям сессий
-            </p>
-          )}
-          {error && (
-            <p className="request-error" role="alert" data-testid="sidebar-error">
-              {error}
-            </p>
-          )}
-
-          <div className="sidebar-section-label">Проекты</div>
-          <ul className="project-list" data-testid="project-list">
-            {visibleProjects.length === 0 && !q && (
-              <li className="muted sidebar-empty">Проекты не найдены</li>
-            )}
-            {visibleProjects.map((p) => {
-              const open = q ? true : openProjects.has(p.id);
-              const own = visibleSessions.filter((s) => s.projectId === p.id);
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    className="project-row"
-                    data-testid={`project-${p.id}`}
-                    aria-expanded={open}
-                    onClick={() => {
-                      onPickProject(p);
-                      setOpenProjects((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(p.id)) next.delete(p.id);
-                        else next.add(p.id);
-                        return next;
-                      });
-                    }}
-                  >
-                    <span aria-hidden="true">🗀</span>
-                    <span className="project-name">{projectName(p)}</span>
-                    <span aria-hidden="true" className="chevron">
-                      {open ? '⌄' : '›'}
-                    </span>
-                  </button>
-                  {open && (
-                    <ul className="session-list">
-                      {own.length === 0 && <li className="muted sidebar-empty">Чатов нет</li>}
-                      {own.map((s) => (
-                        <li key={s.id}>
-                          <button
-                            type="button"
-                            data-testid={`session-${s.id}`}
-                            className={`session-row${s.file === activeFile ? ' session-active' : ''}`}
-                            aria-current={s.file === activeFile}
-                            onClick={() => onPickSession(s)}
-                          >
-                            <span aria-hidden="true">◦</span>
-                            <span className="session-row-name">{s.name ?? s.id.slice(0, 8)}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-            {q && visibleProjects.length === 0 && (
-              <li className="muted sidebar-empty">Ничего не найдено</li>
-            )}
-          </ul>
+      {collapsed ? (
+        <Rail
+          top={[
+            {
+              id: 'sidebar-expand',
+              label: 'Показать проекты',
+              title: 'Показать проекты',
+              testid: 'sidebar-collapse',
+              icon: <IconPanelExpand size={20} />,
+            },
+            ...railTop,
+          ]}
+          bottom={railBottom}
+          connectionDot={connectionReady}
+          onItemClick={(id) => {
+            if (id === 'sidebar-expand') onToggleCollapsed();
+            else onView(id);
+          }}
+        />
+      ) : (
+        <div className="dl-side-wrap" data-testid="sidebar-projects">
+          <Sidebar
+            header={collapseToggle}
+            notice={notice}
+            searchFirst
+            searchPlaceholder={q ? 'Поиск по названиям и файлам…' : 'Поиск чатов'}
+            searchValue={query}
+            onSearchChange={setQuery}
+            newChatLabel="Открыть последний диалог"
+            projectsTitle="Проекты"
+            projects={sidebarProjects}
+            activeSessionId={activeSessionId}
+            nav={nav}
+            connection={{
+              label: connectionReady ? 'Pi подключён' : 'Подключение…',
+              testid: 'sidebar-connection',
+            }}
+            onNewChat={onNewChat}
+            onToggleProject={(id) =>
+              setOpenProjects((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+            onSelectSession={(id) => {
+              const session = sessions.find((s) => s.id === id);
+              if (session) onPickSession(session);
+            }}
+            onNavigate={(id) => onView(id)}
+          />
         </div>
       )}
-
-      <nav className="sidebar-nav" aria-label="Разделы">
-        <button
-          type="button"
-          data-testid="nav-chat"
-          className="nav-item"
-          title="Чат"
-          aria-label="Чат"
-          aria-current={view === 'chat'}
-          onClick={() => onView('chat')}
-        >
-          <span aria-hidden="true">💬</span>
-          {!collapsed && <span className="nav-label">Чат</span>}
-        </button>
-        {moduleTabs.length > 0 && !collapsed && (
-          <div className="module-tab-nav" data-testid="module-tab-nav">
-            {moduleTabs.map(({ tabKey, title }) => (
-              <button
-                key={tabKey}
-                type="button"
-                data-testid={`tab-module-${tabKey}`}
-                className={`nav-item nav-sub${view === `module:${tabKey}` ? ' nav-current' : ''}`}
-                aria-current={view === `module:${tabKey}`}
-                onClick={() => onView(`module:${tabKey}`)}
-              >
-                <span aria-hidden="true">◦</span>
-                <span className="nav-label">{title}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="sidebar-nav-spacer" />
-        <button
-          type="button"
-          data-testid="nav-resources"
-          className="nav-item"
-          title="Ресурсы"
-          aria-label="Ресурсы"
-          aria-current={view === 'resources'}
-          onClick={() => onView('resources')}
-        >
-          <span aria-hidden="true">⛃</span>
-          {!collapsed && <span className="nav-label">Ресурсы</span>}
-        </button>
-        <button
-          type="button"
-          data-testid="nav-modules"
-          className="nav-item"
-          title="Модули"
-          aria-label="Модули"
-          aria-current={view === 'modules' || view.startsWith('module:')}
-          onClick={() => onView('modules')}
-        >
-          <span aria-hidden="true">⚙</span>
-          {!collapsed && <span className="nav-label">Модули</span>}
-        </button>
-        <button
-          type="button"
-          data-testid="nav-settings"
-          className="nav-item"
-          title="Настройки"
-          aria-label="Настройки"
-          aria-current={view === 'settings'}
-          onClick={() => onView('settings')}
-        >
-          <span aria-hidden="true">⚙</span>
-          {!collapsed && <span className="nav-label">Настройки</span>}
-        </button>
-        <div data-testid="sidebar-connection" className="sidebar-connection">
-          <span className={`conn-dot${connectionReady ? '' : ' conn-dot-pending'}`} aria-hidden="true" />
-          {!collapsed && (
-            <span className="nav-label muted">
-              {connectionReady ? 'Pi подключён' : 'Подключение…'}
-            </span>
-          )}
-        </div>
-      </nav>
+      {!collapsed && (
+        <div
+          className="dl-resize dl-resize-x dl-resize-left"
+          role="separator"
+          aria-label="Ширина левой панели"
+          aria-orientation="vertical"
+          aria-valuenow={width}
+          aria-valuemin={LEFT_MIN}
+          aria-valuemax={LEFT_MAX}
+          tabIndex={0}
+          data-testid="resize-left"
+          onMouseDown={resize.onMouseDown}
+          onKeyDown={resize.onKeyDown}
+        />
+      )}
     </aside>
   );
 }

@@ -9,6 +9,8 @@ import { IconChatBubble, IconChevronDown, IconChevronRight, IconFolder, IconPlus
 export interface SidebarSession {
   id: string;
   title: string;
+  /** D2: data-testid строки сессии (продуктовый тест/е2е не ломается). */
+  testid?: string;
 }
 
 export interface SidebarProject {
@@ -20,6 +22,7 @@ export interface SidebarProject {
   /** app: подпись под именем (например ветка «main»). */
   sub?: string;
   sessions?: SidebarSession[];
+  testid?: string;
 }
 
 export interface SidebarNavItem {
@@ -27,6 +30,8 @@ export interface SidebarNavItem {
   label: string;
   icon: ReactNode;
   active?: boolean;
+  testid?: string;
+  title?: string;
 }
 
 export interface SidebarProps {
@@ -41,7 +46,15 @@ export interface SidebarProps {
   /** app: порядок верхних строк как в эталоне 01-chat-review-terminal (поиск → новый). */
   searchFirst?: boolean;
   searchPlaceholder?: string;
-  connection?: { label: string; detail: string };
+  /** D2: управляемый поиск — без обработчика остаётся статичный вид design-lab. */
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  /** D2: подпись кнопки. По умолчанию — design-lab «Новый диалог». */
+  newChatLabel?: string;
+  /** D2: данные строки подключения (продукт: реальное состояние Pi). */
+  connection?: { label: string; detail?: string; testid?: string };
+  /** D2: блок уведомлений (например ошибка загрузки списка сессий). */
+  notice?: ReactNode;
   onNewChat?: () => void;
   onToggleProject?: (id: string) => void;
   onSelectSession?: (id: string) => void;
@@ -56,37 +69,54 @@ export function Sidebar({
   projectsTitle,
   searchFirst,
   searchPlaceholder = 'Поиск чатов',
+  searchValue,
+  onSearchChange,
+  newChatLabel = 'Новый диалог',
   connection,
+  notice,
   onNewChat,
   onToggleProject,
   onSelectSession,
   onNavigate,
 }: SidebarProps) {
+  const search = onSearchChange ? (
+    <label className="dl-search">
+      <IconSearch size={19} strokeWidth={1.7} />
+      <input
+        type="search"
+        className="dl-search-input"
+        value={searchValue ?? ''}
+        onChange={(e) => onSearchChange(e.target.value)}
+        placeholder={searchPlaceholder}
+        aria-label={searchPlaceholder}
+      />
+    </label>
+  ) : (
+    <div className="dl-search">
+      <IconSearch size={19} strokeWidth={1.7} />
+      {searchPlaceholder}
+    </div>
+  );
+  const newChat = (
+    <button type="button" className="dl-newchat" onClick={onNewChat}>
+      <IconPlus size={22} strokeWidth={2} />
+      {newChatLabel}
+    </button>
+  );
   return (
     <div className="dl-sidebar">
       {header ? <div className="dl-sidebar-head">{header}</div> : null}
+      {notice ? <div className="dl-sidebar-notice">{notice}</div> : null}
       <div className="dl-sidebar-top">
         {searchFirst ? (
           <>
-            <div className="dl-search">
-              <IconSearch size={19} strokeWidth={1.7} />
-              {searchPlaceholder}
-            </div>
-            <button type="button" className="dl-newchat" onClick={onNewChat}>
-              <IconPlus size={22} strokeWidth={2} />
-              Новый диалог
-            </button>
+            {search}
+            {newChat}
           </>
         ) : (
           <>
-            <button type="button" className="dl-newchat" onClick={onNewChat}>
-              <IconPlus size={22} strokeWidth={2} />
-              Новый диалог
-            </button>
-            <div className="dl-search">
-              <IconSearch size={19} strokeWidth={1.7} />
-              {searchPlaceholder}
-            </div>
+            {newChat}
+            {search}
           </>
         )}
       </div>
@@ -99,6 +129,7 @@ export function Sidebar({
               type="button"
               className="dl-row dl-row-project"
               aria-expanded={project.expanded}
+              data-testid={project.testid}
               onClick={() => onToggleProject?.(project.id)}
             >
               <IconFolder size={20} />
@@ -118,6 +149,8 @@ export function Sidebar({
                     key={session.id}
                     type="button"
                     className={`dl-row dl-row-session${session.id === activeSessionId ? ' dl-row-active' : ''}`}
+                    data-testid={session.testid}
+                    aria-current={session.id === activeSessionId}
                     onClick={() => onSelectSession?.(session.id)}
                   >
                     <IconChatBubble size={20} />
@@ -137,6 +170,9 @@ export function Sidebar({
             key={item.id}
             type="button"
             className={`dl-row dl-row-nav${item.active ? ' dl-row-active' : ''}`}
+            data-testid={item.testid}
+            title={item.title}
+            aria-current={item.active}
             onClick={() => onNavigate?.(item.id)}
           >
             <span aria-hidden="true" style={{ display: 'flex' }}>
@@ -148,12 +184,12 @@ export function Sidebar({
       </div>
 
       {connection ? (
-        <div className="dl-conn">
+        <div className="dl-conn" data-testid={connection.testid}>
           <div className="dl-conn-main">
             <span className="dl-conn-dot" aria-hidden="true" />
             {connection.label}
           </div>
-          <div className="dl-conn-detail">{connection.detail}</div>
+          {connection.detail ? <div className="dl-conn-detail">{connection.detail}</div> : null}
         </div>
       ) : null}
     </div>

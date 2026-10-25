@@ -46,6 +46,8 @@ export interface AppearanceLayout {
   leftCollapsed: boolean;
   rightVisible: boolean;
   terminalSlotHeight: number;
+  /** D2: терминальный док под центром скрыт/показан; переживает перезапуск. */
+  terminalVisible: boolean;
 }
 
 export interface AppearanceSettings {
@@ -81,7 +83,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: APPEARANCE_VERSION,
   theme: { preset: 'dark', customName: 'Моя тема', custom: structuredClone(THEME_PRESETS.dark.tokens) },
   typography: DEFAULT_TYPOGRAPHY,
-  layout: { leftWidth: 260, rightWidth: 340, leftCollapsed: false, rightVisible: false, terminalSlotHeight: 240 },
+  layout: { leftWidth: 260, rightWidth: 340, leftCollapsed: false, rightVisible: false, terminalSlotHeight: 240, terminalVisible: true },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -182,6 +184,7 @@ export function migrateAppearance(raw: unknown): AppearanceSettings {
         600,
         DEFAULT_APPEARANCE.layout.terminalSlotHeight,
       ),
+      terminalVisible: repairBool(layoutRaw.terminalVisible, DEFAULT_APPEARANCE.layout.terminalVisible),
     },
   };
 }

@@ -17,6 +17,12 @@ export function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1000,
     height: 720,
+    // D2: frameless — одобренный TitleBar рендерит кнопки окна; им же
+    // заданы `-webkit-app-region` (drag/no-drag) в design/layout.css.
+    // Минимальный размер ≈ нижний responsive-ступень design-CSS (800px).
+    frame: false,
+    minWidth: 640,
+    minHeight: 440,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.cjs'),
@@ -96,6 +102,21 @@ app.whenReady().then(() => {
         } catch {
           // persistence is best-effort; the live connection is unaffected
         }
+      },
+      // D2 frameless: lazy resolution — ipc registers before the window exists.
+      windowControls: {
+        minimize: () => {
+          (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.minimize();
+        },
+        maximize: () => {
+          const w = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+          if (!w) return;
+          if (w.isMaximized()) w.unmaximize();
+          else w.maximize();
+        },
+        close: () => {
+          (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.close();
+        },
       },
     },
   );

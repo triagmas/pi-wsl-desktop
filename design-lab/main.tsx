@@ -3,8 +3,10 @@
  *
  * Изолированный Vite dev-server: React + CSS-слой БЕЗ Electron, Pi, WSL Bridge,
  * IPC и user ~/.pi. Данные состояний — только fixtures.tsx (DEMO).
- * Выбор состояния: ?state=ref1..ref6 | settings | demo | board; ?bare=1 скрывает
+ * Выбор состояния: ?state=ref1..ref6 | settings | demo | board | app; ?bare=1 скрывает
  * picker (используется скриптом capture.mjs для чистых скриншотов).
+ * app (D1-этап 2): ?state=app&variant=a|b — геометрические альтернативы
+ * IMPLEMENTATION-PROMPT (44/28/260/340) и DESIGN-UPDATE v3 (36/26/240/360).
  */
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -17,6 +19,7 @@ import { applyTypography } from '../src/renderer/design/applyTypography';
 import { defaultTypography } from '../src/shared/appearance';
 import { THEME_PRESETS, type ThemePresetId } from '../src/shared/design/presets';
 import { AppFrame } from '../src/renderer/ui/AppFrame';
+import { AppScreen, type AppVariant } from './AppScreen';
 import { BoardScreen } from '../src/renderer/ui/BoardScreen';
 import { ChatView } from '../src/renderer/ui/ChatView';
 import { DetailsHeader, DetailsPanel } from '../src/renderer/ui/DetailsPanel';
@@ -29,7 +32,7 @@ import { TerminalPane } from '../src/renderer/ui/TerminalPane';
 import { IconDots, IconPanelExpand } from '../src/renderer/ui/icons';
 import * as F from './fixtures';
 
-const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo', 'board'] as const;
+const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo', 'board', 'app'] as const;
 type StateId = (typeof STATES)[number];
 
 interface StateView {
@@ -242,6 +245,15 @@ function buildState(state: StateId): StateView {
         theme: 'dark',
         node: <BoardScreen />,
       };
+    case 'app': {
+      const variantRaw = params.get('variant');
+      const variant: AppVariant | undefined = variantRaw === 'a' || variantRaw === 'b' ? variantRaw : undefined;
+      return {
+        label: variant ? `app · Главный экран · вариант ${variant.toUpperCase()}` : 'app · Главный экран (01-chat-review-terminal)',
+        theme: 'dark',
+        node: <AppScreen variant={variant} />,
+      };
+    }
   }
 }
 

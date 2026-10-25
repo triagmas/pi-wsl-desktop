@@ -5,7 +5,7 @@
  * не подключаются: значения в fixtures.ts помечены как DEMO.
  */
 import { Fragment, type ReactNode } from 'react';
-import { IconTerminalGlyph } from './icons';
+import { IconGitBranch, IconTerminalGlyph } from './icons';
 
 export interface StatusItem {
   id: string;
@@ -15,6 +15,8 @@ export interface StatusItem {
 }
 
 export interface StatusBarProps {
+  /** app (D1-этап 2): ветка слева первой (эталон 01-chat-review-terminal «⑂ main»). */
+  branch?: string;
   connection: { dot?: boolean; label: string };
   distro?: string;
   right?: StatusItem[];
@@ -26,6 +28,7 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({
+  branch,
   connection,
   distro,
   right = [],
@@ -36,6 +39,14 @@ export function StatusBar({
   return (
     <>
       <div className="dl-status-group">
+        {branch ? (
+          <span className="dl-status-item">
+            <span className="dl-status-ico" aria-hidden="true">
+              <IconGitBranch size={15} />
+            </span>
+            {branch}
+          </span>
+        ) : null}
         <span className="dl-status-item">
           {connection.dot !== false ? <span className="dl-status-dot" aria-hidden="true" /> : null}
           {connection.label}

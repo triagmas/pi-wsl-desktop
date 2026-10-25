@@ -13,19 +13,28 @@ import type { SidebarNavItem, SidebarProject } from '../src/renderer/ui/Sidebar'
 import type { SkillRow } from '../src/renderer/ui/ResourcesScreen';
 import type { StatusItem } from '../src/renderer/ui/StatusBar';
 import {
+  IconArrowRight,
   IconBookDoc,
   IconBulb,
+  IconChevronDown,
+  IconChevronRight,
   IconCode,
   IconCopy,
   IconCpu,
   IconDatabase,
+  IconDots,
+  IconFileDoc,
+  IconFolder,
   IconGear,
+  IconGitBranch,
   IconMemory,
   IconMonitor,
+  IconPanelExpand,
   IconPuzzle,
   IconRefresh,
   IconTerminalGlyph,
   IconShield,
+  IconUsage,
 } from '../src/renderer/ui/icons';
 
 export const USER_TEXT = 'Добавь поиск по истории диалогов. Хочу находить нужный чат по названию и тексту.';
@@ -97,6 +106,15 @@ export const BREADCRUMB_CHAT: ReactNode = (
   </>
 );
 
+/** app (эталон 01-chat-review-terminal): «Pi WSL Desktop / Поиск по истории». */
+export const BREADCRUMB_APP: ReactNode = (
+  <>
+    <span className="dl-crumb-part">Pi WSL Desktop</span>
+    <span className="dl-crumb-sep">/</span>
+    <span>Поиск по истории</span>
+  </>
+);
+
 export const BREADCRUMB_RESOURCES: ReactNode = (
   <>
     <span className="dl-crumb-part">Ресурсы</span>
@@ -120,11 +138,49 @@ export const SIDEBAR_PROJECTS: SidebarProject[] = [
   { id: 'notes', name: 'Заметки' },
 ];
 
+/** app: дерево проектов эталона 01-chat-review-terminal — один проект
+ * «Pi WSL Desktop» с точкой/подписью main и тремя диалогами v3-промпта. */
+export const APP_SIDEBAR_PROJECTS: SidebarProject[] = [
+  {
+    id: 'pi-desktop',
+    name: 'Pi WSL Desktop',
+    expanded: true,
+    dot: true,
+    sub: 'main',
+    sessions: [
+      { id: 'search-history', title: 'Поиск по истории' },
+      { id: 'ui-settings', title: 'Настройки интерфейса' },
+      { id: 'build-check', title: 'Проверка сборки' },
+    ],
+  },
+];
+
 export const SIDEBAR_NAV: SidebarNavItem[] = [
   { id: 'resources', label: 'Ресурсы', icon: <IconDatabase size={24} /> },
   { id: 'modules', label: 'Модули', icon: <IconPuzzle size={24} /> },
   { id: 'settings', label: 'Настройки', icon: <IconGear size={24} /> },
 ];
+
+/** app: навигация эталона 01-chat-review-terminal — с «Использование». */
+export const APP_NAV: SidebarNavItem[] = [
+  { id: 'resources', label: 'Ресурсы', icon: <IconDatabase size={24} /> },
+  { id: 'modules', label: 'Модули', icon: <IconPuzzle size={24} /> },
+  { id: 'usage', label: 'Использование', icon: <IconUsage size={24} /> },
+  { id: 'settings', label: 'Настройки', icon: <IconGear size={24} /> },
+];
+
+/** app: верхняя строка сайдбара — «Открыть проект» + сворачивание (01-chat-review-terminal). */
+export const SIDEBAR_HEADER: ReactNode = (
+  <>
+    <span className="dl-sidebar-head-main">
+      <IconFolder size={20} />
+      Открыть проект
+    </span>
+    <button type="button" className="dl-btn-ghost" aria-label="Скрыть проекты">
+      <IconPanelExpand size={20} />
+    </button>
+  </>
+);
 
 export const CONNECTION = { label: 'Pi подключён', detail: 'Ubuntu · WSL' };
 
@@ -251,3 +307,157 @@ function reactSearch(size: number): ReactNode {
     </svg>
   );
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+ * app (D1-этап 2): фикстуры целостного главного экрана.
+ * Эталон Reference/01-chat-review-terminal.png: свёрнутая tool-сводка,
+ * блок «Изменены 2 файла», панель «Изменения» + diff, ветка в статус-баре,
+ * короткий терминал. Содержимое — дословная расшифровка эталона (DEMO).
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export const STATUS_BRANCH = 'main';
+
+const APP_ASSIST_MD =
+  'Добавил поиск по истории.\n\n' +
+  'Совпадения находятся в названиях и сообщениях. Результаты обновляются по мере ввода.';
+
+function counts(add: string, del: string, cls: string): ReactNode {
+  return (
+    <span className={cls}>
+      <span className="is-add">{add}</span>
+      <span className="is-del">{del}</span>
+    </span>
+  );
+}
+
+function appFileRow(id: string, name: string, add: string, del: string): ReactNode {
+  return (
+    <div key={id} className="dl-file">
+      <span className="dl-file-icon" aria-hidden="true">
+        <IconFileDoc size={24} />
+      </span>
+      {name}
+      {counts(add, del, 'dl-file-counts')}
+    </div>
+  );
+}
+
+/** Панель «Изменения»: шапка-вкладки (Изменения/Файлы/Ещё) + сворачивание. */
+export const CHANGES_HEAD: ReactNode = (
+  <>
+    <div className="dl-details-tabs" role="tablist" aria-label="Разделы панели">
+      <button type="button" role="tab" aria-selected="true" className="dl-tab dl-tab-active">
+        Изменения
+      </button>
+      <button type="button" role="tab" aria-selected="false" className="dl-tab">
+        Файлы
+      </button>
+      <button type="button" role="tab" aria-selected="false" className="dl-tab">
+        Ещё
+        <IconChevronDown size={15} />
+      </button>
+    </div>
+    <button type="button" className="dl-btn-ghost dl-collapse-btn" aria-label="Скрыть панель">
+      <IconChevronRight size={18} />
+    </button>
+  </>
+);
+
+/** Дифф — расшифровка эталона (42–53), стили .v5-diff переиспользуются с board. */
+const APP_DIFF: { n: string; kind: 'ctx' | 'del' | 'add'; text: string }[] = [
+  { n: '42', kind: 'ctx', text: 'const filtered = sessions.filter(s =>' },
+  { n: '43', kind: 'ctx', text: '  if (!q) return true;' },
+  { n: '44', kind: 'ctx', text: '  const q = query.toLowerCase();' },
+  { n: '45', kind: 'ctx', text: '  return s.title.toLowerCase().includes(q)' },
+  { n: '46', kind: 'ctx', text: '    || s.messages.some(m =>' },
+  { n: '47', kind: 'ctx', text: '      m.text.toLowerCase().includes(q));' },
+  { n: '48', kind: 'del', text: 'return sessions;' },
+  { n: '49', kind: 'add', text: 'return filterSessions(sessions, query);' },
+  { n: '50', kind: 'ctx', text: '});' },
+  { n: '51', kind: 'ctx', text: '' },
+  { n: '52', kind: 'ctx', text: 'setFiltered(filtered);' },
+  { n: '53', kind: 'ctx', text: 'return (' },
+];
+
+/** Тело панели «Изменения»: scope-segmented, ветка, файлы, unified diff. */
+export const CHANGES_BODY: ReactNode = (
+  <div className="dl-changes-body">
+    <div className="dl-changes-scope">
+      <div className="v5-seg" role="group" aria-label="Область сравнения">
+        <button type="button" aria-pressed="false">
+          Ход
+        </button>
+        <button type="button" className="is-active" aria-pressed="true">
+          Сессия
+        </button>
+        <button type="button" aria-pressed="false">
+          Git
+        </button>
+      </div>
+    </div>
+
+    <div className="dl-changes-branch">
+      <IconGitBranch size={17} />
+      <span>main</span>
+      {counts('+18', '−4', 'dl-changes-counts')}
+    </div>
+
+    <div className="dl-file-rows">
+      {appFileRow('f1', 'SessionsView.tsx', '+12', '−3')}
+      {appFileRow('f2', 'sessionSearch.ts', '+6', '−1')}
+    </div>
+
+    <div className="dl-changes-filehead">
+      <span>SessionsView.tsx</span>
+      <IconDots size={18} />
+    </div>
+    <div className="v5-diff">
+      {APP_DIFF.map((l, i) => (
+        <div key={i} className={`v5-diff-line is-${l.kind}`}>
+          <span className="v5-gutter">{l.n}</span>
+          <span className="v5-diff-sign">{l.kind === 'del' ? '−' : l.kind === 'add' ? '+' : ' '}</span>
+          <span>{l.text}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+/** Ответ Pi на app-экране: свёрнутая сводка (pre), текст, bullets, файлы (post), ссылка. */
+export const TURNS_APP: ChatTurn[] = [
+  { kind: 'user', id: 'u1', text: 'Добавь поиск по названию и тексту диалогов.' },
+  {
+    kind: 'assistant',
+    id: 'a1',
+    body: <SafeMarkdown text={APP_ASSIST_MD} />,
+    pre: (
+      <div className="dl-tool-summary">
+        <IconChevronDown size={16} />
+        <span>Изучены 4 файла · Изменены 2 · Проверки выполнены</span>
+        {counts('+18', '−4', 'dl-tool-summary-counts')}
+      </div>
+    ),
+    bullets: ['Подсветка найденного текста', 'Сохранение выбранного проекта'],
+    post: (
+      <>
+        <div className="dl-turn-post-label">Изменены 2 файла</div>
+        {appFileRow('af1', 'SessionsView.tsx', '+12', '−3')}
+        {appFileRow('af2', 'sessionSearch.ts', '+6', '−1')}
+      </>
+    ),
+    actions: [{ id: 'open', label: 'Открыть изменения', icon: <IconArrowRight size={18} /> }],
+  },
+];
+
+/** Терминал app: 4 строки эталона 01-chat-review-terminal (не ref5). */
+export const APP_TERMINAL_TABS = [
+  { id: 'title', label: 'Терминал', icon: <IconTerminalGlyph size={17} /> },
+  { id: 'session', label: 'Ubuntu · bash', active: true, closable: true },
+];
+
+export const APP_TERMINAL_LINES: ReactNode[] = [
+  <>$ npm test</>,
+  <span className="t-green">8 tests passed</span>,
+  <>$ git status --short</>,
+  <span className="t-muted"> M src/SessionsView.tsx</span>,
+];

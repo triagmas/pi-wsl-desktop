@@ -143,6 +143,9 @@ export const IconPanelExpand = (p: IconProps = {}) =>
 
 export const IconArrowUp = (p: IconProps = {}) => svg(<path d="M12 19V5.5M5.5 12L12 5.5 18.5 12" strokeWidth="2" />, p);
 
+export const IconArrowRight = (p: IconProps = {}) =>
+  svg(<path d="M4.5 12h14M12.5 6l6 6-6 6" strokeWidth="1.8" />, p);
+
 export const IconInfo = (p: IconProps = {}) =>
   svg(
     <>
@@ -213,6 +216,27 @@ export const IconCpu = (p: IconProps = {}) =>
   );
 
 /** Память (статус-бар RAM): шина с зубцами — эталон 05-terminal-under-chat. */
+export const IconGitBranch = (p: IconProps = {}) =>
+  svg(
+    <>
+      <line x1="6" x2="6" y1="3" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </>,
+    p,
+  );
+
+export const IconUsage = (p: IconProps = {}) =>
+  svg(
+    <>
+      <path d="M5 20v-7" />
+      <path d="M12 20V5" />
+      <path d="M19 20v-11" />
+    </>,
+    p,
+  );
+
 export const IconMemory = (p: IconProps = {}) =>
   svg(
     <>

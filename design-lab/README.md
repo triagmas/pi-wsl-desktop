@@ -13,7 +13,8 @@ npm run design          # dev-server на http://localhost:5199
 ```
 
 Состояния: `?state=ref1 … ref6` (шесть эталонов Issue #21), `?state=settings`,
-`?state=demo`, `?state=board`. Плавающий picker внизу справа — тоже DEMO-подписи;
+`?state=demo`, `?state=board`, `?state=app` (главный экран D1-этап 2; геометрия-
+альтернативы — `&variant=a|b`). Плавающий picker внизу справа — тоже DEMO-подписи;
 `?bare=1` скрывает его (для скриншотов).
 
 | state | мокап | что показывает |
@@ -26,6 +27,7 @@ npm run design          # dev-server на http://localhost:5199
 | ref6 | светлый, «Ресурсы / Skills» | светлая тема Resources |
 | settings / demo | нет эталона | Настройки (§9.3: 5 тем, 8 зон) и Markdown-тело |
 | board | нет эталона (учебный лист) | «Компоненты 01–09» — живые контролы темы/шрифта/зон, вкладки, поиск, статус-бар; см. `docs/ui/design-lab-component-board.md` |
+| app | `Reference/01-chat-review-terminal.png` | целостный главный экран: «Открыть проект» + проекты, чат со свёрнутой сводкой, панель «Изменения» + diff, терминал, статус-бар с веткой; `&variant=a\|b` — альтернативы 44/28/260/340 и 36/26/240/360; см. `docs/ui/design-lab-app-composition.md` |
 
 ## Что можно и чего нельзя
 

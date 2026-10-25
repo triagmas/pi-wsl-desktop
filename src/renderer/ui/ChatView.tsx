@@ -33,6 +33,10 @@ export interface ChatTurnAssistant {
   id: string;
   /** Тело ответа: абзацы/список/код — ReactNode (SafeMarkdown или JSX). */
   body: ReactNode;
+  /** app (D1-этап 2): свёрнутая строка-сводка над ответом (эталон 01-chat-review-terminal). */
+  pre?: ReactNode;
+  /** app: блок после bullets и до actions (например «Изменены 2 файла»). */
+  post?: ReactNode;
   name?: string;
   steps?: ChatStep[];
   heading?: string;
@@ -75,8 +79,10 @@ function AssistantTurn({
   showIdentity?: boolean;
 }) {
   return (
-    <div className="dl-turn-assistant">
-      {showIdentity ? (
+    <>
+      {turn.pre ? <div className="dl-turn-pre">{turn.pre}</div> : null}
+      <div className="dl-turn-assistant">
+        {showIdentity ? (
         <div className="dl-avatar" aria-hidden="true">
           π
         </div>
@@ -113,6 +119,7 @@ function AssistantTurn({
             ))}
           </ul>
         ) : null}
+        {turn.post ? <div className="dl-turn-post">{turn.post}</div> : null}
         {turn.actions?.length ? (
           <div className="dl-actions">
             {turn.actions.map((action) => (
@@ -124,7 +131,8 @@ function AssistantTurn({
           </div>
         ) : null}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

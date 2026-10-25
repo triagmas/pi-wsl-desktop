@@ -1546,3 +1546,302 @@
   font-size: var(--dl-fs-meta);
   color: var(--pw-muted-text-color);
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+ * app (D1-этап 2): целостный главный экран
+ * Эталон Reference/01-chat-review-terminal.png; геометрия — layout.css (--dl-app-*).
+ * Всё ниже — только этот layout: состояния ref1–ref6/settings не затронуты.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/* строка breadcrumb + actions ВНУТРИ main (titlebar app — только wordmark) */
+.dl-app-crumb {
+  flex: 0 0 var(--dl-app-crumb-h);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: var(--dl-crumb-offset);
+}
+
+.dl-app-crumb .dl-crumb {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-app-crumb .dl-toolbar-actions {
+  gap: 14px;
+  margin-right: 24px;
+}
+
+/* chat-кегль app — токены DEFAULT_TYPOGRAPHY (chatResponse 15/1.6, chatInput 14):
+ * эталон 01-… компактный; --dl-fs-* (17–20px) — семейство Issue-мокапов ref1–ref5. */
+.dl-frame[data-layout="app"] .dl-md {
+  max-width: 580px;
+  font-size: var(--pw-font-chat-response-size, 15px);
+  line-height: 1.6;
+}
+
+.dl-frame[data-layout="app"] .dl-bullets {
+  font-size: var(--pw-font-chat-response-size, 15px);
+  line-height: 1.6;
+}
+
+.dl-frame[data-layout="app"] .dl-bullets li {
+  font-size: var(--pw-font-chat-response-size, 15px);
+  line-height: 1.7;
+}
+
+.dl-frame[data-layout="app"] .dl-bubble-user {
+  font-size: var(--pw-font-chat-input-size, 14px);
+  line-height: 1.55;
+}
+
+/* строки/поля сайдбара app — по замеру 01-chat-review-terminal (семейство v3:
+ * «Новый диалог» без заливки, поля 38, строки 46, метка строчными). Для
+ * ref-состояний (семейство 01-chat) остаются текущие размеры. */
+.dl-frame[data-layout="app"] .dl-newchat {
+  height: 40px;
+  gap: 14px;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-sidebar);
+  font-weight: 400;
+}
+
+.dl-frame[data-layout="app"] .dl-search {
+  height: 38px;
+}
+
+.dl-frame[data-layout="app"] .dl-sidebar-top {
+  padding: 0 15px;
+}
+
+.dl-frame[data-layout="app"] .dl-side-label {
+  margin-top: 20px;
+  padding-left: 24px;
+}
+
+.dl-frame[data-layout="app"] .dl-row {
+  height: 46px;
+}
+
+.dl-frame[data-layout="app"] .dl-status {
+  padding: 0 12px;
+}
+
+/* заголовок раздела «Проекты» app: строчные + шеврон (эталон 01-…);
+ * для inline-состояний остаётся uppercase из .dl-side-label */
+.dl-side-label-app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0.2px;
+}
+
+/* проект app: зелёная точка состояния и подпись ветки под именем */
+.dl-row-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--pw-success-color);
+}
+
+.dl-row-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--pw-muted-text-color);
+}
+
+/* инсеты ленты чата app: измерены по эталону (сводка x335..1175 при колонке
+ * x321..1200 → 14 / 25). Реф5-инсет 371px относится к split+rail и сюда не идёт. */
+.dl-frame[data-layout="app"] .dl-msgs {
+  --dl-msgs-left: 14px;
+  --dl-msgs-right: 25px;
+  padding-top: 8px;
+}
+
+/* высота статус-бара app: своя переменная (иначе --dl-statusbar-h из эталона 05
+ * перебивает геометрию вариантов A/B) */
+.dl-frame[data-layout="app"] .dl-status {
+  height: var(--dl-app-status-h);
+}
+
+/* верхняя строка сайдбара app: «Открыть проект» + сворачивание (эталон) */
+.dl-sidebar-head {
+  flex: 0 0 var(--dl-app-sidehead-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 0 24px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-sidebar-head-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: var(--dl-fs-ui);
+  line-height: var(--dl-lh-ui);
+  color: var(--pw-body-text-color);
+}
+
+/* app-порядок верхних строк сайдбара: поиск → «Новый диалог» (эталонная
+ * последовательность 01-chat-review-terminal); для inline-состояний — без изменений. */
+.dl-frame[data-layout="app"] .dl-sidebar-top .dl-search {
+  margin-top: 6px;
+}
+
+.dl-frame[data-layout="app"] .dl-sidebar-top .dl-newchat {
+  margin-top: 14px;
+}
+
+/* правая колонка app: шапка-вкладки (49px) + тело с независимой прокруткой */
+.dl-frame[data-layout="app"] .dl-details {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dl-details-head {
+  flex: 0 0 var(--dl-app-dhead-h);
+  display: flex;
+  align-items: center;
+  padding-right: 14px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-details-head .dl-details-tabs {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  align-items: center;
+  gap: 36px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.dl-details-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 30px 40px;
+}
+
+/* тело «Изменения»: scope-segmented + ветка + файлы + unified diff */
+.dl-changes-scope {
+  display: flex;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.dl-changes-scope .v5-seg {
+  display: flex;
+  flex: 1;
+}
+
+.dl-changes-scope .v5-seg button {
+  flex: 1;
+}
+
+.dl-changes-branch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  border-bottom: 1px solid var(--pw-divider-color);
+  font-size: 15px;
+}
+
+.dl-changes-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.dl-changes-counts .is-add,
+.dl-file-counts .is-add,
+.dl-tool-summary-counts .is-add {
+  color: var(--pw-success-color);
+}
+
+.dl-changes-counts .is-del,
+.dl-file-counts .is-del,
+.dl-tool-summary-counts .is-del {
+  color: var(--pw-error-color);
+}
+
+.dl-file-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.dl-changes-filehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.dl-changes-body .dl-file {
+  gap: 14px;
+  height: 36px;
+  font-size: 15px;
+}
+
+/* свёрнутая строка-сводка над ответом (pre в ChatTurnAssistant) */
+.dl-turn-pre {
+  width: 100%;
+  margin-top: 24px;
+}
+
+.dl-tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--pw-surface-background-color);
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+  font-size: 14px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-tool-summary-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+/* блок «Изменены 2 файла» + строки счётчиков (post в ChatTurnAssistant) */
+.dl-turn-post {
+  display: flex;
+  flex-direction: column;
+  margin-top: 18px;
+}
+
+.dl-turn-post-label {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-turn-post .dl-file {
+  gap: 14px;
+  height: 36px;
+  margin-bottom: 8px;
+  padding: 0 14px;
+  font-size: 15px;
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+}

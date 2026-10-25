@@ -15,6 +15,10 @@ export interface SidebarProject {
   id: string;
   name: string;
   expanded?: boolean;
+  /** app (эталон 01-…): зелёная точка состояния рядом с именем проекта. */
+  dot?: boolean;
+  /** app: подпись под именем (например ветка «main»). */
+  sub?: string;
   sessions?: SidebarSession[];
 }
 
@@ -30,6 +34,12 @@ export interface SidebarProps {
   nav: SidebarNavItem[];
   /** id активной сессии (подсветка строки); у экранов Resources — undefined. */
   activeSessionId?: string;
+  /** app (D1-этап 2): верхняя строка панели — «Открыть проект» + сворачивание. */
+  header?: ReactNode;
+  /** app: заголовок раздела (эталон 01-… — «Проекты» строчными + шеврон). */
+  projectsTitle?: ReactNode;
+  /** app: порядок верхних строк как в эталоне 01-chat-review-terminal (поиск → новый). */
+  searchFirst?: boolean;
   searchPlaceholder?: string;
   connection?: { label: string; detail: string };
   onNewChat?: () => void;
@@ -42,6 +52,9 @@ export function Sidebar({
   projects,
   nav,
   activeSessionId,
+  header,
+  projectsTitle,
+  searchFirst,
   searchPlaceholder = 'Поиск чатов',
   connection,
   onNewChat,
@@ -51,18 +64,34 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <div className="dl-sidebar">
+      {header ? <div className="dl-sidebar-head">{header}</div> : null}
       <div className="dl-sidebar-top">
-        <button type="button" className="dl-newchat" onClick={onNewChat}>
-          <IconPlus size={22} strokeWidth={2} />
-          Новый диалог
-        </button>
-        <div className="dl-search">
-          <IconSearch size={19} strokeWidth={1.7} />
-          {searchPlaceholder}
-        </div>
+        {searchFirst ? (
+          <>
+            <div className="dl-search">
+              <IconSearch size={19} strokeWidth={1.7} />
+              {searchPlaceholder}
+            </div>
+            <button type="button" className="dl-newchat" onClick={onNewChat}>
+              <IconPlus size={22} strokeWidth={2} />
+              Новый диалог
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="dl-newchat" onClick={onNewChat}>
+              <IconPlus size={22} strokeWidth={2} />
+              Новый диалог
+            </button>
+            <div className="dl-search">
+              <IconSearch size={19} strokeWidth={1.7} />
+              {searchPlaceholder}
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="dl-side-label dl-side-label-first">Проекты</div>
+      <div className="dl-side-label dl-side-label-first">{projectsTitle ?? 'Проекты'}</div>
       <div className="dl-tree">
         {projects.map((project) => (
           <div key={project.id}>
@@ -73,7 +102,11 @@ export function Sidebar({
               onClick={() => onToggleProject?.(project.id)}
             >
               <IconFolder size={20} />
-              <span className="dl-row-text">{project.name}</span>
+              {project.dot ? <span className="dl-row-dot" aria-hidden="true" /> : null}
+              <span className="dl-row-text">
+                {project.name}
+                {project.sub ? <span className="dl-row-sub">{project.sub}</span> : null}
+              </span>
               <span className="dl-row-chevron" aria-hidden="true">
                 {project.expanded ? <IconChevronDown size={18} /> : <IconChevronRight size={18} />}
               </span>

@@ -23,6 +23,7 @@ import { DetailsPanel } from './DetailsPanel';
 import { Rail } from './Rail';
 import { StatusBar } from './StatusBar';
 import { TerminalPane } from './TerminalPane';
+import { V5Body, V5_CELLS } from './BoardCellsV5';
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -256,12 +257,13 @@ export function BoardScreen() {
           Дизайн-система интерфейса · {CUSTOM_LABELS[preset]} тема · Windows / Segoe UI ·{' '}
           <span className={accentPairOk ? 'dl-board-aa ok' : 'dl-board-aa bad'}>
             акцент {accentPairOk ? 'AA ✓' : 'AA ✗'}
-          </span>
+          </span>{' '}
+          · {BOARD_CELLS.length + V5_CELLS.length} ячеек · Component Library v5
         </div>
       </header>
 
       <div className="dl-board-grid">
-        {BOARD_CELLS.map((cell) => (
+        {[...BOARD_CELLS, ...V5_CELLS].map((cell) => (
           <section key={cell.id} className={`dl-board-cell cell-${cell.id}`}>
             <div className="dl-board-cell-head">
               <span className="dl-board-cell-n">{cell.n}</span>
@@ -298,7 +300,7 @@ export function BoardScreen() {
       case 'status':
         return <StatusCell />;
       default:
-        return null;
+        return <V5Body id={id} />;
     }
   }
 }

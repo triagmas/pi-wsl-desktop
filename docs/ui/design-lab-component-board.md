@@ -5,7 +5,7 @@
 (`BOARD-PROMPT.md`), где **переключатели работают**: поля выбираются/заполняются,
 цвета выбираются, шрифты выбираются и т.д. + отчёт (этот файл).
 
-**Статус**: реализовано и проверено. **Раунд 2 (правка пунктов 06 и 09 по замечанию владельца) завершён — STOP перед visual ACCEPT владельцем.**
+**Статус**: реализовано и проверено. **Раунд 3 (ячейки 10–36 из Component Library v5) завершён — STOP перед visual ACCEPT владельцем.**
 
 ---
 
@@ -34,6 +34,45 @@ WSL Bridge, IPC и user `~/.pi`.
 | 08 | Терминал | вкладки, «+», вывод | вкладки кликабельны (role=tab), «+» добавляет `logs · N`, «×» закрывает (системная Ubuntu не закрывается) |
 | 09 | Статус-бар | **полоса во всю ширину ячейки, прижата к низу** (эталон): ● Pi подключён │ Ubuntu · WSL │ CPU 12% │ RAM 8,4/32 ГБ │ >_ Терминал («Windows» убран — в эталоне его нет) | **живая кнопка «Терминал» в StatusBar** (aria-pressed: база — акцент α53% как в эталоне, нажатие — сплошной акцент); хинт вверху ячейки |
 
+### 2b. Ячейки 10–36 — Component Library v5 (раунд 3)
+
+Источник: `Reference/Pi-WSL-Desktop-Component-Library-v5.zip`
+(`components.json` — анатомия/варианты/контракты; `preview-cases.json` — 84 кейса).
+Все 34 интерфейсных компонента v5 распределены: **9 уже были на доске** (01–09 ↔
+Sidebar, Button, Tabs, Message, ToolActivity, Composer+Input, WorkspaceLayout,
+TerminalPanel, статус-бар), **27 добавлены**, **Tokens** — шапка (пресеты + AA).
+Стилистика ячеек 01–09 сохранена: `--pw-*` токены, em-кегли, живые контролы.
+
+| # | Ячейка (v5 id) | Что внутри | Живые контролы |
+|---|---|---|---|
+| 10 | Типографика (type) | шкала: заголовок / текст / пояснение / код | наследует шрифт и кегль из шапки (проверено сменой на Georgia) |
+| 11 | Иконки (icons) | 16 line-иконок + ряд размеров 16/20/24 px | hover-подсветка, title |
+| 12 | Выбор из списка (select) | label + значение + шеврон + listbox | открытие, выбор опции (aria-expanded/selected) |
+| 13 | Переключатель (switch) | track 36×20 / thumb 14: вкл, выкл, disabled | 2 переключателя кликом (role=switch) |
+| 14 | Флажок (checkbox) | группа: «выбрать все» (mixed) + 3 файла | клик по строкам и группе, aria-checked/mixed |
+| 15 | Одиночный выбор (radio) | сегменты (тема) + радиогруппа (формат diff) | обе презентации кликом (aria-pressed/radio) |
+| 16 | Диапазон (slider) | ползунок + число 70–150% + превью текста | ползунок и число связаны (превью 18px при 130%) |
+| 17 | Меню действий (menu) | trigger «Ещё» + popover: группы, shortcut, danger | открытие/выбор пункта, статус «Действие: …» |
+| 18 | Статус (badge) | 5 тонов: ok/warn/error/idle/pending + спиннер | — (образцы) |
+| 19 | Ход операции (progress) | 62% / indeterminate / skeleton | — (CSS-анимации) |
+| 20 | Вложение (attachment) | файл / изображение / ошибка | × удаляет, retry чинит ошибку, «Вернуть» восстанавливает |
+| 21 | Контекст (context) | «18% · 36K/200K», сегментная шкала, источники | — (образец) |
+| 22 | Дерево (filetree) | src/renderer/files + ветка диалога | сворачивание папок, выбор узла («выбрано») |
+| 23 | Просмотр кода (filepreview) | path + номера строк + синтаксис | «Цитировать» ⇄ «Вставлено в чат» (aria-pressed) |
+| 24 | Изменения (diff) | +12/−4, unified ⇄ side-by-side | переключение режима, удаление/добавление строк |
+| 25 | Строка настройки (setting) | 3 слота контроля: switch / select / число | все три контроля живые |
+| 26 | Редактор темы (theme) | пресет + color-input токенов + preview + save bar | цвета меняют preview, «Сохранить» фиксирует черновик |
+| 27 | Проверка окружения (runtime) | WSL/Pi/Node/диск + результаты + время | «Проверить снова» → спиннеры → «только что» |
+| 28 | Ресурс (resource) | карточка Skill/Extension/MCP/Module | сегмент вида, enable-switch, health |
+| 29 | Показатели (metrics) | 4 KPI + вариант «Стоимость —» (нет данных) | — |
+| 30 | График (chart) | линия (svg) ⇄ stacked-бренды, оси, легенда, titles | переключение вида |
+| 31 | Активность (heatmap) | календарь 7×4, шкала 0..4+ | — (title с значениями) |
+| 32 | Таблица (table) | сессии/модели/токены/время | сортировка по клику (aria-sort, ↑/↓) |
+| 33 | Сообщение в контексте (alert) | info / warn / error + действия | — (образцы) |
+| 34 | Уведомление (toast) | «Сохранено» + «С отменой» | «Отменить», × dismiss, «Показать снова» |
+| 35 | Модальный диалог (dialog) | подтверждение удаления на затемнении | «Отмена»/«Удалить»/× → закрыт → «Открыть снова» |
+| 36 | Пустое состояние (empty) | нет данных / совпадений / связи | сегмент причины меняет заголовок/действие |
+
 ## 3. Глобальные контролы в шапке страницы
 
 | Контрол | Что делает | Механизм |
@@ -51,8 +90,9 @@ WSL Bridge, IPC и user `~/.pi`.
 
 | Файл | Изменение |
 |---|---|
-| `src/renderer/ui/BoardScreen.tsx` | **новый** — страница board, 9 ячеек, контролы шапки |
-| `src/renderer/design/board.css` | **новый** — сетка/шапка/ячейки; цвета только из `--pw-*`, фон — `color-mix` на токене окна |
+| `src/renderer/ui/BoardScreen.tsx` | **новый** — страница board, 9 ячеек, контролы шапки; раунд 3: подключает `V5_CELLS`/`V5Body` (36 ячеек) |
+| `src/renderer/ui/BoardCellsV5.tsx` | **новый (раунд 3)** — ячейки 10–36, все контролы локальные (fixture) |
+| `src/renderer/design/board.css` | **новый** — сетка/шапка/ячейки + v5-секция; цвета только из `--pw-*`, фон — `color-mix` на токене окна |
 | `design-lab/main.tsx` | состояние `board` в STATES + импорт `board.css` |
 | `src/renderer/ui/TerminalPane.tsx` | **опциональные** пропсы `onSelectTab/onAddTab/onCloseTab` (без них поведение прежнее — контракт ref5 сохранён) |
 | `src/renderer/ui/StatusBar.tsx` | **опциональные** пропсы `onTerminalToggle/terminalActive` (без них кнопка статична — контракт ref5 сохранён); раунд 2 |
@@ -70,7 +110,9 @@ WSL Bridge, IPC и user `~/.pi`.
 | `npx eslint .` | **PASS** (0 ошибок) |
 | `node node_modules/vitest/vitest.mjs run` | **PASS: 607 passed / 10 skipped** (60 файлов; включая новый RED→GREEN `hexColor`: 20/20 в `designSystem.test.ts`) |
 | `npm run build` | **PASS** (vite build + dist ready) |
-| Playwright интерактив-проб board (`artifacts/probe-board.mjs`) | **PASS: 0 ошибок страницы**, все 20+ проверок (см. §6) |
+| Playwright интерактив-проб board (`artifacts/probe-board.mjs`) | **PASS: 0 ошибок страницы**, все 20+ проверок ячеек 01–09 (см. §6) |
+| Playwright проба v5 (`artifacts/probe-v5.mjs`) | **PASS: 42 проверки, 0 fails, 0 ошибок** (см. §6) |
+| Playwright адаптив + регресс состояний (`probe-v5resp.mjs`) | **PASS**: 1100/760 — без горизонтального переполнения; ref1–ref6/settings/demo — 200, 0 ошибок |
 | Playwright регресс состояний ref1–ref6/settings/demo | **PASS: 0 ошибок**, все рендерятся |
 | E2E `e2e --grep "UI-A"` | **PASS 3/3** (shell, settings, screenshot matrix) |
 | Полный Vitest 637 / Electron E2E / installer / CI | **NOT RUN** (вне-скоупа: правки только design-слоя; тестовый счёт 607 — базовый профиль на этой ветке) |
@@ -104,6 +146,35 @@ custom:             Своя тема + hue 210 → --pw-accent-color hsl(...) O
 ошибки страницы:    0
 ```
 
+### Проба v5 (раунд 3, `artifacts/probe-v5.mjs`)
+
+```
+checks=42, fails=0, page errors=0
+cells=36, titles (Типографика … Пустое состояние)           OK
+12 select:  открытие → aria-expanded=true → Debian 12      OK
+13 switch:  клик → aria-checked true→false                 OK
+14 checkbox: README → checked; группа → all checked          OK
+15 radio:    «Side by side» → aria-checked=true             OK
+16 slider:   fill 130 → число 130, превью 18px              OK
+17 menu:     открыть → пункт → «Действие: Переименовать», закрыт OK
+20 attachment: 3 → × удалить → 2; retry чинит ошибку → 0; «Вернуть» → 3 OK
+22 tree:     «Развернуть tests» → «Свернуть tests»; выбор StatusBar.tsx OK
+23 code:     «Цитировать» → aria-pressed=true               OK
+24 diff:     Side by side ⇄ Unified (колонки/строки)        OK
+26 theme:    color-input #336699 → hex в строке; «Сохранить» → «Черновик сохранён» OK
+27 runtime:  «Проверить снова» → «Проверяем…» → «только что»  OK
+28 resource: сегмент MCP → «context7»                       OK
+32 table:    «Токены» ↑ (39 100) ↓ (120 400)                OK
+34 toast:    2 → «Отменить» (undone) → dismiss (1) → «Показать снова» (2) OK
+35 modal:    role=dialog → «Отмена» → закрыт → «Открыть снова» OK
+36 empty:    «Нет связи» → «WSL недоступна»                 OK
+type:        шрифт шапки Georgia доходит до ячейки 10      OK
+ошибки страницы: 0
+```
+
+Найденный и исправленный баг пробы: в `TreeView` ключ состояния `ui` вместо
+`renderer` — дочерние файлы были скрыты (RED пробы → починка → 42/42).
+
 ## 7. Скриншоты
 
 В `artifacts/design-lab/` (gitignored):
@@ -114,7 +185,11 @@ custom:             Своя тема + hue 210 → --pw-accent-color hsl(...) O
 - `board-custom-blue.png` — «Своя тема» hue=210 (виден AA ✗ в шапке)
 - `board-bottom.png` — нижняя строка ячеек 07–09
 - `board-1100.png` — адаптив (2 колонки)
-- `board-cell-{nav,actions,right,terminal,status,dialog,tabs,composer,buttons}.png` — по ячейкам
+- `board-v5-1100.png` / `board-v5-760.png` — адаптив с ячейками v5 (без переполнения)
+- `board-full-v5.png` — полный снимок (страница скроллится внутри `.dl-board`, 4802px)
+- `v5-scroll-0..5.png` — 6 видимых экранов прокрутки (все 36 ячеек)
+- `v5-cell-{theme,metrics,diff,heatmap,modal}.png` — выборка по ячейкам v5
+- `board-cell-{nav,actions,right,terminal,status,dialog,tabs,composer,buttons}.png` — по ячейкам 01–09
 - `F:\_tmp\d1b-cmp-06-09.png` — composite «REFERENCE ⇄ OURS» по пунктам 06 и 09 (раунд 2)
 
 ## 8. Границы / что НЕ делалось
@@ -139,16 +214,30 @@ custom:             Своя тема + hue 210 → --pw-accent-color hsl(...) O
 | 06 анатомия v5 | `Composer`: input; attachments; model; context; send/stop; варианты «Готов к вводу»/«Работа Pi» | ✓ соответствует | библиотека `Reference/Pi-WSL-Desktop-Component-Library-v5.zip` |
 | 09 в v5 | **спецификации StatusBar в v5 нет** | эталон — сам `component-board.png` | image-first ground truth |
 
+### Маппинг v5 → board (раунд 3)
+
+- 37 единиц библиотеки = 36 ячеек + **Tokens → шапка** (пресеты, акцент, AA).
+- Уже были: 01 Sidebar, 02 Button, 03 Tabs(+поиск), 04 Message, 05 ToolActivity,
+  06 Composer+Input, 07 WorkspaceLayout (правый слот), 08 TerminalPanel, 09 статус-бар.
+- Добавлены: 27 ячеек 10–36 (см. §2b) — порядок registry из `components.json`.
+- id `dialog` (v5) → `modal` на доске: `dialog` занят ячейкой 04.
+- Контракты v5 соблюдены: `progress` не выдумывает процент («Ожидание» без числа),
+  `switch` без третьего значения, `status` — текст+пиктограмма, `heatmap` — реальные
+  значения в title, `metrics` — «—» для неизвестной стоимости.
+- Ничего из `src/renderer/shell/*`, bridge и рабочих модулей не тронуто; все
+  состояния ячеек — локальный `useState` (fixture).
+
 ## 9. Риски / rollback
 
 - Изменения только в design-слое Design Lab + два опциональных пропса
   (`TerminalPane`, `StatusBar`; без них поведение прежнее) + `hexColor` (новая функция).
-- Rollback: `git checkout -- <файлы>` + удалить `BoardScreen.tsx`/`board.css`.
+  Раунд 3: + `BoardCellsV5.tsx` (только board) и v5-секция `board.css`.
+- Rollback: `git checkout -- <файлы>` + удалить `BoardScreen.tsx`/`BoardCellsV5.tsx`/`board.css`.
 - `board.css` подключён только в `design-lab/main.tsx` — в прод-бандл (`src/renderer`)
   не попадает.
 
 ---
 
-**Статус: раунд 2 (правки 06/09) завершён, все гейты PASS. Ожидаю visual ACCEPT /
-замечания владельца (живой `localhost:5199/?state=board`, composite
-`F:\_tmp\d1b-cmp-06-09.png`, скриншоты §7).**
+**Статус: раунд 3 (ячейки 10–36 из Component Library v5) завершён, все гейты PASS.
+Ожидаю visual ACCEPT / замечания владельца (живой `localhost:5199/?state=board`,
+скриншоты `v5-scroll-0..5`, ZIP `F:\_tmp\d1-b-board-v5.zip`).**

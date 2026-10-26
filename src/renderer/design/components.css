@@ -1603,9 +1603,13 @@ button.dl-theme-card:hover {
   min-width: 0;
 }
 
+/* одобренная строка: на узких колонках (1000px) — перенос, чтобы
+ * имя/контролы жили в первой строке, а превью+spec уходили ниже.
+ * Общий для лабы и продукта (C5-R02 owner #6415236125). */
 .dl-type-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 24px;
   padding: 14px 0;
   border-bottom: 1px solid var(--pw-divider-color);
@@ -1617,8 +1621,8 @@ button.dl-theme-card:hover {
 }
 
 .dl-type-preview {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 240px;
+  min-width: 200px;
   color: var(--pw-body-text-color);
 }
 
@@ -1653,18 +1657,6 @@ button.dl-theme-card:hover {
 .dl-type-row input[type='range'] {
   flex: 1;
   min-width: 0;
-}
-
-/* C5.2-ревью: при 1000px колонка контента ~670px — имя+контролы живут в
- * первой строке, живое превью и spec переносятся ниже (без наезда полей).
- * Скоуп .dl-type-group — только продукт (состояния лабы не меняются). */
-.dl-type-group .dl-type-row {
-  flex-wrap: wrap;
-}
-
-.dl-type-group .dl-type-preview {
-  flex: 1 1 240px;
-  min-width: 200px;
 }
 
 .dl-type-spec-auto {

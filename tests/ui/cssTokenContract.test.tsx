@@ -171,3 +171,32 @@ describe('C5.2: typography group keeps the approved row without UA fieldset chro
     expect(rule?.body).toMatch(/padding:\s*0/);
   });
 });
+
+describe('UI21-C5 R02: spaced chat status + shared responsive type rows (owner #6415236125)', () => {
+  const findRule = (exact: string) =>
+    cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes(exact);
+    });
+
+  it('chat-status-row lays out as a spaced flex row (no «Чат открытЗакрыть чат» jam)', () => {
+    const rule = findRule('.chat-status-row');
+    expect(rule, '.chat-status-row rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/display:\s*flex/);
+    expect(rule?.body).toMatch(/gap:\s*\d/);
+    expect(rule?.body).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('base .dl-type-row wraps and base .dl-type-preview keeps a readable column (lab@1000 == product)', () => {
+    const row = findRule('.dl-type-row');
+    expect(row, '.dl-type-row base rule missing').toBeTruthy();
+    expect(row?.body, 'row must wrap on narrow columns').toMatch(/flex-wrap:\s*wrap/);
+    const preview = findRule('.dl-type-preview');
+    expect(preview, '.dl-type-preview base rule missing').toBeTruthy();
+    expect(preview?.body).toMatch(/flex:\s*1 1 240px/);
+    expect(preview?.body).toMatch(/min-width:\s*200px/);
+  });
+});

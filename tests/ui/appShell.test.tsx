@@ -25,6 +25,13 @@ describe('App shell', () => {
     expect(screen.getByTestId('open-details')).toBeInTheDocument();
   });
 
+  it('projects heading follows the app contract: «Проекты» lowercase + chevron (эталон 01, C5-R02)', () => {
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    const title = screen.getByText('Проекты', { selector: 'span' });
+    expect(title.closest('.dl-side-label-app'), 'app heading must carry dl-side-label-app (строчные + шеврон)').not.toBeNull();
+    expect(title.querySelector('svg'), 'chevron icon missing').not.toBeNull();
+  });
+
   it('hiding the details panel returns focus to its opening button (§8)', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);

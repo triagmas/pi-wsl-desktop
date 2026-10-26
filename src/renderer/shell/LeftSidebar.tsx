@@ -15,6 +15,7 @@ import { Sidebar, type SidebarNavItem, type SidebarProject } from '../ui/Sidebar
 import { Rail } from '../ui/Rail';
 import {
   IconChatBubble,
+  IconChevronDown,
   IconCode,
   IconDatabase,
   IconFolder,
@@ -252,7 +253,12 @@ export function LeftSidebar({
             searchValue={query}
             onSearchChange={setQuery}
             newChatLabel="Открыть последний диалог"
-            projectsTitle="Проекты"
+            projectsTitle={
+              <span className="dl-side-label-app">
+                <IconChevronDown size={15} />
+                Проекты
+              </span>
+            }
             projects={sidebarProjects}
             activeSessionId={activeSessionId}
             nav={nav}

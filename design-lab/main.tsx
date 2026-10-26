@@ -3,7 +3,7 @@
  *
  * Изолированный Vite dev-server: React + CSS-слой БЕЗ Electron, Pi, WSL Bridge,
  * IPC и user ~/.pi. Данные состояний — только fixtures.tsx (DEMO).
- * Выбор состояния: ?state=ref1..ref6 | settings | demo | board | app; ?bare=1 скрывает
+ * Выбор состояния: ?state=ref1..ref6 | settings | demo | board | app | showcase; ?bare=1 скрывает
  * picker (используется скриптом capture.mjs для чистых скриншотов).
  * app (D1-этап 2): ?state=app&variant=a|b — геометрические альтернативы
  * IMPLEMENTATION-PROMPT (44/28/260/340) и DESIGN-UPDATE v3 (36/26/240/360).
@@ -23,6 +23,7 @@ import { defaultTypography } from '../src/shared/appearance';
 import { THEME_PRESETS, type ThemePresetId } from '../src/shared/design/presets';
 import { AppFrame } from '../src/renderer/ui/AppFrame';
 import { AppScreenLab as AppScreen, type AppVariant } from './AppScreen';
+import { EmptyChatScreen, ModulesScreen, Showcase, type ShowcaseSection } from './Showcase';
 import { BoardScreen } from '../src/renderer/ui/BoardScreen';
 import { ChatView } from '../src/renderer/ui/ChatView';
 import { DetailsHeader, DetailsPanel } from '../src/renderer/ui/DetailsPanel';
@@ -35,7 +36,7 @@ import { TerminalPane } from '../src/renderer/ui/TerminalPane';
 import { IconDots, IconPanelExpand } from '../src/renderer/ui/icons';
 import * as F from './fixtures';
 
-const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo', 'board', 'app'] as const;
+const STATES = ['ref1', 'ref2', 'ref3', 'ref4', 'ref5', 'ref6', 'settings', 'demo', 'board', 'app', 'showcase'] as const;
 type StateId = (typeof STATES)[number];
 
 interface StateView {
@@ -255,6 +256,65 @@ function buildState(state: StateId): StateView {
         label: variant ? `app · Главный экран · вариант ${variant.toUpperCase()}` : 'app · Главный экран (01-chat-review-terminal)',
         theme: 'dark',
         node: <AppScreen variant={variant} />,
+      };
+    }
+    case 'showcase': {
+      // Витрина всего продукта: готовые экраны picker-состояний + два
+      // самостоятельных (пустой диалог, реестр модулей) — все на фикстурах.
+      const sections: ShowcaseSection[] = [
+        {
+          title: 'Главный экран',
+          hint: 'сайдбар, диалог, панель изменений, терминал, статус-бар',
+          node: buildState('app').node,
+        },
+        {
+          title: 'Диалог: пустое состояние',
+          hint: 'честный старт без открытой сессии',
+          node: <EmptyChatScreen />,
+        },
+        {
+          title: 'Диалог: активное действие',
+          hint: 'детали действия, шаги, композер',
+          node: buildState('ref1').node,
+        },
+        {
+          title: 'Диалог: готовый ответ',
+          hint: 'Markdown-тело и подсказки ввода',
+          node: buildState('demo').node,
+        },
+        { title: 'Ресурсы', hint: 'навыки и установка', node: buildState('ref3').node },
+        {
+          title: 'Модули',
+          hint: 'реестр M3: включение, блокировки, ошибки',
+          node: <ModulesScreen />,
+        },
+        {
+          title: 'Настройки',
+          hint: 'тема, типографика, подключение',
+          node: buildState('settings').node,
+        },
+        {
+          title: 'Терминал и статус-бар',
+          hint: 'док терминала и честные метрики',
+          node: buildState('ref5').node,
+        },
+        {
+          title: 'Светлая тема',
+          hint: 'тот же экран в light-пресете',
+          node: buildState('ref4').node,
+          light: true,
+        },
+        {
+          title: 'Библиотека компонентов',
+          hint: 'board 01–36 (скролл внутри рамки)',
+          node: buildState('board').node,
+          scroll: true,
+        },
+      ];
+      return {
+        label: 'showcase · Весь продукт на фикстурах',
+        theme: 'dark',
+        node: <Showcase sections={sections} />,
       };
     }
   }

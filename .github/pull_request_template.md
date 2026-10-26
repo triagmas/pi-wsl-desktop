@@ -1,6 +1,6 @@
 # Pull Request — Pi WSL Desktop
 
-> Перед заполнением прочитать [PRODUCT.md](../PRODUCT.md), [SPECIFICATION.md](../SPECIFICATION.md), [AGENTS.md](../AGENTS.md), [ROADMAP.md](../ROADMAP.md).
+> Разработчику: [CONTRIBUTING.md](../CONTRIBUTING.md), [PRODUCT.md](../PRODUCT.md), [SPECIFICATION.md](../SPECIFICATION.md), [ROADMAP.md](../ROADMAP.md). Для PR, подготовленного AI-агентом, дополнительно обязательны [AGENTS.md](../AGENTS.md) и подходящие Skills.
 
 ## Контекст и scope
 
@@ -11,7 +11,9 @@
 **Результат:**  
 **Вне scope:**  
 
-## Skills — обязательная проверка
+## Skills — обязательная проверка для AI-агента
+
+Для PR без участия AI-агента отметьте «неприменимо». При агентской работе заполните список по фактическому использованию.
 
 - [ ] Весь доступный каталог Skills проверен (global / project / packages / environment).
 - [ ] Инструкции всех применимых Skills реально загружены и применены.
@@ -23,7 +25,7 @@
 
 ## TDD и тесты
 
-- [ ] Есть доказательство **Red → Green → Refactor** для изменённой функциональности.
+- [ ] Есть доказательство **Red → Green → Refactor** для изменённой функциональности; для правок только документации — «неприменимо» с результатом проверки ссылок и статусов.
 - [ ] Применимые автоматические тесты выполнены.
 - [ ] Windows+WSL smoke показан отдельно; `NOT RUN` не выдаётся за `PASS`.
 

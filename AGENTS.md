@@ -2,9 +2,14 @@
 
 > Короткие постоянные правила для AI-разработчиков и subagents. Подробные процедуры — в Skills, которые Pi загружает по необходимости. Продукт: [PRODUCT.md](PRODUCT.md) · контракт: [SPECIFICATION.md](SPECIFICATION.md) · прогресс: [ROADMAP.md](ROADMAP.md).
 
+## Документы для людей и инструкции для агентов
+
+[README.md](README.md) знакомит с продуктом, [ROADMAP.md](ROADMAP.md) показывает состояние и следующие шаги, [CONTRIBUTING.md](CONTRIBUTING.md) помогает разработчику начать работу. Агентские процедуры, маршрутизация Skills, thinking и формат отчёта остаются в этом файле и `.pi/skills/`; не переносить их в пользовательскую дорожную карту. Подробные логи итераций хранить в Issue/PR и связанных отчётах, в ROADMAP — краткий результат и ссылку на доказательство.
+
 ## Источники истины и границы
 
 - **GitHub — источник истины**: статус из актуальных Issues, PR, HEAD, CI и `ROADMAP.md`, не из памяти или собственного отчёта. При конфликте приоритет: принятый PRODUCT → SPECIFICATION → утверждённые Issue/PR.
+- **Визуальный источник — уже утверждённый Design Lab**: Component Library v5/Board, `?state=app`/`showcase` и общие `src/renderer/ui/*`. Переносить его композицию в Electron с реальными данными и обработчиками; новое визуальное решение — только по отдельному решению владельца. [Указание владельца](https://github.com/triagmas/pi-wsl-desktop/issues/21#issuecomment-6398531407). Технический ACCEPT и зелёные тесты не означают owner Visual ACCEPT реального Windows-приложения.
 - Pi WSL Desktop — отдельный Windows UI для **существующего Pi в WSL**. Не переписывать Pi, не дублировать его сессии, настройки и расширения на Windows, не изменять VoiceForge, ChatWake или Hermes.
 - **Единственный локальный checkout**: `F:\\_hermes\\CODE\\pi-wsl-desktop` (WSL `/mnt/f/_hermes/CODE/pi-wsl-desktop`). Не создавать копий на C:/E: и не работать прямо в защищённой `main`.
 - Владелец отдельно разрешает изменение продуктовых границ, **merge**, реальные записи в пользовательский `~/.pi`, реальные Pi prompts/model calls, внешние MCP connections и платные действия.

@@ -77,6 +77,26 @@ describe('zone → real content element links (round-2 review)', () => {
   }
 });
 
+describe('C4: toolbar fields keep a visible keyboard focus indicator', () => {
+  const componentsCss = readFileSync(designPaths[0], 'utf8');
+
+  it('the search/filter fields do not silence :focus-visible with outline:none', () => {
+    const rules =
+      componentsCss.match(
+        /\.(dl-input-box input\.dl-input-field|dl-select select\.dl-select-field)\s*\{[^}]*\}/g,
+      ) ?? [];
+    expect(rules).toHaveLength(2);
+    for (const rule of rules) expect(rule).not.toMatch(/outline\s*:\s*none/);
+  });
+
+  it('both wrappers glow with the focus ring on :focus-within', () => {
+    const block = componentsCss.match(/\.dl-input-box:focus-within[^{]*\{[^}]*\}/);
+    expect(block).not.toBeNull();
+    expect(block![0]).toContain('var(--pw-focus-ring-color)');
+    expect(componentsCss).toContain('.dl-select:focus-within');
+  });
+});
+
 describe('design token delivery contract (index.css ↔ design system)', () => {
   it('every var(--pw-…) consumed by the stylesheet is declared locally or produced by applyTheme/applyTypography', () => {
     const dead = [...used].filter(

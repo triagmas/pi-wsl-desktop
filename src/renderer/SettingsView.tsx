@@ -322,13 +322,13 @@ export function SettingsView(props: SettingsViewProps) {
                   className={`theme-card${active ? ' theme-card-active' : ''}`}
                   onClick={() => onChange({ ...appearance, theme: { ...appearance.theme, preset: id } })}
                 >
+                  <span className="theme-card-name">{preset.label}</span>
                   <span className="theme-swatch" aria-hidden="true">
                     <span style={{ background: preset.tokens.windowBackgroundColor }} />
                     <span style={{ background: preset.tokens.sidebarLeftBackgroundColor }} />
                     <span style={{ background: preset.tokens.accentColor }} />
                     <span style={{ background: preset.tokens.bodyTextColor }} />
                   </span>
-                  <span className="theme-card-name">{preset.label}</span>
                   {preset.attribution && <span className="theme-card-note muted">inspired-by</span>}
                 </button>
               );
@@ -344,13 +344,13 @@ export function SettingsView(props: SettingsViewProps) {
                 else setEditorOpen((v) => v);
               }}
             >
+              <span className="theme-card-name">Своя тема</span>
               <span className="theme-swatch" aria-hidden="true">
                 <span style={{ background: appearance.theme.custom?.windowBackgroundColor ?? '#20221F' }} />
                 <span style={{ background: appearance.theme.custom?.sidebarLeftBackgroundColor ?? '#191C19' }} />
                 <span style={{ background: appearance.theme.custom?.accentColor ?? '#78957C' }} />
                 <span style={{ background: appearance.theme.custom?.bodyTextColor ?? '#E7EAE3' }} />
               </span>
-              <span className="theme-card-name">Своя тема</span>
               <span className="theme-card-note muted">{appearance.theme.customName}</span>
             </button>
           </div>

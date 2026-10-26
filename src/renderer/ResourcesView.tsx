@@ -182,8 +182,10 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
       .sort()
       .map((src) => ({ value: src, label: src })),
   ];
+  // "enabled" = loadable: missing/invalid skills are never loaded by Pi
+  // (bridge skills.ts) and must not inflate the counter (review P2).
   const skillsMeta =
-    skills === null ? undefined : `${skills.length} навыков · ${skills.filter((s) => !excluded(s)).length} включено`;
+    skills === null ? undefined : `${skills.length} навыков · ${skills.filter((s) => s.status === 'ok').length} включено`;
 
   return (
     <ResourcesScreen

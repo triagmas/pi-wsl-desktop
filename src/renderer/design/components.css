@@ -1381,7 +1381,6 @@
   background: transparent;
   color: var(--pw-body-text-color);
   font: inherit;
-  outline: none;
 }
 
 .dl-input-box input.dl-input-field::placeholder {
@@ -1412,8 +1411,14 @@
   background: transparent;
   color: var(--pw-body-text-color);
   font: inherit;
-  outline: none;
   cursor: pointer;
+}
+
+/* C4 (review): the wrappers themselves must glow while a field inside has
+   keyboard focus — the global :focus-visible ring stays for the field. */
+.dl-input-box:focus-within,
+.dl-select:focus-within {
+  border-color: var(--pw-focus-ring-color);
 }
 
 .dl-install {

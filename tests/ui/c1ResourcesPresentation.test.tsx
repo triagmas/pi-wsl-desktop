@@ -132,6 +132,16 @@ describe('UI21 C2 — approved presentation (ResourcesView)', () => {
     expect(screen.getByTestId('res-meta')).toBeInTheDocument();
   });
 
+  it('meta counts only loadable skills as enabled (missing/invalid are not enabled)', async () => {
+    const { api } = makeApi({ listSkills: SKILLS });
+    render(<ResourcesView api={api} />);
+
+    const meta = await screen.findByTestId('res-meta');
+    // SKILLS = code-review (ok) + ghost (missing): only one is loadable.
+    expect(meta).toHaveTextContent('2 навыков');
+    expect(meta).toHaveTextContent('1 включено');
+  });
+
   it('source filter narrows rows via the approved select (Данные source)', async () => {
     const user = userEvent.setup();
     const { api } = makeApi({ listSkills: SKILLS });

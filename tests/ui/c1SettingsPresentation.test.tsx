@@ -47,4 +47,14 @@ describe('UI21 C3 — approved settings contour (App route)', () => {
     await user.click(await screen.findByTestId('theme-card-light'));
     expect(screen.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
   });
+
+  it('follows the approved card anatomy: label above the swatches', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+
+    await user.click(await screen.findByTestId('nav-settings'));
+    const card = await screen.findByTestId('theme-card-dark');
+    expect(card.firstElementChild).toHaveTextContent('Тёмная');
+    expect(card.querySelector('.theme-swatch')).not.toBeNull();
+  });
 });

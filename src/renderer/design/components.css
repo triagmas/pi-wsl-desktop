@@ -1822,12 +1822,19 @@ button.dl-theme-card:hover {
   overflow: hidden;
 }
 
+/* C5-final: секционный divider идёт от общей линии 24px — во всю ширину панели */
+.dl-frame[data-layout="app"] .dl-details .dl-details-divider {
+  margin-left: -24px;
+  margin-right: -24px;
+}
+
 .dl-details-head {
   flex: 0 0 var(--dl-app-dhead-h);
   display: flex;
   align-items: center;
-  /* Согласованное выравнивание заголовка с контентом панели: 30px с обеих сторон. */
-  padding-inline: 30px;
+  /* C5-final: симметрия панели — шапка на той же линии, что и тело (24px;
+   * владелец в 6cb28dd пробовал 30px — финальное ТЗ требует 24px, узкое окно 16px) */
+  padding: 0 24px;
   border-bottom: 1px solid var(--pw-divider-color);
 }
 
@@ -1845,7 +1852,7 @@ button.dl-theme-card:hover {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 30px 40px;
+  padding: 16px 24px 40px; /* C5-final: симметрия 24px (узкое окно — 16px в layout.css) */
 }
 
 /* тело «Изменения»: scope-segmented + ветка + файлы + unified diff */

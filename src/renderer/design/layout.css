@@ -269,6 +269,23 @@ button {
     z-index: 6;
     box-shadow: -10px 0 28px rgb(0 0 0 / 0.38);
   }
+
+  /* C5-final: узкое окно — та же симметрия 16px, шапка и тело на одной линии */
+  .dl-frame[data-layout="app"] .dl-details-head {
+    padding: 0 16px;
+  }
+
+  .dl-frame[data-layout="app"] .dl-details-body {
+    padding: 16px 16px 40px;
+  }
+
+  /* html-префикс — сознательно выше app-override -24px в components.css:
+   * тот же селектор, а components идёт позже layout — без разницы
+   * спецификаций divider на узком окне остался бы -24 и вылезал за панель. */
+  html .dl-frame[data-layout="app"] .dl-details .dl-details-divider {
+    margin-left: -16px;
+    margin-right: -16px;
+  }
 }
 
 @media (max-width: 800px) {

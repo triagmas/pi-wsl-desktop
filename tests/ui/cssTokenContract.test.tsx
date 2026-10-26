@@ -200,3 +200,57 @@ describe('UI21-C5 R02: spaced chat status + shared responsive type rows (owner #
     expect(preview?.body).toMatch(/min-width:\s*200px/);
   });
 });
+
+describe('UI21-C5 final: details panel — symmetric padding + one left line (owner)', () => {
+  const findRule = (exact: string) =>
+    cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes(exact);
+    });
+
+  it('details head sits on the shared 24px line (padding 0 24px, collapse btn kept)', () => {
+    const rule = findRule('.dl-details-head');
+    expect(rule, '.dl-details-head rule missing').toBeTruthy();
+    expect(rule?.body, 'head must carry symmetric 24px padding').toMatch(/padding:\s*0 24px/);
+  });
+
+  it('details body mirrors the same 24px left/right padding (symmetric)', () => {
+    const rule = findRule('.dl-details-body');
+    expect(rule, '.dl-details-body rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/padding:\s*16px 24px 40px/);
+  });
+
+  it('app section divider still reaches the panel edges from the new line', () => {
+    const rule = findRule('.dl-frame[data-layout="app"] .dl-details .dl-details-divider');
+    expect(rule, 'app .dl-details-divider override missing').toBeTruthy();
+    expect(rule?.body).toMatch(/margin-left:\s*-24px/);
+    expect(rule?.body).toMatch(/margin-right:\s*-24px/);
+  });
+
+  it('narrow window (D2 overlay media ≤1100px) tightens the same line to 16px', () => {
+    const layoutRaw = readFileSync(designPaths[1], 'utf8');
+    const overlay = /@media \(max-width: 1100px\) \{[\s\S]*?box-shadow: -10px 0 28px rgb\(0 0 0 \/ 0\.38\);[\s\S]*?\n\}/.exec(
+      layoutRaw,
+    );
+    expect(overlay, 'D2 overlay media block (max-width:1100) missing').toBeTruthy();
+    const block = overlay?.[0] ?? '';
+    expect(block, 'head 16px rule missing inside the overlay media block').toMatch(
+      /\.dl-details-head \{\s*padding: 0 16px/,
+    );
+    expect(block, 'body 16px rule missing inside the overlay media block').toMatch(
+      /\.dl-details-body \{\s*padding: 16px 16px 40px/,
+    );
+    expect(block, 'divider -16px rule missing inside the overlay media block').toMatch(
+      /html \.dl-frame\[data-layout="app"\] \.dl-details \.dl-details-divider \{\s*margin-left: -16px;\s*margin-right: -16px/,
+    );
+    // Надёжность против гонки каскада: media-правило обязано быть строже
+    // app-override -24px в components.css (там тот же селектор без html),
+    // иначе на узком окне divider остаётся -24 и вылезает за панель.
+    expect(block, 'media divider selector must outrank the app -24px override').toMatch(
+      /html \.dl-frame\[data-layout="app"\]/,
+    );
+  });
+});

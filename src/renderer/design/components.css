@@ -1373,6 +1373,21 @@
   font-size: var(--dl-fs-sidebar);
 }
 
+.dl-input-box input.dl-input-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font: inherit;
+  outline: none;
+}
+
+.dl-input-box input.dl-input-field::placeholder {
+  color: var(--pw-placeholder-color);
+}
+
 .dl-select {
   display: flex;
   align-items: center;
@@ -1386,6 +1401,19 @@
   border-radius: var(--pw-radius-medium);
   color: var(--pw-body-text-color);
   font-size: var(--dl-fs-sidebar);
+}
+
+.dl-select select.dl-select-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font: inherit;
+  outline: none;
+  cursor: pointer;
 }
 
 .dl-install {

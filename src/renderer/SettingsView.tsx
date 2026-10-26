@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
+import { SettingsScreen } from './ui/SettingsScreen';
 import {
   COLOR_TOKEN_KEYS,
   PRESET_IDS,
@@ -202,11 +203,8 @@ export interface SettingsViewProps {
   layout: LayoutControls;
 }
 
-type Section = 'appearance' | 'typography' | 'workspace' | 'connection';
-
 export function SettingsView(props: SettingsViewProps) {
   const { appearance, ready, onChange, onReset, layout } = props;
-  const [section, setSection] = useState<Section>('appearance');
 
   /* Custom editor state (§9.2): opened only under the fifth card. */
   const [editorOpen, setEditorOpen] = useState(false);
@@ -303,33 +301,10 @@ export function SettingsView(props: SettingsViewProps) {
   };
 
   return (
-    <section className="settings" data-testid="settings-root">
-      <h1 className="settings-title">Настройки</h1>
-      <nav className="settings-tabs" role="tablist" aria-label="Разделы настроек">
-        {(
-          [
-            ['appearance', 'Внешний вид'],
-            ['typography', 'Типографика'],
-            ['workspace', 'Рабочее пространство'],
-            ['connection', 'Подключение'],
-          ] as [Section, string][]
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            data-testid={`settings-tab-${id}`}
-            aria-selected={section === id}
-            onClick={() => setSection(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      {section === 'appearance' && (
-        <div className="settings-section" data-testid="settings-appearance">
-          <p className="muted">
+    <SettingsScreen testid="settings-root">
+      <section className="dl-set-section" data-testid="settings-appearance">
+        <h2>Внешний вид</h2>
+        <p className="dl-set-section-sub">
             Тема меняет только оформление — сессии, потоки и настройки Pi не затрагиваются.
             {!ready && ' Загрузка…'}
           </p>
@@ -552,12 +527,11 @@ export function SettingsView(props: SettingsViewProps) {
             </div>
           )}
           <div className="card-group-note muted">{COLOR_TOKEN_KEYS.length} семантических цветов · 4 пресета + своя</div>
-        </div>
-      )}
+      </section>
 
-      {section === 'typography' && (
-        <div className="settings-section" data-testid="settings-typography">
-          <p className="muted">
+      <section className="dl-set-section" data-testid="settings-typography">
+        <h2>Типографика</h2>
+        <p className="dl-set-section-sub">
             Шрифты задаются для каждой области отдельно и не сбрасываются при смене темы.
           </p>
           {TYPOGRAPHY_AREAS.map((area) => (
@@ -573,11 +547,10 @@ export function SettingsView(props: SettingsViewProps) {
               }
             />
           ))}
-        </div>
-      )}
+      </section>
 
-      {section === 'workspace' && (
-        <div className="settings-section" data-testid="settings-workspace">
+      <section className="dl-set-section" data-testid="settings-workspace">
+        <h2>Рабочее пространство</h2>
           <label className="field-block">
             Ширина левой панели: {layout.leftWidth}px
             <input
@@ -627,11 +600,10 @@ export function SettingsView(props: SettingsViewProps) {
             Состояние и размеры сохраняются; автоподстройка при узком окне сохранённые значения не
             перезаписывает.
           </p>
-        </div>
-      )}
+      </section>
 
-      {section === 'connection' && (
-        <div className="settings-section" data-testid="settings-connection">
+      <section className="dl-set-section" data-testid="settings-connection">
+        <h2>Подключение</h2>
           <StatusPanel
             snapshot={props.snapshot}
             requestError={props.requestError}
@@ -640,9 +612,8 @@ export function SettingsView(props: SettingsViewProps) {
             onRefresh={props.onRefresh}
             onSelectDistro={props.onSelectDistro}
           />
-        </div>
-      )}
-    </section>
+      </section>
+    </SettingsScreen>
   );
 }
 

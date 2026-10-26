@@ -235,10 +235,9 @@ describe('custom theme editor (§9.2)', () => {
 
 describe('typography (§9.3)', () => {
   it('edits each area independently and previews the zone styles', async () => {
-    const user = userEvent.setup();
     const p = makeProps();
     const view = render(<SettingsView {...(p as SettingsViewProps)} />);
-    await user.click(screen.getByTestId('settings-tab-typography'));
+    // C3: every section is on one approved screen — no tab click needed.
 
     for (const area of [
       'ui',
@@ -280,7 +279,6 @@ describe('workspace + connection', () => {
   it('exposes layout controls wired to the shell (persisted, §9.4)', async () => {
     const user = userEvent.setup();
     const p = renderSettings();
-    await user.click(screen.getByTestId('settings-tab-workspace'));
     fireEvent.change(screen.getByTestId('left-width'), { target: { value: '320' } });
     expect(p.layout.onLeftWidth).toHaveBeenCalledWith(320);
     await user.click(screen.getByTestId('left-collapsed'));
@@ -289,7 +287,6 @@ describe('workspace + connection', () => {
 
   it('shows the real WSL connection panel with distro switching (§5)', async () => {
     renderSettings();
-    await userEvent.click(screen.getByTestId('settings-tab-connection'));
     const conn = screen.getByTestId('settings-connection');
     expect(within(conn).getByTestId('status-phase')).toBeInTheDocument();
     const distroSelect = within(conn).getByTestId('distro');

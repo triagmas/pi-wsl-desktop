@@ -8,12 +8,17 @@
  * Фикстура недоступна только для чтения: значения — из shared/appearance,
  * предпросмотр зон — var(--pw-font-<area>-*) (applyTypography).
  */
+import type { ReactNode } from 'react';
 import { TYPOGRAPHY_AREAS, defaultTypography, type TypographyArea } from '../../shared/appearance';
 import { PRESET_IDS, THEME_PRESETS } from '../../shared/design/presets';
 
 export interface SettingsScreenProps {
-  activeThemeId: string;
+  activeThemeId?: string;
   connection?: { label: string; detail: string };
+  /** Root testid (product: settings-root). */
+  testid?: string;
+  /** Product slot — when set, only the approved contour (h1/sub) renders around it. */
+  children?: ReactNode;
 }
 
 const AREA_LABELS: Record<TypographyArea, string> = {
@@ -35,7 +40,7 @@ const THEME_SWATCHES = [
   '--pw-accent-color',
 ];
 
-export function SettingsScreen({ activeThemeId, connection }: SettingsScreenProps) {
+export function SettingsScreen({ activeThemeId, connection, testid, children }: SettingsScreenProps) {
   const typography = defaultTypography();
   const themes = [
     ...PRESET_IDS.map((id) => ({ id, label: THEME_PRESETS[id].label })),
@@ -43,10 +48,12 @@ export function SettingsScreen({ activeThemeId, connection }: SettingsScreenProp
   ];
 
   return (
-    <div className="dl-screen">
+    <div className="dl-screen" data-testid={testid}>
       <h1 className="dl-h1">Настройки</h1>
       <p className="dl-page-sub dl-screen-sub">Внешний вид, типографика и подключение Pi</p>
 
+      {children ?? (
+        <>
       <section className="dl-set-section">
         <h2>Внешний вид</h2>
         <p className="dl-set-section-sub">Тема применяется к документу; Pi-данные не затрагиваются.</p>
@@ -120,6 +127,8 @@ export function SettingsScreen({ activeThemeId, connection }: SettingsScreenProp
           {connection ? `${connection.label} · ${connection.detail}` : 'Ubuntu · WSL'}
         </p>
       </section>
+        </>
+      )}
     </div>
   );
 }

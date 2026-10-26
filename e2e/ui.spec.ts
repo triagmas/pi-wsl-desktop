@@ -136,8 +136,8 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
       await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG); // preview did not leak
 
-      // Typography: eight independent areas (§9.3).
-      await page.getByTestId('settings-tab-typography').click();
+      // Typography: eight independent areas (§9.3) — all sections share the
+      // approved screen (C3), so no section-tab click is needed.
       for (const area of ['ui', 'sidebar', 'chatInput', 'chatResponse', 'code', 'terminal', 'statusBar']) {
         await expect(page.getByTestId(`typo-${area}`)).toBeVisible();
       }
@@ -184,13 +184,10 @@ test.describe('UI-A application shell E2E', () => {
 
       // Workspace: layout controls exist and the status panel keeps the real
       // connection data (§5 settings scope).
-      await page.getByTestId('settings-tab-workspace').click();
       await expect(page.getByTestId('left-width')).toBeVisible();
-      await page.getByTestId('settings-tab-connection').click();
       await expect(page.getByTestId('status-phase')).toBeVisible();
       await expect(page.getByTestId('runtime')).toContainText('9.9.9');
 
-      await page.getByTestId('settings-tab-appearance').click();
       await page.getByTestId('theme-card-dark').click();
       await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
       await page.screenshot({ path: testInfo.outputPath('ui-settings-dark.png') });

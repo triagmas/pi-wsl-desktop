@@ -48,13 +48,50 @@ describe('UI21 C3 — approved settings contour (App route)', () => {
     expect(screen.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('follows the approved card anatomy: label above the swatches', async () => {
+  it('follows the approved card anatomy: label above the swatches (C5.2 parity)', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);
 
     await user.click(await screen.findByTestId('nav-settings'));
     const card = await screen.findByTestId('theme-card-dark');
     expect(card.firstElementChild).toHaveTextContent('Тёмная');
-    expect(card.querySelector('.theme-swatch')).not.toBeNull();
+    // C5.2: продукт использует одобренный контур карточек (dl-theme-*),
+    // legacy-полоса .theme-swatch убрана.
+    expect(card.classList.contains('dl-theme-card')).toBe(true);
+    expect(card.parentElement?.classList.contains('dl-theme-grid')).toBe(true);
+    expect(card.querySelectorAll('.dl-theme-swatch')).toHaveLength(4);
+    expect(card.querySelector('.theme-swatch')).toBeNull();
+    // active card styling = approved (border accent, без legacy ring).
+    expect(card.classList.contains('dl-theme-card-active')).toBe(true);
+  });
+
+  it('keeps every typography zone as an approved compact row with all controls (C5.2)', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+
+    await user.click(await screen.findByTestId('nav-settings'));
+    const row = await screen.findByTestId('typo-ui');
+    expect(row.classList.contains('dl-type-row')).toBe(true);
+    expect(row.querySelector('.dl-type-name')).not.toBeNull();
+    // legacy stacked fields are gone …
+    expect(row.querySelector('.field-block')).toBeNull();
+    expect(row.querySelector('.typo-preview')).toBeNull();
+    // … все четыре контрола зоны сохранены и видимы.
+    for (const t of ['ui-family', 'ui-size', 'ui-line-height', 'ui-weight']) {
+      expect(screen.getByTestId(t)).toBeInTheDocument();
+    }
+    // spec-slot shows the current zone values (approved row anatomy).
+    expect(row.querySelector('.dl-type-spec')?.textContent).toMatch(/\d+px \/ [\d.]+ · \d+/);
+  });
+
+  it('keeps workspace layout controls as compact rows (C5.2)', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+
+    await user.click(await screen.findByTestId('nav-settings'));
+    for (const t of ['left-width', 'right-width', 'terminal-height', 'left-collapsed']) {
+      expect(screen.getByTestId(t)).toBeInTheDocument();
+      expect(screen.getByTestId(t).closest('.dl-type-row')).not.toBeNull();
+    }
   });
 });

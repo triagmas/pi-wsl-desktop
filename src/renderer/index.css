@@ -791,62 +791,11 @@ input[type="range"] {
   gap: 12px;
 }
 
-.theme-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
-}
-
-.theme-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--pw-border-color);
-  border-radius: var(--pw-radius-medium, 8px);
-  background: var(--pw-surface-background-color);
-  text-align: left;
-}
-
-.theme-card.theme-card-active {
-  border-color: var(--pw-accent-color);
-  box-shadow: 0 0 0 1px var(--pw-accent-color);
-}
-
-.theme-swatch {
-  display: flex;
-  gap: 4px;
-  height: 34px;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.theme-swatch span {
-  flex: 1;
-}
-
-.theme-card-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.theme-card-note {
-  font-size: 11.5px;
-}
-
 .theme-editor {
   border: 1px solid var(--pw-border-color);
   border-radius: var(--pw-radius-medium, 8px);
   padding: 12px;
   background: var(--pw-elevated-surface-background-color);
-}
-
-.theme-card:hover {
-  border-color: var(--pw-accent-hover-color);
-}
-
-.theme-card:active {
-  border-color: var(--pw-accent-active-color);
 }
 
 .theme-editor-head {
@@ -932,29 +881,6 @@ input[type="range"] {
 
 .card-group-note {
   font-size: 12px;
-}
-
-.typo-row {
-  border: 1px solid var(--pw-border-color);
-  border-radius: var(--pw-radius-medium, 8px);
-  padding: 8px 12px 12px;
-}
-
-.typo-row legend {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.typo-row .field-block {
-  max-width: 460px;
-}
-
-.typo-preview {
-  margin: 8px 0 0;
-  padding: 8px 10px;
-  background: var(--pw-surface-background-color);
-  border: 1px solid var(--pw-border-color);
-  border-radius: var(--pw-radius-small, 6px);
 }
 
 .field-block {

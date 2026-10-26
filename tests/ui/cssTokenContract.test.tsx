@@ -140,3 +140,16 @@ describe('C1: legacy panel heading parity (modules panel h2 = approved 15px scal
     expect(rule?.[0]).toMatch(/margin:\s*0/);
   });
 });
+
+describe('C5.1: app-layout TitleBar keeps window controls in the rightmost track', () => {
+  // Frameless window: without an explicit app-layout column template the
+  // .dl-wc stack falls into a lower grid row and is covered by the sidebar
+  // head — window controls become invisible/unclickable (DOM-verified C5).
+  it('components.css pins .dl-titlebar columns for data-layout="app" (wordmark | empty | wc auto)', () => {
+    const rule = cssBlocks().find(
+      (b) => b.selectors.includes('.dl-frame[data-layout="app"] .dl-titlebar'),
+    );
+    expect(rule, 'app-layout .dl-titlebar grid-template-columns rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*0px\s*auto/);
+  });
+});

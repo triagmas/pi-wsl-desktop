@@ -1,6 +1,6 @@
 # Design Lab — утверждённый визуальный источник
 
-Component Library v5, Board, композиция `?state=app` и принятая витрина `?state=showcase` задают внешний вид, который переносится в Windows Electron. [Решение владельца](https://github.com/triagmas/pi-wsl-desktop/issues/21#issuecomment-6398531407) · [Текущий шаг и приёмка](../ROADMAP.md#ближайшая-работа--завершить-перенос-design-lab).
+Component Library v5, Board, композиция `?state=app` и принятая витрина `?state=showcase` задают внешний вид, который переносится в Windows Electron. [Решение владельца](https://github.com/triagmas/pi-wsl-desktop/issues/21#issuecomment-6398531407) · [Текущий шаг и приёмка](../ROADMAP.md#ближайшая-работа--визуальная-приёмка-переноса-design-lab).
 
 **DEMO-предпросмотр.** Изолированная Vite-страница с React/CSS-слоем
 Pi WSL Desktop: **без Electron, Pi, WSL Bridge, model calls, IPC и

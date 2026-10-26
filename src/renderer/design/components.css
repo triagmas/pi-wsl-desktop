@@ -1826,7 +1826,8 @@ button.dl-theme-card:hover {
   flex: 0 0 var(--dl-app-dhead-h);
   display: flex;
   align-items: center;
-  padding-right: 14px;
+  /* Согласованное выравнивание заголовка с контентом панели: 30px с обеих сторон. */
+  padding-inline: 30px;
   border-bottom: 1px solid var(--pw-divider-color);
 }
 

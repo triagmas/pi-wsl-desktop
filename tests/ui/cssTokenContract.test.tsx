@@ -111,3 +111,12 @@ describe('design token delivery contract (index.css ↔ design system)', () => {
     ).toEqual([]);
   });
 });
+
+describe('C1: legacy panel heading parity (modules panel h2 = approved 15px scale)', () => {
+  it('index.css limits .panel-header h2 like .panel-header h3 (Design Lab modules panel)', () => {
+    const rule = css.match(/\.panel-header\s+h2\s*\{[^}]*\}/);
+    expect(rule, '.panel-header h2 rule missing in index.css').not.toBeNull();
+    expect(rule?.[0]).toMatch(/font-size:\s*15px/);
+    expect(rule?.[0]).toMatch(/margin:\s*0/);
+  });
+});

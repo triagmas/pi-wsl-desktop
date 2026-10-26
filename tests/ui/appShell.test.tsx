@@ -335,6 +335,18 @@ describe('D2 layout integration', () => {
     expect(screen.getByTestId('chat-empty')).toHaveTextContent(/самую свежую сессию/i);
   });
 
+  it('C1: sidebar head carries the approved «Открыть проект» label and the long new-chat label is a non-wrapping span', () => {
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    // P3: эталонная шапка 01-chat-review-terminal (паритет design-lab;
+    // статичный span — действия открытия проекта в мосту нет, честно).
+    expect(screen.getByText('Открыть проект')).toBeInTheDocument();
+    // P5: подпись длинной кнопки в отдельном span — CSS не даёт переносу
+    // на две строки при любом ширины панели/кегле.
+    const label = document.querySelector('.dl-newchat-text');
+    expect(label).not.toBeNull();
+    expect(label?.textContent).toBe('Открыть последний диалог');
+  });
+
   it('wires the frameless titlebar buttons to the window controls', async () => {
     const user = userEvent.setup();
     const api = makeApi();

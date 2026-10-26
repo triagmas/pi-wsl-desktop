@@ -336,6 +336,7 @@
   align-items: center;
   gap: 18px;
   width: 100%;
+  min-width: 0;
   margin: 0;
   height: 52px;
   padding-left: 24px;
@@ -344,6 +345,15 @@
   border-radius: var(--pw-radius-medium);
   font-size: 20px;
   font-weight: 500;
+}
+
+/* C1/P5: подпись кнопки однострочна при любой ширине панели/кегле
+   («Открыть последний диалог» — честная длинная подпись продукта) */
+.dl-newchat-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dl-newchat:hover {

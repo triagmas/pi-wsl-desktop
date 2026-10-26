@@ -1004,6 +1004,12 @@ input[type="range"] {
   margin-bottom: 8px;
 }
 
+/* C1/P7: h2 панели = кегль h3 (принятая витрина: заголовок «Модули» 15px) */
+.panel-header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
 .panel-header h3 {
   margin: 0;
   font-size: 15px;

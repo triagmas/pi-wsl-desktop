@@ -26,6 +26,7 @@ import { RightSidebar, RightSidebarHead, RightSidebarResize } from './shell/Righ
 import { TerminalDock } from './shell/TerminalDock';
 import { AppScreen } from './ui/AppScreen';
 import { ChatView } from './ui/ChatView';
+import { SessionTabs } from './ui/SessionTabs';
 import { IconPanelExpand } from './ui/icons';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
@@ -510,28 +511,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
 
   const sessionTabs =
     view === 'chat' && activeSession ? (
-      <div className="dl-session-tabs" role="tablist" aria-label="Режим сессии">
-        <button
-          type="button"
-          role="tab"
-          data-testid="tab-history"
-          aria-selected={sessionTab === 'history'}
-          className={`dl-session-tab${sessionTab === 'history' ? ' dl-session-tab-active' : ''}`}
-          onClick={() => setSessionTab('history')}
-        >
-          История
-        </button>
-        <button
-          type="button"
-          role="tab"
-          data-testid="tab-chat"
-          aria-selected={sessionTab === 'chat'}
-          className={`dl-session-tab${sessionTab === 'chat' ? ' dl-session-tab-active' : ''}`}
-          onClick={() => setSessionTab('chat')}
-        >
-          Чат
-        </button>
-      </div>
+      // C1/L1: общий ui/SessionTabs — тот же узел рендерит Design Lab
+      <SessionTabs mode={sessionTab} onChange={setSessionTab} />
     ) : null;
 
   const headerRow =

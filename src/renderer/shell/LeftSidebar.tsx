@@ -17,6 +17,7 @@ import {
   IconChatBubble,
   IconCode,
   IconDatabase,
+  IconFolder,
   IconGear,
   IconPanelExpand,
   IconPuzzle,
@@ -234,7 +235,17 @@ export function LeftSidebar({
             testid="left-sidebar"
             width={width}
             projectsTestId="project-list"
-            header={collapseToggle}
+            header={
+              <>
+                {/* C1/P3: эталонная шапка 01 — статичный span-заголовок
+                    (действия открытия проекта в мосту нет — честно) */}
+                <span className="dl-sidebar-head-main">
+                  <IconFolder size={20} />
+                  Открыть проект
+                </span>
+                {collapseToggle}
+              </>
+            }
             notice={notice}
             searchFirst
             searchPlaceholder={q ? 'Поиск по названиям и файлам…' : 'Поиск чатов'}

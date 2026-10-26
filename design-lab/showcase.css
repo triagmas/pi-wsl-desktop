@@ -129,3 +129,22 @@
   padding: 2px 8px;
   border: 1px solid var(--pw-border-color);
 }
+
+/* Продуктовые правила index.css для секции «Диалог: пустое состояние»
+ * (L2: статус-цепь как в реальном Electron; копия 1:1) */
+.empty-status {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.distro-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}

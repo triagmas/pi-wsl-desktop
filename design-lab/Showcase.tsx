@@ -14,8 +14,10 @@ import { THEME_PRESETS } from '../src/shared/design/presets';
 import { ModulesView } from '../src/renderer/ModulesView';
 import type { ModuleEntry } from '../src/renderer/modules/registry';
 import { AppFrame } from '../src/renderer/ui/AppFrame';
+import { AppScreen } from '../src/renderer/ui/AppScreen';
 import { ChatView } from '../src/renderer/ui/ChatView';
 import { Sidebar } from '../src/renderer/ui/Sidebar';
+import { TerminalPane } from '../src/renderer/ui/TerminalPane';
 import * as F from './fixtures';
 import './showcase.css';
 
@@ -72,38 +74,72 @@ export function Showcase({ sections }: { sections: ShowcaseSection[] }) {
   );
 }
 
-function showcaseSidebar(navActive: string | undefined) {
+function showcaseSidebar(navActive: string | undefined, searchFirst?: boolean) {
   return (
     <Sidebar
       header={F.SIDEBAR_HEADER}
       projects={F.SIDEBAR_PROJECTS}
       nav={F.SIDEBAR_NAV.map((item) => ({ ...item, active: item.id === navActive }))}
       connection={F.CONNECTION}
+      searchFirst={searchFirst}
     />
   );
 }
 
-/** Экран «пустой диалог» — честный старт без открытой сессии. */
+/** Экран «пустой диалог» — честный старт: та же AppScreen-композиция, что в
+ *  Electron (статус-цепь §5, терминальный док, статус-бар), на fixture-данных. */
 export function EmptyChatScreen() {
+  const [terminal, setTerminal] = useState(true);
   return (
-    <AppFrame layout="inline" theme="dark" side={showcaseSidebar(undefined)} breadcrumb={<span>Диалог</span>}>
-      <ChatView
-        turns={[]}
-        composer={null}
-        notice={
-          <div>
-            <h2 className="dl-h2">Выберите диалог слева</h2>
-            <p className="muted">
-              Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
-              сессию; создание файлов сессий доступно в Pi CLI.
-            </p>
-            <button type="button" className="dl-btn-primary">
-              Открыть последний диалог
-            </button>
-          </div>
-        }
-      />
-    </AppFrame>
+    <AppScreen
+      theme="dark"
+      side={showcaseSidebar(undefined, true)}
+      details={null}
+      header={{ crumb: <strong>Диалог</strong> }}
+      statusBar={{
+        connection: { label: 'Pi подключён' },
+        distro: 'Ubuntu · WSL',
+        right: F.STATUS_RIGHT,
+        terminalLabel: 'Терминал',
+        onTerminalToggle: () => setTerminal((on) => !on),
+        terminalActive: terminal,
+      }}
+      body={
+        <ChatView
+          turns={[]}
+          composer={null}
+          notice={
+            <div data-testid="chat-empty">
+              <h2 className="dl-h2">Выберите диалог слева</h2>
+              <p className="muted">
+                Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
+                сессию; создание файлов сессий доступно в Pi CLI.
+              </p>
+              <button type="button" className="dl-btn-primary">
+                Открыть последний диалог
+              </button>
+              {/* L2: компактная статус-цепь §5 как в реальном Electron (fixture) */}
+              <div className="empty-status">
+                <span data-testid="status-phase">Готово — мост установлен</span>
+                <label className="distro-row">
+                  <span>Дистрибутив</span>
+                  <select data-testid="distro" defaultValue="Ubuntu">
+                    <option>Ubuntu</option>
+                  </select>
+                </label>
+                <span className="muted">Pi 1.4.0 · Node v22.23.2</span>
+                <button type="button" className="dl-btn-ghost">
+                  Обновить данные
+                </button>
+              </div>
+            </div>
+          }
+          terminal={
+            terminal ? <TerminalPane tabs={F.APP_TERMINAL_TABS} lines={F.APP_TERMINAL_LINES} /> : undefined
+          }
+        />
+      }
+    />
   );
 }
 

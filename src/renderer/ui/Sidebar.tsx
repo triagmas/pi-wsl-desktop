@@ -113,7 +113,9 @@ export function Sidebar({
   const newChat = (
     <button type="button" className="dl-newchat" onClick={onNewChat}>
       <IconPlus size={22} strokeWidth={2} />
-      {newChatLabel}
+      {/* C1/P5: подпись в отдельном span — nowrap/ellipsis не даёт длинной
+          честной подписи переноситься на две строки (appShell-контракт) */}
+      <span className="dl-newchat-text">{newChatLabel}</span>
     </button>
   );
   return (

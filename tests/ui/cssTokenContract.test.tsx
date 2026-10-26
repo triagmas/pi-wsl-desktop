@@ -153,3 +153,21 @@ describe('C5.1: app-layout TitleBar keeps window controls in the rightmost track
     expect(rule?.body).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*0px\s*auto/);
   });
 });
+
+describe('C5.2: typography group keeps the approved row without UA fieldset chrome', () => {
+  // Ревью P2: fieldset по умолчанию рисует groove-бордер и margins, легенда
+  // садится сверху — ряд теряет одобренную анатомию. Сброс обязателен.
+  it('components.css resets border/margin/padding on the .dl-type-group fieldset', () => {
+    const rule = cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '') // cssBlocks сохраняет комментарии перед правилом
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes('.dl-type-group');
+    });
+    expect(rule, '.dl-type-group reset rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/border:\s*(0|none)/);
+    expect(rule?.body).toMatch(/margin:\s*0/);
+    expect(rule?.body).toMatch(/padding:\s*0/);
+  });
+});

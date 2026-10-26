@@ -641,9 +641,10 @@ function TypoRow({
   };
   const isMonoArea = area === 'code' || area === 'toolOutput' || area === 'terminal';
   return (
-    <fieldset className="dl-type-row" data-testid={`typo-${area}`}>
-      <legend className="dl-type-name">{labels[area]}</legend>
-      <span className="dl-type-fields">
+    <fieldset className="dl-type-group" aria-label={labels[area]}>
+      <div className="dl-type-row" data-testid={`typo-${area}`}>
+        <span className="dl-type-name">{labels[area]}</span>
+        <span className="dl-type-fields">
       <label className="field-inline">
         Семейство
         <input
@@ -698,9 +699,22 @@ function TypoRow({
         </select>
       </label>
       </span>
-      <span className="dl-type-spec dl-type-spec-auto" data-testid={`${area}-preview`}>
-        {zone.fontSizePx}px / {zone.lineHeight} · {zone.weight}
-      </span>
+        <span
+          className="dl-type-preview"
+          data-testid={`${area}-preview`}
+          style={{
+            fontFamily: zone.fontFamily,
+            fontSize: `${zone.fontSizePx}px`,
+            lineHeight: String(zone.lineHeight),
+            fontWeight: String(zone.weight),
+          }}
+        >
+          Поиск по истории диалогов · MiMo v2.6 · npm run test
+        </span>
+        <span className="dl-type-spec dl-type-spec-auto">
+          {zone.fontSizePx}px / {zone.lineHeight} · {zone.weight}
+        </span>
+      </div>
     </fieldset>
   );
 }

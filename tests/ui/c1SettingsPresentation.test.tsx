@@ -9,6 +9,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
+import { TYPOGRAPHY_AREAS } from '../../src/shared/appearance';
 import { makeApi } from './helpers/shellApi';
 
 describe('UI21 C3 — approved settings contour (App route)', () => {
@@ -70,18 +71,36 @@ describe('UI21 C3 — approved settings contour (App route)', () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
 
     await user.click(await screen.findByTestId('nav-settings'));
-    const row = await screen.findByTestId('typo-ui');
-    expect(row.classList.contains('dl-type-row')).toBe(true);
-    expect(row.querySelector('.dl-type-name')).not.toBeNull();
-    // legacy stacked fields are gone …
-    expect(row.querySelector('.field-block')).toBeNull();
-    expect(row.querySelector('.typo-preview')).toBeNull();
-    // … все четыре контрола зоны сохранены и видимы.
-    for (const t of ['ui-family', 'ui-size', 'ui-line-height', 'ui-weight']) {
-      expect(screen.getByTestId(t)).toBeInTheDocument();
+    // Каждая из 8 зон (не только ui): одобренная строка + доступная группа.
+    for (const area of TYPOGRAPHY_AREAS) {
+      const row = await screen.findByTestId(`typo-${area}`);
+      // P2: обычный flex-ряд (div), без fieldset-специфики/легенды сверху;
+      // имя группы сохранено на обёртке (fieldset aria-label).
+      expect(row.tagName).toBe('DIV');
+      expect(row.classList.contains('dl-type-row')).toBe(true);
+      expect(row.querySelector('legend')).toBeNull();
+      expect(row.querySelector('.dl-type-name')).not.toBeNull();
+      const group = row.closest('fieldset');
+      expect(group?.classList.contains('dl-type-group')).toBe(true);
+      expect(group?.getAttribute('aria-label')).toBeTruthy();
+      // legacy stacked fields are gone …
+      expect(row.querySelector('.field-block')).toBeNull();
+      expect(row.querySelector('.typo-preview')).toBeNull();
+      // … все четыре контрола зоны сохранены и видимы.
+      for (const t of [`${area}-family`, `${area}-size`, `${area}-line-height`, `${area}-weight`]) {
+        expect(screen.getByTestId(t)).toBeInTheDocument();
+      }
+      // spec-slot shows the current zone values (approved row anatomy).
+      expect(row.querySelector('.dl-type-spec')?.textContent).toMatch(/\d+px \/ [\d.]+ · \d+/);
+      // P1: живое превью зоны (approved .dl-type-preview) со всеми4 свойствами.
+      const preview = within(row).getByTestId(`${area}-preview`);
+      expect(preview.classList.contains('dl-type-preview')).toBe(true);
+      expect(preview.style.fontFamily).toBeTruthy();
+      expect(preview.style.fontSize).toBeTruthy();
+      expect(preview.style.lineHeight).toBeTruthy();
+      expect(preview.style.fontWeight).toBeTruthy();
+      expect(preview.textContent?.length).toBeGreaterThan(0);
     }
-    // spec-slot shows the current zone values (approved row anatomy).
-    expect(row.querySelector('.dl-type-spec')?.textContent).toMatch(/\d+px \/ [\d.]+ · \d+/);
   });
 
   it('keeps workspace layout controls as compact rows (C5.2)', async () => {

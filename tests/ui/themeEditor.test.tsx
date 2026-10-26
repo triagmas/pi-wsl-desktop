@@ -268,13 +268,10 @@ describe('typography (§9.3)', () => {
 
     // The component is controlled: the parent applies the change and the
     // preview follows the next render (same as App wiring the store).
-    // The component is controlled: the parent applies the change and the
-    // row spec follows the next render (same as App wiring the store).
-    // C5.2: approved .dl-type-row anatomy — values live in the spec slot.
     const next = p.onChange.mock.calls.at(-1)![0] as AppearanceSettings;
     view.rerender(<SettingsView {...({ ...(p as SettingsViewProps), appearance: next } as SettingsViewProps)} />);
     const preview = screen.getByTestId('chatResponse-preview');
-    expect(preview.textContent).toContain('17px');
+    expect(preview.style.fontSize).toBe('17px');
   });
 });
 

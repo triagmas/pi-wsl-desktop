@@ -1593,6 +1593,16 @@ button.dl-theme-card:hover {
   border: 1px solid var(--pw-divider-color);
 }
 
+/* C5.2-ревью: fieldset — только ради доступной группы (aria-label);
+ * UA-рамка/отступы/min-width сбрасываются, иначе ряд теряет одобренную
+ * анатомию (groove-бордер + легенда сверху вместо колонок). */
+.dl-type-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
 .dl-type-row {
   display: flex;
   align-items: center;
@@ -1624,20 +1634,37 @@ button.dl-theme-card:hover {
   display: flex;
   align-items: center;
   gap: 14px;
-  flex: 1;
+  flex: 1 1 300px;
   min-width: 0;
   flex-wrap: wrap;
   font-size: 13px;
 }
 
-.dl-type-row legend {
-  padding: 0;
-  text-align: left;
+.dl-type-fields .field-inline {
+  min-width: 0;
+}
+
+.dl-type-fields input,
+.dl-type-fields select {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .dl-type-row input[type='range'] {
   flex: 1;
   min-width: 0;
+}
+
+/* C5.2-ревью: при 1000px колонка контента ~670px — имя+контролы живут в
+ * первой строке, живое превью и spec переносятся ниже (без наезда полей).
+ * Скоуп .dl-type-group — только продукт (состояния лабы не меняются). */
+.dl-type-group .dl-type-row {
+  flex-wrap: wrap;
+}
+
+.dl-type-group .dl-type-preview {
+  flex: 1 1 240px;
+  min-width: 200px;
 }
 
 .dl-type-spec-auto {

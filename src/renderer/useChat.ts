@@ -18,6 +18,9 @@ export interface ChatEntry {
   key: string;
   kind: 'user' | 'assistant' | 'system' | 'tool' | 'other';
   text: string;
+  /** UI21-F1-C: set when stopReason==='error' — the bounded, redacted model
+   *  error the pane must show instead of a blank assistant bubble. */
+  error?: string;
 }
 export interface ChatTool {
   id: string;
@@ -45,10 +48,39 @@ export const initialChatState: ChatUiState = {
   banner: null,
 };
 
-function entryFromMessage(message: { role?: unknown; content?: unknown; toolName?: unknown }, index: number): ChatEntry {
+/**
+ * UI21-F1-C: bound and redact a model error before it reaches the DOM —
+ * never render raw keys, bearer/token pairs or filesystem paths, cap length,
+ * and fall back to a readable phrase when pi omitted the message.
+ */
+const MODEL_ERROR_FALLBACK = 'Генерация завершилась с ошибкой';
+const MODEL_ERROR_MAX = 300;
+function sanitizeModelError(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.trim() === '') return MODEL_ERROR_FALLBACK;
+  let text = raw
+    // eslint-disable-next-line no-control-regex -- stripping C0/C1 control chars is the point
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ')
+    .replace(/\b(?:sk|pk|rk|ghp|gho|ghu|glpat|xoxb|xoxp|github_pat)-[A-Za-z0-9._-]{6,}/g, '[redacted]')
+    .replace(/\b(authorization|bearer|api[_-]?key|access[_-]?token|token|secret|password)(\s*[:=]\s*)\S+/gi, '$1$2[redacted]')
+    .replace(/(?:[A-Za-z]:\\[^\s"'`]+)|(?:\/(?:home|mnt|Users|root|var|etc|tmp|opt|srv|usr)\/[^\s"'`]*)/g, '[path]')
+    .trim();
+  if (text.length > MODEL_ERROR_MAX) text = `${text.slice(0, MODEL_ERROR_MAX)}…`;
+  return text === '' ? MODEL_ERROR_FALLBACK : text;
+}
+
+function entryFromMessage(
+  message: { role?: unknown; content?: unknown; toolName?: unknown; stopReason?: unknown; errorMessage?: unknown },
+  index: number,
+): ChatEntry {
   const role = message.role;
   const text = messageText(message.content);
-  if (role === 'assistant') return { key: `e${index}`, kind: 'assistant', text };
+  if (role === 'assistant') {
+    // UI21-F1-C: a failed run must surface its real error — never a blank bubble.
+    if (message.stopReason === 'error') {
+      return { key: `e${index}`, kind: 'assistant', text, error: sanitizeModelError(message.errorMessage) };
+    }
+    return { key: `e${index}`, kind: 'assistant', text };
+  }
   if (role === 'user') return { key: `e${index}`, kind: 'user', text };
   if (role === 'system') return { key: `e${index}`, kind: 'system', text };
   if (role === 'toolResult') {
@@ -72,7 +104,9 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
   const data = (ev.data ?? {}) as Record<string, unknown>;
   switch (ev.name) {
     case 'message_end': {
-      const msg = data.message as { role?: unknown; content?: unknown; toolName?: unknown } | undefined;
+      const msg = data.message as
+        | { role?: unknown; content?: unknown; toolName?: unknown; stopReason?: unknown; errorMessage?: unknown }
+        | undefined;
       if (!msg) return state;
       const entry = entryFromMessage(msg, state.entries.length);
       if (entry.text === '' && entry.kind === 'other') return state;

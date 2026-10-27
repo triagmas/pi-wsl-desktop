@@ -101,7 +101,19 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
     const turn: ChatTurnAssistant = {
       kind: 'assistant',
       id: entry.key,
-      body: <SafeMarkdown text={entry.text} />,
+      // UI21-F1-C: a failed run shows the existing .error-box alert with the
+      // actual (redacted) model error — never a blank bubble, never parsed
+      // as markdown. Normal entries keep the unchanged markdown path.
+      body: entry.error ? (
+        <>
+          {entry.text !== '' && <SafeMarkdown text={entry.text} />}
+          <div className="error-box" role="alert" data-testid="chat-message-error">
+            <strong>Генерация не удалась</strong> — {entry.error}
+          </div>
+        </>
+      ) : (
+        <SafeMarkdown text={entry.text} />
+      ),
     };
     return turn;
   });

@@ -240,3 +240,77 @@ describe('UI21-F1-A: resume / reconnect / single final message (simulated events
     expect(screen.queryByText(/bash\s*⏳/)).toBeNull();
   });
 });
+
+describe('UI21-F1-C: failed generation shows a visible error (no blank bubble)', () => {
+  async function openChat() {
+    const { api, request, emit } = makeApi();
+    render(<ChatHarness api={api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(request.mock.calls.some((c) => c[0] === 'openSession')).toBe(true));
+    return { emit };
+  }
+
+  it('assistant stopReason=error renders an alert with the actual error message, not a blank bubble', async () => {
+    const { emit } = await openChat();
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: {
+        message: {
+          role: 'assistant',
+          content: [],
+          stopReason: 'error',
+          errorMessage: "Cannot read properties of undefined (reading 'length')",
+          timestamp: 2,
+        },
+      },
+    });
+    const alert = await screen.findByTestId('chat-message-error');
+    expect(alert).toHaveAttribute('role', 'alert');
+    expect(alert.textContent).toContain("Cannot read properties of undefined (reading 'length')");
+    expect((alert.textContent ?? '').trim()).not.toBe('');
+  });
+
+  it('error text is bounded and redacted: raw api keys and filesystem paths never reach the DOM', async () => {
+    const { emit } = await openChat();
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: {
+        message: {
+          role: 'assistant',
+          content: [],
+          stopReason: 'error',
+          errorMessage: 'Request failed: sk-abcdef1234567890ABCDEF at /home/triag/.pi/agent/auth.json retry=3',
+          timestamp: 2,
+        },
+      },
+    });
+    const alert = await screen.findByTestId('chat-message-error');
+    const visible = alert.textContent ?? '';
+    expect(visible).not.toContain('sk-abcdef1234567890ABCDEF');
+    expect(visible).not.toContain('/home/triag/.pi');
+    expect(visible.length).toBeLessThan(600);
+  });
+
+  it('normal assistant finalization keeps rendering text with no error box', async () => {
+    const { emit } = await openChat();
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'final answer' }], stopReason: 'stop', timestamp: 2 } },
+    });
+    await screen.findByText('final answer');
+    expect(screen.queryByTestId('chat-message-error')).toBeNull();
+  });
+
+  it('an aborted empty reply does not fabricate an error box', async () => {
+    const { emit } = await openChat();
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'assistant', content: [], stopReason: 'aborted', timestamp: 2 } },
+    });
+    await waitFor(() => expect(screen.queryByTestId('chat-message-error')).toBeNull());
+  });
+});

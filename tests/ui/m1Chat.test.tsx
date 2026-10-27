@@ -177,3 +177,66 @@ describe('ChatPane — write boundary and lifecycle', () => {
     expect(screen.getByRole('button', { name: /открыть чат/i })).toBeTruthy(); // explicit reopen
   });
 });
+
+/**
+ * UI21-F1-A #4 (fixture-backed, SIMULATED events only — never a real model
+ * call): resumed session, reconnect and a single final message.
+ */
+describe('UI21-F1-A: resume / reconnect / single final message (simulated events)', () => {
+  it('keeps exactly one final message across close → resume (simulated stream)', async () => {
+    const { api, request, emit } = makeApi();
+    render(<ChatHarness api={api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(request.mock.calls.filter((c) => c[0] === 'openSession')).toHaveLength(1));
+
+    const input = await screen.findByPlaceholderText(/сообщение/i);
+    await userEvent.type(input, 'hello pi');
+    await userEvent.click(screen.getByRole('button', { name: /отправить/i }));
+    emit({ kind: 'pi', name: 'message_update', data: { assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Hello 🌍' } } });
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Hello 🌍 — final answer' }], stopReason: 'stop', timestamp: 2 } },
+    });
+    emit({ kind: 'pi', name: 'agent_settled', data: { aborted: false } });
+    await waitFor(() => expect(screen.getAllByText('Hello 🌍 — final answer')).toHaveLength(1));
+    expect(await screen.findByTestId('chat-status')).toHaveTextContent('Чат открыт');
+
+    // resume: close the chat explicitly, then open it again
+    await userEvent.click(screen.getByRole('button', { name: /закрыть чат/i }));
+    await screen.findByRole('button', { name: /открыть чат/i });
+    await userEvent.click(screen.getByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(request.mock.calls.filter((c) => c[0] === 'openSession')).toHaveLength(2));
+
+    // conversation survives the resume — and the final message is rendered ONCE
+    expect(screen.getAllByText('Hello 🌍 — final answer')).toHaveLength(1);
+    expect(await screen.findByTestId('chat-status')).toHaveTextContent('Чат открыт');
+    expect(screen.queryByTestId('chat-banner')).toBeNull();
+    expect(screen.queryByTestId('chat-error')).toBeNull();
+  });
+
+  it('reconnect after DISCONNECTED drops stale live tool steps and reopens cleanly (simulated)', async () => {
+    const { api, request, emit } = makeApi();
+    render(<ChatHarness api={api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    const input = await screen.findByPlaceholderText(/сообщение/i);
+    await userEvent.type(input, 'job');
+    await userEvent.click(screen.getByRole('button', { name: /отправить/i }));
+
+    // mid-run disconnect: the RPC process died while a tool step was active
+    emit({ kind: 'pi', name: 'tool_execution_start', data: { toolCallId: 'c1', toolName: 'bash', args: {} } });
+    emit({ kind: 'closed', code: 'DISCONNECTED', message: 'Pi RPC process exited' });
+    const banner = await screen.findByTestId('chat-banner');
+    expect(banner).toHaveTextContent('DISCONNECTED');
+
+    // explicit reopen after the drop
+    await userEvent.click(screen.getByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(request.mock.calls.filter((c) => c[0] === 'openSession')).toHaveLength(2));
+    expect(await screen.findByTestId('chat-status')).toHaveTextContent('Чат открыт');
+    expect(screen.queryByTestId('chat-banner')).toBeNull();
+
+    // no phantom live run: the dead run's tool steps must not come back
+    expect(screen.queryByTestId('tools')).toBeNull();
+    expect(screen.queryByText(/bash\s*⏳/)).toBeNull();
+  });
+});

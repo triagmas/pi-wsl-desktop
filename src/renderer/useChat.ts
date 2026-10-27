@@ -64,7 +64,10 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
   }
   if (ev.kind === 'closed') {
     const banner = ev.code === 'CANCELLED' ? null : { code: ev.code, message: ev.message };
-    return { ...state, status: 'closed', banner, error: null, streamText: '' };
+    // UI21-F1-A P1: the live tool strip belongs to a running RPC — on close/
+    // disconnect it must go with streamText, otherwise a reopened (resumed)
+    // chat renders a phantom live run (stale ⏳ step from the dead process).
+    return { ...state, status: 'closed', banner, error: null, streamText: '', tools: [] };
   }
   const data = (ev.data ?? {}) as Record<string, unknown>;
   switch (ev.name) {
@@ -185,7 +188,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       return false;
     }
     if (!mounted.current) return true;
-    setState((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '' }));
+    setState((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '', tools: [] }));
     return true;
   }, [api]);
 

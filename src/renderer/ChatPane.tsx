@@ -29,7 +29,16 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
   // Defensive defaults: an older/partial state object must never crash the pane.
   const models = useMemo(() => state.models ?? [], [state.models]);
   const thinkingLevels = state.thinkingLevels ?? [];
-  const modelLabel = activeModel ? `${activeModel.provider}/${activeModel.id}` : models.length > 0 ? 'Модель' : '';
+  // P1 (review r01): the selector must stay reachable even with no active model
+  // and an empty/failed catalog — otherwise empty/error/refresh states are
+  // unreachable exactly when the user has nothing configured yet.
+  const modelLabel = activeModel
+    ? `${activeModel.provider}/${activeModel.id}`
+    : state.modelsLoading
+      ? 'Модель: загрузка…'
+      : models.length > 0
+        ? 'Модель'
+        : 'Нет моделей';
   const thinkingLabel = state.state?.thinkingLevel ?? null;
   const filteredModels = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -152,7 +161,12 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
             </div>
           )}
         </div>
-        <button type="button" className="dl-chip-menu-refresh" onClick={() => void chat.refreshModels?.()}>
+        <button
+          type="button"
+          className="dl-chip-menu-refresh"
+          data-testid="model-menu-refresh"
+          onClick={() => void chat.refreshModels?.()}
+        >
           Обновить список из Pi
         </button>
       </div>
@@ -162,6 +176,11 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
     menu === 'thinking' ? (
       <div className="dl-chip-menu" data-testid="thinking-menu" role="dialog" aria-label="Уровень thinking">
         <div className="dl-chip-menu-list">
+          {thinkingLevels.length === 0 && state.thinkingError && (
+            <div className="dl-chip-menu-empty" data-testid="thinking-menu-error">
+              Уровни thinking недоступны: {state.thinkingError.code} — {state.thinkingError.message}
+            </div>
+          )}
           {thinkingLevels.map((level) => (
             <button
               key={level}
@@ -240,7 +259,7 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
                 submitDisabled: !canSubmit,
                 inputDisabled: state.status !== 'open',
                 // UI21-F2: model + thinking come straight from Pi get_state.
-                ...(modelLabel !== ''
+                ...(isOpenLike
                   ? {
                       model: modelLabel,
                       modelDisabled: switchLocked,
@@ -253,7 +272,9 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
                 ...(thinkingLabel !== null
                   ? {
                       thinking: thinkingLabel,
-                      thinkingDisabled: switchLocked || thinkingLevels.length <= 1,
+                      // A levels failure keeps the selector open so the honest
+                      // error is reachable; it is not a fabricated single level.
+                      thinkingDisabled: switchLocked || (thinkingLevels.length <= 1 && state.thinkingError === null),
                       onThinkingClick: () => setMenu((m) => (m === 'thinking' ? null : 'thinking')),
                     }
                   : {}),

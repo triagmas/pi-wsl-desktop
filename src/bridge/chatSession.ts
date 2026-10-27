@@ -309,8 +309,15 @@ export class ChatSessionManager {
       throw this.mapCommandError(err, 'set_model');
     }
     const state = mapRpcState(await client.request('get_state'));
-    if (state.model && (state.model.provider !== provider || state.model.id !== modelId)) {
-      throw new BridgeError('INVALID_REQUEST', `Pi не переключил модель (сейчас ${state.model.provider}/${state.model.id})`);
+    // Strict confirmation: an ACK alone is not proof. Pi must report the exact
+    // model we asked for — `null` means the switch is NOT confirmed.
+    if (
+      state.model === null ||
+      state.model.provider !== provider ||
+      state.model.id !== modelId
+    ) {
+      const current = state.model ? `${state.model.provider}/${state.model.id}` : 'модель не подтверждена';
+      throw new BridgeError('INVALID_REQUEST', `Pi не переключил модель (сейчас ${current})`);
     }
     return { state };
   }
@@ -338,8 +345,9 @@ export class ChatSessionManager {
       throw this.mapCommandError(err, 'set_thinking_level');
     }
     const state = mapRpcState(await client.request('get_state'));
-    if (state.thinkingLevel !== null && state.thinkingLevel !== level) {
-      throw new BridgeError('INVALID_REQUEST', `Pi не установил thinking level (сейчас ${state.thinkingLevel})`);
+    // Strict confirmation: `null` after a successful ACK is a failure, not a pass.
+    if (state.thinkingLevel !== level) {
+      throw new BridgeError('INVALID_REQUEST', `Pi не установил thinking level (сейчас ${state.thinkingLevel ?? 'не подтверждён'})`);
     }
     return { state };
   }

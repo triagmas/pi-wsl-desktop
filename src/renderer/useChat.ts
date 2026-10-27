@@ -43,6 +43,8 @@ export interface ChatUiState {
   modelsError: { code: string; message: string } | null;
   /** True while Pi's catalog/levels are being read (menu must not claim "empty"). */
   modelsLoading: boolean;
+  /** Thinking-levels failure — INDEPENDENT of the catalog (it must not wipe it). */
+  thinkingError: { code: string; message: string } | null;
 }
 
 export const initialChatState: ChatUiState = {
@@ -57,6 +59,7 @@ export const initialChatState: ChatUiState = {
   thinkingLevels: [],
   modelsError: null,
   modelsLoading: false,
+  thinkingError: null,
 };
 
 /**
@@ -257,15 +260,20 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
   const refreshModels = useCallback(async () => {
     if (!api) return;
     setState((s) => ({ ...s, modelsLoading: true }));
-    try {
-      const [catalog, levels] = await Promise.all([m1.getAvailableModels(api), m1.getThinkingLevels(api)]);
-      if (!mounted.current) return;
-      setState((s) => ({ ...s, models: catalog.models, thinkingLevels: levels.levels, modelsError: null, modelsLoading: false }));
-    } catch (err) {
-      if (!mounted.current) return;
-      // An unreadable catalog is an honest empty state, not an invented list.
-      setState((s) => ({ ...s, models: [], thinkingLevels: [], modelsError: parseBridgeError(err), modelsLoading: false }));
-    }
+    // The two reads are independent: a thinking-levels failure must never
+    // discard a valid model catalog, and vice versa.
+    const [catalog, levels] = await Promise.allSettled([m1.getAvailableModels(api), m1.getThinkingLevels(api)]);
+    if (!mounted.current) return;
+    setState((s) => ({
+      ...s,
+      modelsLoading: false,
+      ...(catalog.status === 'fulfilled'
+        ? { models: catalog.value.models, modelsError: null }
+        : { models: [], modelsError: parseBridgeError(catalog.reason) }),
+      ...(levels.status === 'fulfilled'
+        ? { thinkingLevels: levels.value.levels, thinkingError: null }
+        : { thinkingLevels: [], thinkingError: parseBridgeError(levels.reason) }),
+    }));
   }, [api]);
 
   const refreshModelsRef = useRef(refreshModels);

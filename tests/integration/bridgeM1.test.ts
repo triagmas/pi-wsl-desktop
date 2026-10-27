@@ -410,6 +410,33 @@ describe('UI21-F2 model catalog & selector over the real bridge', () => {
     expect(createHash('sha256').update(readFileSync(fx.sessionFile)).digest('hex')).toBe(fx.sha);
   });
 
+  it('rejects a switch ACK that get_state cannot confirm (null model/level) — no false PASS', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge({ ...fx.env, FAKE_PI_MODE: 'model-null' });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader.waitForResponse('o1');
+      child.stdin.write(req('s1', 'setModel', { provider: 'prov-b', modelId: 'model-two' }) + '\n');
+      expect(errCode((await reader.waitForResponse('s1')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+    } finally {
+      child.kill();
+    }
+
+    const child2 = await spawnBridge({ ...fx.env, FAKE_PI_MODE: 'thinking-null' });
+    const reader2 = new FrameReader(child2.stdout);
+    try {
+      await reader2.waitForEvent('ready');
+      child2.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader2.waitForResponse('o1');
+      child2.stdin.write(req('s1', 'setThinkingLevel', { level: 'high' }) + '\n');
+      expect(errCode((await reader2.waitForResponse('s1')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+    } finally {
+      child2.kill();
+    }
+  });
+
   it('refuses model/thinking changes while a run is streaming (RESOURCE_BUSY, no silent switch)', async () => {
     const fx = makeFixture();
     const child = await spawnBridge({ ...fx.env, FAKE_PI_STREAM_MS: '300' });

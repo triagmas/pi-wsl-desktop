@@ -440,11 +440,81 @@ describe('UI21-F2: model & thinking selectors read through to Pi', () => {
   });
 
   it('a failed switch surfaces a readable error and keeps the previous model', async () => {
-    await openChat({ setModel: Promise.reject(new Error('INVALID_REQUEST: Model not found')) });
+    await openChat({ errors: { setModel: new Error('INVALID_REQUEST: Model not found') } });
     await userEvent.click(await screen.findByTestId('model-selector'));
     await userEvent.click(await screen.findByTestId('model-option-prov-b:model-two'));
     const err = await screen.findByTestId('chat-error');
     expect(err).toHaveTextContent('INVALID_REQUEST');
     expect(screen.getByTestId('model-selector')).toHaveTextContent('prov-a/model-one');
+  });
+});
+
+describe('UI21-F2 r01: catalog availability and independent error handling', () => {
+  async function openChat(route: ChatRoute = {}) {
+    const api = makeApi(route);
+    render(<ChatHarness api={api.api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'openSession')).toBe(true));
+    return api;
+  }
+
+  // P1: no active model yet (get_state.model === null) and an empty catalog must
+  // still expose a usable selector + menu + explicit refresh.
+  it('P1: with no active model and an empty catalog the selector is still reachable', async () => {
+    const api = await openChat({
+      openSession: { state: { sessionId: 's1', sessionFile: '/f.jsonl', isStreaming: false, isCompacting: false, messageCount: 0, model: null, thinkingLevel: null } },
+      models: { models: [] },
+      thinking: { levels: [], current: null },
+    });
+    const chip = await screen.findByTestId('model-selector');
+    expect(chip).toHaveTextContent(/модел/i);
+    await userEvent.click(chip);
+    expect(await screen.findByTestId('model-menu-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('model-menu-refresh')).toBeInTheDocument();
+    // refresh re-reads Pi and fills the list without inventing anything
+    await userEvent.click(screen.getByTestId('model-menu-refresh'));
+    await waitFor(() => expect(api.request.mock.calls.filter((c) => c[0] === 'getAvailableModels').length).toBeGreaterThan(1));
+  });
+
+  it('P1: refresh after Pi starts reporting a model makes it selectable', async () => {
+    let call = 0;
+    const api = makeApi({
+      openSession: { state: { sessionId: 's1', sessionFile: '/f.jsonl', isStreaming: false, isCompacting: false, messageCount: 0, model: null, thinkingLevel: null } },
+      models: { models: [] },
+      thinking: { levels: [], current: null },
+    });
+    // second catalog read returns a real model (Pi config appeared)
+    const original = api.request.getMockImplementation()!;
+    api.request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'getAvailableModels') {
+        call += 1;
+        if (call > 1) return { models: [{ provider: 'prov-a', id: 'model-one', name: 'Model One' }] };
+      }
+      return original(method, params);
+    });
+    render(<ChatHarness api={api.api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    expect(await screen.findByTestId('model-menu-empty')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('model-menu-refresh'));
+    const option = await screen.findByTestId('model-option-prov-a:model-one');
+    await userEvent.click(option);
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'setModel')).toBe(true));
+  });
+
+  // P2: a thinking-level failure must not wipe a valid model catalog.
+  it('P2: thinking failure keeps the Pi model catalog and reports the levels error', async () => {
+    await openChat({
+      errors: { getThinkingLevels: new Error('BRIDGE_TIMEOUT: thinking levels timed out') },
+    });
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    // catalog survived the thinking failure
+    expect(await screen.findByTestId('model-option-prov-a:model-one')).toBeInTheDocument();
+    expect(screen.getByTestId('model-option-prov-b:model-two')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    // the thinking selector reports its own failure instead of inventing levels
+    await userEvent.click(screen.getByTestId('thinking-selector'));
+    expect(await screen.findByTestId('thinking-menu-error')).toHaveTextContent(/BRIDGE_TIMEOUT/);
+    expect(screen.queryAllByTestId(/^thinking-option-/)).toHaveLength(0);
   });
 });

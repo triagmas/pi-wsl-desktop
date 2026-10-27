@@ -133,7 +133,9 @@ function handle(cmd) {
         send({ id: cmd.id, type: 'response', command: 'set_model', success: false, error: 'Model not found' });
         return;
       }
-      currentModel = { id: match.id, name: match.name, provider: match.provider };
+      currentModel = MODE === 'model-null'
+        ? null // ACK without an actual switch — the bridge must not report success
+        : { id: match.id, name: match.name, provider: match.provider };
       send({ id: cmd.id, type: 'response', command: 'set_model', success: true, data: {} });
       return;
     }
@@ -147,7 +149,7 @@ function handle(cmd) {
         send({ id: cmd.id, type: 'response', command: 'set_thinking_level', success: false, error: 'Unsupported thinking level' });
         return;
       }
-      currentThinking = String(cmd.level);
+      currentThinking = MODE === 'thinking-null' ? null : String(cmd.level);
       send({ id: cmd.id, type: 'response', command: 'set_thinking_level', success: true, data: {} });
       return;
     }

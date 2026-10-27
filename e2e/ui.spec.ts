@@ -327,7 +327,8 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
 
     // P1-code: шрифт области кода управляется code-токеном настроек,
     // а не унаследованной константой response-зоны.
-    const code = page.locator('.history code').first();
+    // R07: сохранённая история теперь в общей ленте (chat-pane), не во вкладке.
+    const code = page.locator('[data-testid="chat-pane"] .dl-md code').first();
     await expect(code).toBeVisible();
     const family = await code.evaluate((el) => {
       const w = window as unknown as { getComputedStyle: (e: unknown) => { fontFamily: string } };
@@ -361,10 +362,10 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
       return {
         size: rootStyle.getPropertyValue('--pw-font-code-size').trim(),
         lineHeight: rootStyle.getPropertyValue('--pw-font-code-line-height').trim(),
-        elFontSize: w.getComputedStyle(w.document.querySelector('.history code')).fontSize,
-        elLineHeight: w.getComputedStyle(w.document.querySelector('.history code')).lineHeight,
-        fencFontSize: w.getComputedStyle(w.document.querySelector('.history pre code')).fontSize,
-        fencLineHeight: w.getComputedStyle(w.document.querySelector('.history pre code')).lineHeight,
+        elFontSize: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md code')).fontSize,
+        elLineHeight: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md code')).lineHeight,
+        fencFontSize: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md pre code')).fontSize,
+        fencLineHeight: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md pre code')).lineHeight,
       };
     });
     expect(codeZone.size).toMatch(/px$/);

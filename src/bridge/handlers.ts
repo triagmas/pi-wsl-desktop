@@ -25,8 +25,14 @@ import {
   ListProjectsResultSchema,
   ListSessionsParamsSchema,
   ListSessionsResultSchema,
+  GetAvailableModelsResultSchema,
+  GetThinkingLevelsResultSchema,
   OpenSessionParamsSchema,
   OpenSessionResultSchema,
+  SetModelParamsSchema,
+  SetModelResultSchema,
+  SetThinkingLevelParamsSchema,
+  SetThinkingLevelResultSchema,
   ReadSessionParamsSchema,
   ReadSessionResultSchema,
   SearchParamsSchema,
@@ -370,6 +376,26 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     interrupt: async () => assertOut(InterruptResultSchema, await getChat().interrupt(), 'interrupt'),
     getState: async () => assertOut(GetStateResultSchema, await getChat().getState(), 'getState'),
+    // UI21-F2: model catalog & selection are read-through to the installed Pi.
+    // Nothing here holds a model list, a provider default or a fallback.
+    getAvailableModels: async () => {
+      const { models } = await getChat().availableModels();
+      return assertOut(GetAvailableModelsResultSchema, { models }, 'getAvailableModels');
+    },
+    setModel: async (params) => {
+      const p = parseParams(SetModelParamsSchema, params, 'setModel');
+      const { state } = await getChat().setModel(p.provider, p.modelId);
+      return assertOut(SetModelResultSchema, { state }, 'setModel');
+    },
+    getThinkingLevels: async () => {
+      const { levels, current } = await getChat().thinkingLevels();
+      return assertOut(GetThinkingLevelsResultSchema, { levels, current }, 'getThinkingLevels');
+    },
+    setThinkingLevel: async (params) => {
+      const p = parseParams(SetThinkingLevelParamsSchema, params, 'setThinkingLevel');
+      const { state } = await getChat().setThinkingLevel(p.level);
+      return assertOut(SetThinkingLevelResultSchema, { state }, 'setThinkingLevel');
+    },
     closeSession: async () => {
       await getChat().close();
       return assertOut(CloseSessionResultSchema, { closed: true }, 'closeSession');

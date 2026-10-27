@@ -1,6 +1,6 @@
 /** Typed facade for the M1 bridge surface (SPEC §4.1). */
 import type { DesktopApi } from './api';
-import type { ChatEventT, ProjectInfoT, ReadSessionResultT, RpcStateT, SearchResultT, SessionInfoT } from './types';
+import type { ChatEventT, ModelInfoT, ProjectInfoT, ReadSessionResultT, RpcStateT, SearchResultT, SessionInfoT } from './types';
 
 const call = <T>(api: DesktopApi, method: string, params?: Record<string, unknown>): Promise<T> =>
   api.request(method, params) as Promise<T>;
@@ -19,6 +19,14 @@ export const m1 = {
   interrupt: (api: DesktopApi): Promise<{ interrupted: boolean }> => call(api, 'interrupt'),
   getState: (api: DesktopApi): Promise<{ state: RpcStateT | null }> => call(api, 'getState'),
   closeSession: (api: DesktopApi): Promise<{ closed: boolean }> => call(api, 'closeSession'),
+  // UI21-F2: read-through to the installed Pi; no catalogue or defaults here.
+  getAvailableModels: (api: DesktopApi): Promise<{ models: ModelInfoT[] }> => call(api, 'getAvailableModels'),
+  setModel: (api: DesktopApi, provider: string, modelId: string): Promise<{ state: RpcStateT | null }> =>
+    call(api, 'setModel', { provider, modelId }),
+  getThinkingLevels: (api: DesktopApi): Promise<{ levels: string[]; current: string | null }> =>
+    call(api, 'getThinkingLevels'),
+  setThinkingLevel: (api: DesktopApi, level: string): Promise<{ state: RpcStateT | null }> =>
+    call(api, 'setThinkingLevel', { level }),
   search: (api: DesktopApi, query: string, includeContent?: boolean): Promise<SearchResultT> =>
     call(api, 'searchSessions', { query, ...(includeContent ? { includeContent: true } : {}) }),
 };

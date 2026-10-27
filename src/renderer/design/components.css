@@ -880,6 +880,105 @@
   color: var(--pw-muted-text-color);
 }
 
+/* UI21-F2: модель/thinking — данные Pi; отключение при генерации и для
+ * моделей с единственным уровнем (дизайн D1/D2 не меняется). */
+.dl-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dl-chip-thinking {
+  font-variant-numeric: tabular-nums;
+}
+
+/* UI21-F2: выпадающий список моделей/уровней — над композером, в токенах
+ * композиции (никаких новых цветов/радиусов вне переменных). */
+.dl-chip-menu {
+  /* В потоке над строкой ввода: композер живёт в скролл-контейнере панели,
+   * и absolute-меню срезалось бы его верхней границей. */
+  position: static;
+  width: 100%;
+  margin-bottom: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(40vh, 380px);
+  padding: 10px;
+  background: var(--pw-chat-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+}
+
+.dl-chip-menu-search {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-chat-input);
+}
+
+.dl-chip-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(26vh, 240px);
+  overflow-y: auto;
+}
+
+.dl-chip-menu-item {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dl-chip-menu-item:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-chip-menu-provider {
+  color: var(--pw-muted-text-color);
+  font-size: var(--dl-fs-meta);
+}
+
+.dl-chip-menu-name {
+  font-size: var(--dl-fs-ui);
+}
+
+.dl-chip-menu-id {
+  color: var(--pw-muted-text-color);
+  font-family: var(--dl-font-mono);
+  font-size: var(--dl-fs-meta);
+}
+
+.dl-chip-menu-empty {
+  padding: 10px;
+  color: var(--pw-muted-text-color);
+  font-size: var(--dl-fs-meta);
+}
+
+.dl-chip-menu-refresh {
+  align-self: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-meta);
+  cursor: pointer;
+}
+
 .dl-context {
   display: flex;
   align-items: center;

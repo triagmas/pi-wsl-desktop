@@ -6,7 +6,7 @@
  * управляемый композер (textarea + отправка + прерывание).
  * Поведенческие контракты tests/ui/m1Chat.test.tsx сохранены 1:1.
  */
-import type { FormEvent, ReactNode } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
 import type { ChatController } from './useChat';
 import { ChatView, type ChatTurn, type ChatTurnAssistant } from './ui/ChatView';
@@ -20,7 +20,22 @@ export interface ChatPaneProps {
 }
 
 export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
-  const { state, open, send, interrupt, closeChat } = chat;
+  const { state, open, send, interrupt, closeChat, selectModel, selectThinkingLevel } = chat;
+  // UI21-F2: selector UI state is presentation-only; the truth lives in Pi.
+  const [menu, setMenu] = useState<'model' | 'thinking' | null>(null);
+  const [filter, setFilter] = useState('');
+  const switchLocked = state.status === 'sending' || state.status === 'opening';
+  const activeModel = state.state?.model ?? null;
+  // Defensive defaults: an older/partial state object must never crash the pane.
+  const models = useMemo(() => state.models ?? [], [state.models]);
+  const thinkingLevels = state.thinkingLevels ?? [];
+  const modelLabel = activeModel ? `${activeModel.provider}/${activeModel.id}` : models.length > 0 ? 'Модель' : '';
+  const thinkingLabel = state.state?.thinkingLevel ?? null;
+  const filteredModels = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (q === '') return models;
+    return models.filter((m) => `${m.provider}/${m.id}/${m.name}`.toLowerCase().includes(q));
+  }, [models, filter]);
 
   const submit = (e?: FormEvent): void => {
     e?.preventDefault();
@@ -94,6 +109,77 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
    * Лента: записи сессии → user/assistant-ходы; стрим — отдельный ход
    * с живыми шагами реального tool-state (state.tools).
    * ------------------------------------------------------------------ */
+  /* UI21-F2: выпадающие списки — данные из Pi (никогда не хардкод). */
+  const modelMenu: ReactNode =
+    menu === 'model' ? (
+      <div className="dl-chip-menu" data-testid="model-menu" role="dialog" aria-label="Выбор модели">
+        <input
+          className="dl-chip-menu-search"
+          placeholder="Поиск модели"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          aria-label="Поиск модели"
+        />
+        <div className="dl-chip-menu-list">
+          {filteredModels.map((m) => (
+            <button
+              key={`${m.provider}:${m.id}`}
+              type="button"
+              className="dl-chip-menu-item"
+              data-testid={`model-option-${m.provider}:${m.id}`}
+              onClick={() => {
+                setMenu(null);
+                void selectModel(m.provider, m.id);
+              }}
+            >
+              <span className="dl-chip-menu-provider">{m.provider}</span>
+              <span className="dl-chip-menu-name">{m.name}</span>
+              <span className="dl-chip-menu-id">{m.id}</span>
+            </button>
+          ))}
+          {filteredModels.length === 0 && state.modelsLoading && (
+            <div className="dl-chip-menu-empty" data-testid="model-menu-loading">
+              Загрузка каталога из Pi…
+            </div>
+          )}
+          {filteredModels.length === 0 && !state.modelsLoading && (
+            <div className="dl-chip-menu-empty" data-testid="model-menu-empty">
+              {state.modelsError
+                ? `Каталог Pi недоступен: ${state.modelsError.message}`
+                : models.length === 0
+                  ? 'Pi не сообщил ни одной модели'
+                  : 'Ничего не найдено'}
+            </div>
+          )}
+        </div>
+        <button type="button" className="dl-chip-menu-refresh" onClick={() => void chat.refreshModels?.()}>
+          Обновить список из Pi
+        </button>
+      </div>
+    ) : null;
+
+  const thinkingMenu: ReactNode =
+    menu === 'thinking' ? (
+      <div className="dl-chip-menu" data-testid="thinking-menu" role="dialog" aria-label="Уровень thinking">
+        <div className="dl-chip-menu-list">
+          {thinkingLevels.map((level) => (
+            <button
+              key={level}
+              type="button"
+              className="dl-chip-menu-item"
+              data-testid={`thinking-option-${level}`}
+              onClick={() => {
+                setMenu(null);
+                void selectThinkingLevel(level);
+              }}
+            >
+              <span className="dl-chip-menu-name">{level}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
   const turns: ChatTurn[] = state.entries.map((entry) => {
     if (entry.kind === 'user') {
       return { kind: 'user', id: entry.key, text: entry.text };
@@ -153,6 +239,25 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
                 onSubmit: () => submit(),
                 submitDisabled: !canSubmit,
                 inputDisabled: state.status !== 'open',
+                // UI21-F2: model + thinking come straight from Pi get_state.
+                ...(modelLabel !== ''
+                  ? {
+                      model: modelLabel,
+                      modelDisabled: switchLocked,
+                      onModelClick: () => {
+                        setFilter('');
+                        setMenu((m) => (m === 'model' ? null : 'model'));
+                      },
+                    }
+                  : {}),
+                ...(thinkingLabel !== null
+                  ? {
+                      thinking: thinkingLabel,
+                      thinkingDisabled: switchLocked || thinkingLevels.length <= 1,
+                      onThinkingClick: () => setMenu((m) => (m === 'thinking' ? null : 'thinking')),
+                    }
+                  : {}),
+                menu: menu === 'model' ? modelMenu : menu === 'thinking' ? thinkingMenu : null,
               }
             : null
         }

@@ -64,6 +64,15 @@ export interface ComposerProps {
   submitDisabled?: boolean;
   /** D2: поле ввода disabled (явный write-gate: до/после открытой сессии). */
   inputDisabled?: boolean;
+  /** UI21-F2: модель/провайдер приходят из Pi get_state — не из констант. */
+  onModelClick?: () => void;
+  modelDisabled?: boolean;
+  /** UI21-F2: текущий thinking level из Pi + его поддерживаемые уровни. */
+  thinking?: string;
+  onThinkingClick?: () => void;
+  thinkingDisabled?: boolean;
+  /** UI21-F2: выпадающий список (модели/уровни) — рендерится над композером. */
+  menu?: ReactNode;
 }
 
 export interface ChatViewProps {
@@ -165,10 +174,17 @@ function Composer({
   onSubmit,
   submitDisabled = false,
   inputDisabled = false,
+  onModelClick,
+  modelDisabled = false,
+  thinking,
+  onThinkingClick,
+  thinkingDisabled = false,
+  menu,
 }: ComposerProps) {
   const controlled = value !== undefined && onValueChange !== undefined;
   return (
     <div className="dl-composer" data-density={density}>
+      {menu}
       <div className="dl-composer-row1">
         <span className="dl-composer-attach" aria-hidden="true">
           <IconPaperclip size={24} />
@@ -197,8 +213,30 @@ function Composer({
         {/* Review P1-1: без подтверждённого источника модели чип не рендерится —
          * выдуманный runtime-идентификатор в рабочем приложении запрещён. */}
         {model ? (
-          <button type="button" className="dl-chip">
+          <button
+            type="button"
+            className="dl-chip"
+            data-testid="model-selector"
+            onClick={onModelClick}
+            disabled={modelDisabled || !onModelClick}
+            title={model}
+          >
             {model}
+            <span className="dl-chip-chevron" aria-hidden="true">
+              <IconChevronDown size={16} />
+            </span>
+          </button>
+        ) : null}
+        {thinking ? (
+          <button
+            type="button"
+            className="dl-chip dl-chip-thinking"
+            data-testid="thinking-selector"
+            onClick={onThinkingClick}
+            disabled={thinkingDisabled || !onThinkingClick}
+            title={`Thinking: ${thinking}`}
+          >
+            {thinking}
             <span className="dl-chip-chevron" aria-hidden="true">
               <IconChevronDown size={16} />
             </span>

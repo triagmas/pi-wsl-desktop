@@ -349,3 +349,86 @@ describe('bridge M1 root normalization (review round 4)', () => {
     }
   });
 });
+
+describe('UI21-F2 model catalog & selector over the real bridge', () => {
+  it('lists Pi models, switches model/thinking, and rejects changes while streaming', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('sub', 'subscribeEvents', { topic: 'chat' }) + '\n');
+      await reader.waitForResponse('sub');
+
+      // before any session: no live Pi → explicit disconnect, never a fabricated catalog
+      child.stdin.write(req('m0', 'getAvailableModels') + '\n');
+      expect(errCode((await reader.waitForResponse('m0')).frame as ResponseErrorFrameT)).toBe('DISCONNECTED');
+
+      child.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader.waitForResponse('o1');
+
+      // catalog comes from Pi (fake fixture declares two providers — no hardcoding here)
+      child.stdin.write(req('m1', 'getAvailableModels') + '\n');
+      const models = ok((await reader.waitForResponse('m1')).frame as ResponseOkFrameT) as {
+        models: Array<{ provider: string; id: string; name: string }>;
+      };
+      expect(models.models.map((m) => `${m.provider}/${m.id}`)).toEqual(['prov-a/model-one', 'prov-b/model-two']);
+
+      // thinking levels for the selected model come from Pi
+      child.stdin.write(req('t1', 'getThinkingLevels') + '\n');
+      const levels = ok((await reader.waitForResponse('t1')).frame as ResponseOkFrameT) as {
+        levels: string[];
+        current: string | null;
+      };
+      expect(levels.levels).toEqual(['off', 'high']);
+      expect(levels.current).toBe('medium');
+
+      // switch model → authoritative state comes from a fresh get_state
+      child.stdin.write(req('s1', 'setModel', { provider: 'prov-b', modelId: 'model-two' }) + '\n');
+      const switched = ok((await reader.waitForResponse('s1')).frame as ResponseOkFrameT) as {
+        state: { model: { provider: string; id: string; name: string } | null };
+      };
+      expect(switched.state.model).toEqual({ provider: 'prov-b', id: 'model-two', name: 'Model Two' });
+
+      // switch thinking level → same authoritative path
+      child.stdin.write(req('s2', 'setThinkingLevel', { level: 'high' }) + '\n');
+      const think = ok((await reader.waitForResponse('s2')).frame as ResponseOkFrameT) as {
+        state: { thinkingLevel: string | null };
+      };
+      expect(think.state.thinkingLevel).toBe('high');
+
+      // unknown model → Pi's failure surfaces as an error, never a silent fallback
+      child.stdin.write(req('s3', 'setModel', { provider: 'prov-a', modelId: 'nope' }) + '\n');
+      expect(errCode((await reader.waitForResponse('s3')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+
+      // invalid thinking level is rejected by the bridge before touching Pi
+      child.stdin.write(req('s4', 'setThinkingLevel', { level: '' }) + '\n');
+      expect(errCode((await reader.waitForResponse('s4')).frame as ResponseErrorFrameT)).toBe('INVALID_REQUEST');
+    } finally {
+      child.kill();
+    }
+    expect(createHash('sha256').update(readFileSync(fx.sessionFile)).digest('hex')).toBe(fx.sha);
+  });
+
+  it('refuses model/thinking changes while a run is streaming (RESOURCE_BUSY, no silent switch)', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge({ ...fx.env, FAKE_PI_STREAM_MS: '300' });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('sub', 'subscribeEvents', { topic: 'chat' }) + '\n');
+      await reader.waitForResponse('sub');
+      child.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader.waitForResponse('o1');
+      child.stdin.write(req('p1', 'sendPrompt', { message: 'hello' }) + '\n');
+      await reader.waitForResponse('p1');
+
+      child.stdin.write(req('b1', 'setModel', { provider: 'prov-b', modelId: 'model-two' }) + '\n');
+      expect(errCode((await reader.waitForResponse('b1')).frame as ResponseErrorFrameT)).toBe('RESOURCE_BUSY');
+      child.stdin.write(req('b2', 'setThinkingLevel', { level: 'high' }) + '\n');
+      expect(errCode((await reader.waitForResponse('b2')).frame as ResponseErrorFrameT)).toBe('RESOURCE_BUSY');
+    } finally {
+      child.kill();
+    }
+  });
+});

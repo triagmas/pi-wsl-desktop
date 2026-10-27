@@ -19,6 +19,13 @@ import {
   OpenSessionResultSchema,
   ChatEventSchema,
   SessionHeaderSchema,
+  ModelInfoSchema,
+  GetAvailableModelsResultSchema,
+  SetModelParamsSchema,
+  SetModelResultSchema,
+  GetThinkingLevelsResultSchema,
+  SetThinkingLevelParamsSchema,
+  SetThinkingLevelResultSchema,
 } from '../../src/shared/m1Protocol';
 import { mapUnknownMethod } from '../../src/shared/protocol';
 import { isAllowedRendererMethod } from '../../src/shared/whitelist';
@@ -31,13 +38,17 @@ describe('M1 method allowlist', () => {
     expect([...M1_METHODS].sort()).toEqual(
       [
         'closeSession',
+        'getAvailableModels',
         'getState',
+        'getThinkingLevels',
         'interrupt',
         'listProjects',
         'listSessions',
         'openSession',
         'readSession',
         'searchSessions',
+        'setModel',
+        'setThinkingLevel',
         'sendPrompt',
         'subscribeEvents',
       ].sort(),
@@ -191,5 +202,72 @@ describe('schema export sanity', () => {
     for (const s of [ProjectInfoSchema, SessionInfoSchema, ChatEventSchema]) {
       expect(s).toBeInstanceOf(z.ZodType);
     }
+  });
+});
+
+describe('UI21-F2 model catalog & selector contract', () => {
+  const state = {
+    sessionId: 's1',
+    sessionFile: '/f.jsonl',
+    isStreaming: false,
+    isCompacting: false,
+    messageCount: 2,
+    model: { id: 'm1', name: 'Model One', provider: 'prov-a' },
+    thinkingLevel: 'off',
+  };
+
+  it('a model record keeps only Pi metadata and never credentials', () => {
+    const parsed = ModelInfoSchema.parse({
+      provider: 'prov-a',
+      id: 'm1',
+      name: 'Model One',
+      contextWindow: 200000,
+      maxTokens: 8192,
+      reasoning: true,
+      input: ['text', 'image'],
+    });
+    expect(parsed).toMatchObject({ provider: 'prov-a', id: 'm1', name: 'Model One' });
+    // apiKey/token style fields cannot survive parsing
+    expect('apiKey' in parsed).toBe(false);
+  });
+
+  it('rejects models without provider/id/name — no anonymous entries', () => {
+    expect(() => ModelInfoSchema.parse({ id: 'm1', name: 'x' })).toThrow();
+    expect(() => ModelInfoSchema.parse({ provider: 'p', name: 'x' })).toThrow();
+    expect(() => ModelInfoSchema.parse({ provider: 'p', id: 'm1' })).toThrow();
+  });
+
+  it('an empty configured catalog is a valid answer (never an error, never a default)', () => {
+    expect(GetAvailableModelsResultSchema.parse({ models: [] })).toEqual({ models: [] });
+  });
+
+  it('setModel requires an explicit provider AND model id', () => {
+    expect(SetModelParamsSchema.parse({ provider: 'prov-a', modelId: 'm1' })).toEqual({ provider: 'prov-a', modelId: 'm1' });
+    expect(() => SetModelParamsSchema.parse({ modelId: 'm1' })).toThrow();
+    expect(() => SetModelParamsSchema.parse({ provider: 'prov-a' })).toThrow();
+    expect(() => SetModelParamsSchema.parse({ provider: '', modelId: 'm1' })).toThrow();
+  });
+
+  it('setModel result is the fresh Pi state (authoritative), not an echo of the request', () => {
+    expect(SetModelResultSchema.parse({ state })).toEqual({ state });
+    expect(SetModelResultSchema.parse({ state: null })).toEqual({ state: null });
+  });
+
+  it('thinking levels come from Pi for the selected model; current is nullable', () => {
+    expect(GetThinkingLevelsResultSchema.parse({ levels: ['off', 'high'], current: 'off' })).toEqual({
+      levels: ['off', 'high'],
+      current: 'off',
+    });
+    expect(GetThinkingLevelsResultSchema.parse({ levels: [], current: null })).toEqual({ levels: [], current: null });
+  });
+
+  it('setThinkingLevel takes exactly one level string', () => {
+    expect(SetThinkingLevelParamsSchema.parse({ level: 'high' })).toEqual({ level: 'high' });
+    expect(() => SetThinkingLevelParamsSchema.parse({ level: '' })).toThrow();
+    expect(() => SetThinkingLevelParamsSchema.parse({})).toThrow();
+  });
+
+  it('setThinkingLevel result is the fresh Pi state', () => {
+    expect(SetThinkingLevelResultSchema.parse({ state })).toEqual({ state });
   });
 });

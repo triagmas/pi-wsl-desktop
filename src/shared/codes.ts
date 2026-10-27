@@ -35,6 +35,13 @@ export const M1_METHODS = [
   // Extension beyond the SPEC §4.1 minimum: explicit escape hatch from
   // RESOURCE_BUSY (no auto-close — the write boundary stays user-driven).
   'closeSession',
+  // UI21-F2 (owner product contract): the model catalog and selection are
+  // owned by the installed Pi, never by this app. All four are read-through /
+  // explicit user-driven switches on the ACTIVE chat session.
+  'getAvailableModels',
+  'setModel',
+  'getThinkingLevels',
+  'setThinkingLevel',
 ] as const;
 export type M1Method = (typeof M1_METHODS)[number];
 

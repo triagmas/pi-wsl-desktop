@@ -31,7 +31,7 @@
 import { PiRpcClient, RpcCommandError, RpcDisconnectedError, RpcTimeoutError, type RpcProcess, type PiRpcClientOptions } from './piRpcClient';
 import { buildProbePath } from './probe';
 import { BridgeError } from '../shared/errors';
-import type { ChatEventT, RpcStateT } from '../shared/m1Protocol';
+import type { ChatEventT, ModelInfoT, RpcStateT } from '../shared/m1Protocol';
 import path from 'node:path';
 
 export interface ChatManagerFs {
@@ -68,6 +68,33 @@ export function mapRpcState(raw: unknown): RpcStateT {
         : null,
     thinkingLevel: typeof r.thinkingLevel === 'string' ? r.thinkingLevel : null,
   };
+}
+
+/**
+ * UI21-F2: project Pi's model record down to the credential-free shape the app
+ * displays. Unknown/extra fields are dropped here, never forwarded to the
+ * renderer — this app owns no catalog of its own.
+ */
+function mapModels(raw: unknown): ModelInfoT[] {
+  const list = (raw as { models?: unknown } | null)?.models;
+  if (!Array.isArray(list)) return [];
+  const out: ModelInfoT[] = [];
+  for (const item of list) {
+    const m = item as Record<string, unknown>;
+    if (typeof m?.provider !== 'string' || typeof m.id !== 'string' || typeof m.name !== 'string') continue;
+    const model: ModelInfoT = { provider: m.provider, id: m.id, name: m.name };
+    if (typeof m.contextWindow === 'number' && m.contextWindow > 0) model.contextWindow = m.contextWindow;
+    if (typeof m.maxTokens === 'number' && m.maxTokens > 0) model.maxTokens = m.maxTokens;
+    if (typeof m.reasoning === 'boolean') model.reasoning = m.reasoning;
+    if (Array.isArray(m.input)) model.input = m.input.filter((v): v is string => typeof v === 'string');
+    out.push(model);
+  }
+  return out;
+}
+
+function mapThinkingLevels(raw: unknown): string[] {
+  const levels = (raw as { levels?: unknown } | null)?.levels;
+  return Array.isArray(levels) ? levels.filter((l): l is string => typeof l === 'string') : [];
 }
 
 async function readHeaderCwd(fs: ChatManagerFs, file: string, max: number): Promise<string | null> {
@@ -255,6 +282,84 @@ export class ChatSessionManager {
       if (err instanceof RpcDisconnectedError) throw new BridgeError('DISCONNECTED', err.message);
       throw err;
     }
+  }
+
+  /**
+   * UI21-F2: the model list is whatever the installed Pi reports for the active
+   * session's environment — no static list, no provider defaults, no fallback.
+   */
+  async availableModels(): Promise<{ models: ModelInfoT[] }> {
+    const client = this.liveClient();
+    try {
+      return { models: mapModels(await client.request('get_available_models')) };
+    } catch (err) {
+      throw this.mapCommandError(err, 'get_available_models');
+    }
+  }
+
+  /** Explicit user switch only. Rejects while a run is in flight (no silent swap). */
+  async setModel(provider: string, modelId: string): Promise<{ state: RpcStateT | null }> {
+    const client = this.liveClient();
+    if (this.runActive) {
+      throw new BridgeError('RESOURCE_BUSY', 'Модель нельзя менять во время генерации');
+    }
+    try {
+      await client.request('set_model', { provider, modelId });
+    } catch (err) {
+      throw this.mapCommandError(err, 'set_model');
+    }
+    const state = mapRpcState(await client.request('get_state'));
+    if (state.model && (state.model.provider !== provider || state.model.id !== modelId)) {
+      throw new BridgeError('INVALID_REQUEST', `Pi не переключил модель (сейчас ${state.model.provider}/${state.model.id})`);
+    }
+    return { state };
+  }
+
+  /** Supported thinking levels for the CURRENTLY selected model, straight from Pi. */
+  async thinkingLevels(): Promise<{ levels: string[]; current: string | null }> {
+    const client = this.liveClient();
+    try {
+      const levels = mapThinkingLevels(await client.request('get_available_thinking_levels'));
+      const state = mapRpcState(await client.request('get_state'));
+      return { levels, current: state.thinkingLevel };
+    } catch (err) {
+      throw this.mapCommandError(err, 'get_available_thinking_levels');
+    }
+  }
+
+  async setThinkingLevel(level: string): Promise<{ state: RpcStateT | null }> {
+    const client = this.liveClient();
+    if (this.runActive) {
+      throw new BridgeError('RESOURCE_BUSY', 'Уровень thinking нельзя менять во время генерации');
+    }
+    try {
+      await client.request('set_thinking_level', { level });
+    } catch (err) {
+      throw this.mapCommandError(err, 'set_thinking_level');
+    }
+    const state = mapRpcState(await client.request('get_state'));
+    if (state.thinkingLevel !== null && state.thinkingLevel !== level) {
+      throw new BridgeError('INVALID_REQUEST', `Pi не установил thinking level (сейчас ${state.thinkingLevel})`);
+    }
+    return { state };
+  }
+
+  private liveClient(): PiRpcClient {
+    const client = this.client;
+    if (!client || !client.alive) {
+      throw new BridgeError('DISCONNECTED', 'Нет активной RPC-сессии Pi — откройте чат');
+    }
+    return client;
+  }
+
+  private mapCommandError(err: unknown, command: string): BridgeError {
+    if (err instanceof RpcTimeoutError) return new BridgeError('BRIDGE_TIMEOUT', err.message);
+    if (err instanceof RpcDisconnectedError) return new BridgeError('DISCONNECTED', err.message);
+    // Pi answered success:false (unknown model/level, unsupported) — surface it,
+    // never fall back to a different model silently.
+    if (err instanceof RpcCommandError) return new BridgeError('INVALID_REQUEST', `${command}: ${err.message}`);
+    if (err instanceof BridgeError) return err;
+    return new BridgeError('UNKNOWN', err instanceof Error ? err.message : String(err));
   }
 
   async getState(): Promise<{ state: RpcStateT | null }> {

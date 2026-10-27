@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { m1, parseBridgeError } from './m1api';
 import { messageText } from './entryText';
-import type { ChatEventT, RpcStateT } from './types';
+import type { ChatEventT, ModelInfoT, RpcStateT } from './types';
 
 export type ChatStatus = 'closed' | 'opening' | 'open' | 'sending' | 'error';
 export interface ChatEntry {
@@ -36,6 +36,13 @@ export interface ChatUiState {
   tools: ChatTool[];
   error: { code: string; message: string } | null;
   banner: { code: string; message: string } | null;
+  /** UI21-F2: the catalog and the thinking levels are Pi's answer, never ours. */
+  models: ModelInfoT[];
+  thinkingLevels: string[];
+  /** Catalog read failure (disconnected Pi, broken config) — chat stays usable. */
+  modelsError: { code: string; message: string } | null;
+  /** True while Pi's catalog/levels are being read (menu must not claim "empty"). */
+  modelsLoading: boolean;
 }
 
 export const initialChatState: ChatUiState = {
@@ -46,6 +53,10 @@ export const initialChatState: ChatUiState = {
   tools: [],
   error: null,
   banner: null,
+  models: [],
+  thinkingLevels: [],
+  modelsError: null,
+  modelsLoading: false,
 };
 
 /**
@@ -168,10 +179,17 @@ export interface ChatController {
   send: (text: string) => Promise<void>;
   interrupt: () => Promise<void>;
   closeChat: () => Promise<boolean>;
+  /** Re-read Pi's catalog + thinking levels (explicit refresh or after open). */
+  refreshModels: () => Promise<void>;
+  /** Explicit user choice. No auto-switch, no fallback, no prompt side effect. */
+  selectModel: (provider: string, modelId: string) => Promise<void>;
+  selectThinkingLevel: (level: string) => Promise<void>;
 }
 
 export function useChat(api: DesktopApi | null, file: string): ChatController {
   const [state, setState] = useState<ChatUiState>(initialChatState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -201,6 +219,9 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       const r = await m1.openSession(api, file);
       if (!mounted.current) return;
       setState((s) => ({ ...s, status: 'open', state: r.state, error: null, banner: null }));
+      // UI21-F2: the catalog/levels are Pi's answer for THIS session; a failing
+      // read must not break the chat, so it is reported separately below.
+      void refreshModelsRef.current();
     } catch (err) {
       if (!mounted.current) return;
       setState((s) => ({ ...s, status: 'error', error: parseBridgeError(err) }));
@@ -232,6 +253,60 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     }
   }, [api]);
 
+  // UI21-F2: read-through model catalog + thinking levels from the live Pi RPC.
+  const refreshModels = useCallback(async () => {
+    if (!api) return;
+    setState((s) => ({ ...s, modelsLoading: true }));
+    try {
+      const [catalog, levels] = await Promise.all([m1.getAvailableModels(api), m1.getThinkingLevels(api)]);
+      if (!mounted.current) return;
+      setState((s) => ({ ...s, models: catalog.models, thinkingLevels: levels.levels, modelsError: null, modelsLoading: false }));
+    } catch (err) {
+      if (!mounted.current) return;
+      // An unreadable catalog is an honest empty state, not an invented list.
+      setState((s) => ({ ...s, models: [], thinkingLevels: [], modelsError: parseBridgeError(err), modelsLoading: false }));
+    }
+  }, [api]);
+
+  const refreshModelsRef = useRef(refreshModels);
+  useEffect(() => {
+    refreshModelsRef.current = refreshModels;
+  }, [refreshModels]);
+
+  const selectModel = useCallback(
+    async (provider: string, modelId: string) => {
+      if (!api) return;
+      if (stateRef.current.status === 'sending') return; // no silent mid-run switch
+      try {
+        const r = await m1.setModel(api, provider, modelId);
+        if (!mounted.current) return;
+        setState((s) => ({ ...s, state: r.state ?? s.state, error: null }));
+        // Thinking levels belong to the selected model — re-read them from Pi.
+        void refreshModelsRef.current();
+      } catch (err) {
+        if (!mounted.current) return;
+        setState((s) => ({ ...s, error: parseBridgeError(err) }));
+      }
+    },
+    [api],
+  );
+
+  const selectThinkingLevel = useCallback(
+    async (level: string) => {
+      if (!api) return;
+      if (stateRef.current.status === 'sending') return;
+      try {
+        const r = await m1.setThinkingLevel(api, level);
+        if (!mounted.current) return;
+        setState((s) => ({ ...s, state: r.state ?? s.state, error: null }));
+      } catch (err) {
+        if (!mounted.current) return;
+        setState((s) => ({ ...s, error: parseBridgeError(err) }));
+      }
+    },
+    [api],
+  );
+
   const closeChat = useCallback(async (): Promise<boolean> => {
     if (!api) return false;
     try {
@@ -248,5 +323,5 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     return true;
   }, [api]);
 
-  return { state, open, send, interrupt, closeChat };
+  return { state, open, send, interrupt, closeChat, refreshModels, selectModel, selectThinkingLevel };
 }

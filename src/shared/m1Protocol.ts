@@ -185,6 +185,59 @@ export const OpenSessionResultSchema = z.object({
 });
 export type OpenSessionResultT = z.infer<typeof OpenSessionResultSchema>;
 
+/**
+ * UI21-F2: model catalog & selection contract.
+ *
+ * Source of truth is the installed Pi (`get_available_models` / `get_state`):
+ * this app never ships a static model list, defaults or provider IDs. `ModelInfo`
+ * is a deliberately small, credential-free projection of Pi's model record —
+ * fields the app does not use are dropped by the schema, so nothing
+ * secret-adjacent can travel over IPC.
+ */
+export const ModelInfoSchema = z.object({
+  provider: z.string().min(1),
+  id: z.string().min(1),
+  name: z.string().min(1),
+  contextWindow: z.number().int().positive().nullable().optional(),
+  maxTokens: z.number().int().positive().nullable().optional(),
+  reasoning: z.boolean().optional(),
+  input: z.array(z.string()).optional(),
+});
+export type ModelInfoT = z.infer<typeof ModelInfoSchema>;
+
+export const GetAvailableModelsResultSchema = z.object({
+  models: z.array(ModelInfoSchema),
+});
+export type GetAvailableModelsResultT = z.infer<typeof GetAvailableModelsResultSchema>;
+
+export const SetModelParamsSchema = z.object({
+  provider: z.string().min(1),
+  modelId: z.string().min(1),
+});
+export type SetModelParamsT = z.infer<typeof SetModelParamsSchema>;
+
+export const SetModelResultSchema = z.object({
+  /** Fresh `get_state` after the switch — the display follows Pi, not the request. */
+  state: RpcStateSchema.nullable(),
+});
+export type SetModelResultT = z.infer<typeof SetModelResultSchema>;
+
+export const GetThinkingLevelsResultSchema = z.object({
+  levels: z.array(z.string()),
+  current: z.string().nullable(),
+});
+export type GetThinkingLevelsResultT = z.infer<typeof GetThinkingLevelsResultSchema>;
+
+export const SetThinkingLevelParamsSchema = z.object({
+  level: z.string().min(1),
+});
+export type SetThinkingLevelParamsT = z.infer<typeof SetThinkingLevelParamsSchema>;
+
+export const SetThinkingLevelResultSchema = z.object({
+  state: RpcStateSchema.nullable(),
+});
+export type SetThinkingLevelResultT = z.infer<typeof SetThinkingLevelResultSchema>;
+
 export const SendPromptParamsSchema = z.object({
   message: z.string().min(1).max(100_000),
   /** Required by Pi when the agent is already streaming (verified docs). */

@@ -17,15 +17,51 @@ interface ChatRoute {
   sendPrompt?: unknown;
   interrupt?: unknown;
   errors?: Record<string, unknown>;
+  models?: unknown;
+  thinking?: unknown;
+  setModel?: unknown;
+  setThinkingLevel?: unknown;
 }
 
 function makeApi(route: ChatRoute = {}) {
   const chatSubs: Array<(p: unknown) => void> = [];
-  const request = vi.fn(async (method: string) => {
+  const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
     if (route.errors && method in route.errors) throw route.errors[method];
     switch (method) {
       case 'openSession':
-        return route.openSession ?? { state: { sessionId: 's1', sessionFile: '/f.jsonl', isStreaming: false, isCompacting: false, messageCount: 0, model: null, thinkingLevel: 'medium' } };
+        return (
+          route.openSession ?? {
+            state: {
+              sessionId: 's1',
+              sessionFile: '/f.jsonl',
+              isStreaming: false,
+              isCompacting: false,
+              messageCount: 0,
+              model: { id: 'model-one', name: 'Model One', provider: 'prov-a' },
+              thinkingLevel: 'off',
+            },
+          }
+        );
+      // UI21-F2: catalog + thinking come from Pi, never from the app.
+      case 'getAvailableModels':
+        return route.models ?? { models: [
+          { provider: 'prov-a', id: 'model-one', name: 'Model One' },
+          { provider: 'prov-b', id: 'model-two', name: 'Model Two' },
+        ] };
+      case 'getThinkingLevels':
+        return route.thinking ?? { levels: ['off', 'high'], current: 'off' };
+      case 'setModel': {
+        if (route.setModel) return route.setModel;
+        const p = params as { provider: string; modelId: string };
+        return { state: { sessionId: 's1', sessionFile: '/f.jsonl', isStreaming: false, isCompacting: false, messageCount: 0,
+          model: { id: p.modelId, name: p.modelId === 'model-two' ? 'Model Two' : 'Model One', provider: p.provider }, thinkingLevel: 'off' } };
+      }
+      case 'setThinkingLevel': {
+        if (route.setThinkingLevel) return route.setThinkingLevel;
+        const p = params as { level: string };
+        return { state: { sessionId: 's1', sessionFile: '/f.jsonl', isStreaming: false, isCompacting: false, messageCount: 0,
+          model: { id: 'model-one', name: 'Model One', provider: 'prov-a' }, thinkingLevel: p.level } };
+      }
       case 'sendPrompt':
         return route.sendPrompt ?? { disposition: 'started' };
       case 'interrupt':
@@ -331,5 +367,84 @@ describe('UI21-F1-C: failed generation shows a visible error (no blank bubble)',
       data: { message: { role: 'assistant', content: [], stopReason: 'aborted', timestamp: 2 } },
     });
     await waitFor(() => expect(screen.queryByTestId('chat-message-error')).toBeNull());
+  });
+});
+
+describe('UI21-F2: model & thinking selectors read through to Pi', () => {
+  async function openChat(route: ChatRoute = {}) {
+    const api = makeApi(route);
+    render(<ChatHarness api={api.api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'openSession')).toBe(true));
+    return api;
+  }
+
+  it('shows the ACTIVE model from Pi state and fetches the catalog from Pi', async () => {
+    const api = await openChat();
+    // active model chip reflects get_state, not a hard-coded label
+    expect(await screen.findByTestId('model-selector')).toHaveTextContent('prov-a/model-one');
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'getAvailableModels')).toBe(true));
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'getThinkingLevels')).toBe(true));
+  });
+
+  it('lists every Pi model, and selecting one calls setModel + follows the fresh state', async () => {
+    const api = await openChat();
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    const items = await screen.findAllByTestId(/^model-option-/);
+    expect(items.map((el) => el.textContent)).toEqual([
+      expect.stringContaining('prov-a'),
+      expect.stringContaining('prov-b'),
+    ]);
+    await userEvent.click(screen.getByTestId('model-option-prov-b:model-two'));
+    await waitFor(() =>
+      expect(api.request.mock.calls.some((c) => c[0] === 'setModel' && (c[1] as { modelId?: string })?.modelId === 'model-two')).toBe(true),
+    );
+    expect(await screen.findByTestId('model-selector')).toHaveTextContent('prov-b/model-two');
+  });
+
+  it('thinking levels come from Pi for the selected model; selection applies via setThinkingLevel', async () => {
+    const api = await openChat();
+    const chip = await screen.findByTestId('thinking-selector');
+    expect(chip).toHaveTextContent('off');
+    await userEvent.click(chip);
+    expect((await screen.findAllByTestId(/^thinking-option-/)).map((e) => e.textContent)).toEqual(['off', 'high']);
+    await userEvent.click(screen.getByTestId('thinking-option-high'));
+    await waitFor(() =>
+      expect(api.request.mock.calls.some((c) => c[0] === 'setThinkingLevel' && (c[1] as { level?: string })?.level === 'high')).toBe(true),
+    );
+    expect(await screen.findByTestId('thinking-selector')).toHaveTextContent('high');
+  });
+
+  it('a single-level model disables the thinking selector instead of inventing levels', async () => {
+    await openChat({ thinking: { levels: ['off'], current: 'off' } });
+    const chip = await screen.findByTestId('thinking-selector');
+    expect(chip).toBeDisabled();
+  });
+
+  it('an empty Pi catalog is shown honestly — no fabricated default model', async () => {
+    const api = await openChat({ models: { models: [] } });
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    expect(await screen.findByTestId('model-menu-empty')).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^model-option-/)).toHaveLength(0);
+    expect(api.request.mock.calls.some((c) => c[0] === 'setModel')).toBe(false);
+  });
+
+  it('selectors are disabled while a run is streaming (no silent mid-run switch)', async () => {
+    const api = await openChat();
+    const input = await screen.findByPlaceholderText(/сообщение/i);
+    await userEvent.type(input, 'hello');
+    await userEvent.click(screen.getByRole('button', { name: /отправить/i }));
+    await waitFor(() => expect(screen.getByTestId('thinking-selector')).toBeDisabled());
+    expect(screen.getByTestId('model-selector')).toBeDisabled();
+    expect(api.request.mock.calls.some((c) => c[0] === 'setModel')).toBe(false);
+  });
+
+  it('a failed switch surfaces a readable error and keeps the previous model', async () => {
+    await openChat({ setModel: Promise.reject(new Error('INVALID_REQUEST: Model not found')) });
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    await userEvent.click(await screen.findByTestId('model-option-prov-b:model-two'));
+    const err = await screen.findByTestId('chat-error');
+    expect(err).toHaveTextContent('INVALID_REQUEST');
+    expect(screen.getByTestId('model-selector')).toHaveTextContent('prov-a/model-one');
   });
 });

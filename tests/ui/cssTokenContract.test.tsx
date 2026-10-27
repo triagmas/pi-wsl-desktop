@@ -254,3 +254,42 @@ describe('UI21-C5 final: details panel — symmetric padding + one left line (ow
     );
   });
 });
+
+describe('UI21 P1: details head — title/button breathing room (owner #6431060048)', () => {
+  // Владелец: «Детали действия» вплотную к кнопке сворачивания. Отступы
+  // контейнера не спасают — нужен внутренний зазор шапки и правое крепление
+  // кнопки (никакого нового дизайна — одобренный компонент Design Lab).
+  const findRule = (exact: string) =>
+    cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes(exact);
+    });
+
+  it('head flex carries a 16px gap so title and collapse button never glue', () => {
+    const rule = findRule('.dl-details-head');
+    expect(rule, '.dl-details-head rule missing').toBeTruthy();
+    expect(rule?.body, 'head must reserve >=16px between title and button').toMatch(
+      /gap:\s*16px/,
+    );
+  });
+
+  it('collapse button pins to the panel right inner edge and cannot shrink', () => {
+    const rule = findRule('.dl-details-head .dl-collapse-btn');
+    expect(rule, '.dl-details-head .dl-collapse-btn rule missing').toBeTruthy();
+    expect(rule?.body, 'button must be pushed to the right inner edge').toMatch(
+      /margin-left:\s*auto/,
+    );
+    expect(rule?.body, 'button must not compress at narrow widths').toMatch(/flex-shrink:\s*0/);
+  });
+
+  it('title may shrink (min-width:0) so the ellipsis works on narrow panels', () => {
+    const rule = findRule('.dl-details-head .dl-details-title');
+    expect(rule, '.dl-details-head .dl-details-title rule missing').toBeTruthy();
+    expect(rule?.body, 'title must be allowed to shrink below its content width').toMatch(
+      /min-width:\s*0/,
+    );
+  });
+});

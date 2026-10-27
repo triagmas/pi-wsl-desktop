@@ -1832,10 +1832,24 @@ button.dl-theme-card:hover {
   flex: 0 0 var(--dl-app-dhead-h);
   display: flex;
   align-items: center;
+  /* UI21 P1: минимум 16px между заголовком и кнопкой сворачивания —
+   * контейнерных отступов (24/16px) недостаточно, элементы склеивались */
+  gap: 16px;
   /* C5-final: симметрия панели — шапка на той же линии, что и тело (24px;
    * владелец в 6cb28dd пробовал 30px — финальное ТЗ требует 24px, узкое окно 16px) */
   padding: 0 24px;
   border-bottom: 1px solid var(--pw-divider-color);
+}
+
+/* UI21 P1: кнопка у правого внутреннего края панели (не сразу после текста),
+ * не сжимается при сужении; заголовок может ужаться в ellipsis (min-width:0) */
+.dl-details-head .dl-collapse-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.dl-details-head .dl-details-title {
+  min-width: 0;
 }
 
 .dl-details-head .dl-details-tabs {

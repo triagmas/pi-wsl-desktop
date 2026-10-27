@@ -23,7 +23,7 @@ export interface SavedEntry {
  * Сохранённые сообщения → записи ленты. Показываем только реальную переписку:
  * служебные строки сессии (`session`, `model_change`, …) в ленту не попадают.
  */
-export function toChatEntries(entries: SavedEntry[]): ChatEntry[] {
+export function toChatEntries(entries: SavedEntry[], page = 0): ChatEntry[] {
   const out: ChatEntry[] = [];
   for (let i = 0; i < entries.length; i += 1) {
     const saved = entries[i];
@@ -37,19 +37,36 @@ export function toChatEntries(entries: SavedEntry[]): ChatEntry[] {
         : undefined;
     // A stored failed run may have no text at all — the error is its content.
     if (view.text === '' && !error) continue;
-    out.push({ key: view.key, kind: view.kind, text: view.text, ...(error ? { error } : {}) });
+    // R07 r01 (P1-B): id-less entries fall back to a per-page index, so the
+    // page number is part of the key — two pages can never collide.
+    out.push({ key: `p${page}:${view.key}`, kind: view.kind, text: view.text, ...(error ? { error } : {}) });
   }
   return out;
 }
 
 /**
  * Хронологическое слияние: сохранённое — сначала, живые ходы — после.
+ *
  * Ключи получают префикс источника, поэтому идентификаторы JSONL и живые
  * индексы (`e0`, `e1`, …) не могут столкнуться.
+ *
+ * R07 r01 (P1-B): если Pi уже дописал показанные живые ходы в JSONL и более
+ * поздняя страница вернула их же, они не дублируются — перекрывающийся хвост
+ * сохранённого отбрасывается в пользу живых записей (они уже в ленте).
  */
 export function mergeTranscript(history: ChatEntry[], live: ChatEntry[]): ChatEntry[] {
+  let cut = history.length;
+  const max = Math.min(history.length, live.length);
+  for (let k = max; k >= 1; k -= 1) {
+    const tail = history.slice(history.length - k);
+    const head = live.slice(0, k);
+    if (tail.every((e, i) => e.kind === head[i].kind && e.text === head[i].text)) {
+      cut = history.length - k;
+      break;
+    }
+  }
   return [
-    ...history.map((e, i) => ({ ...e, key: `h:${e.key || i}` })),
+    ...history.slice(0, cut).map((e, i) => ({ ...e, key: `h:${e.key || i}` })),
     ...live.map((e, i) => ({ ...e, key: `l:${e.key || i}` })),
   ];
 }

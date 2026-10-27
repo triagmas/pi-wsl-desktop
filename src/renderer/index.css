@@ -582,6 +582,48 @@ input[type="range"] {
   margin-top: 6px;
 }
 
+/* UI21 R07 r01 (P2-B): компактная группа явного открытия Pi RPC —
+ * одна строка (кнопка + короткая сноска), не перекрывает ленту и не
+ * выглядит как часть переписки. */
+.chat-open-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--pw-radius-small, 6px);
+  background: var(--pw-surface-background-color);
+  font-size: 12.5px;
+}
+
+.chat-open-notice .muted {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--pw-muted-text-color);
+}
+
+/* UI21 R07 r01 (P1-B): явный разрыв между показанными сохранёнными записями
+ * и живыми ходами — интерфейс не выдаёт одно за продолжение другого. */
+.chat-history-gap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--pw-warning-color);
+  border-radius: var(--pw-radius-small, 6px);
+  background: var(--pw-surface-background-color);
+  font-size: 12.5px;
+}
+
+.chat-history-gap .muted {
+  flex: 1 1 240px;
+  min-width: 0;
+  color: var(--pw-muted-text-color);
+}
+
 /* C5-R02: строка статуса чата — статус и кнопка-действие разными
  * элементами; без flex/gap они визуально слипаются («Чат открытЗакрыть чат»). */
 .chat-status-row {

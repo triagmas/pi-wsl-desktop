@@ -8,13 +8,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
-import type { ChatController, ChatEntry } from './useChat';
+import { toUiError, type ChatController, type ChatEntry } from './useChat';
 import type { DesktopApi } from './api';
-import { m1, parseBridgeError } from './m1api';
+import { m1 } from './m1api';
 import { mergeTranscript, toChatEntries, type SavedEntry } from './transcript';
 import { ChatView, type ChatTurn, type ChatTurnAssistant } from './ui/ChatView';
 
 const HISTORY_PAGE = 100;
+const HISTORY_GAP_KEY = '__history-gap__';
 
 export interface ChatPaneProps {
   /** Controller + composer draft live above the panel (§9.1 item 4): hiding
@@ -40,14 +41,18 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
    * раз на файл; живые ходы никогда не перечитывают JSONL → дублей нет,
    * файл не изменяется, external-writer/явный open гейты не обходятся.
    * ------------------------------------------------------------------ */
-  const [saved, setSaved] = useState<{ entries: ChatEntry[]; cursor: string | null; truncated: boolean }>({
-    entries: [],
-    cursor: null,
-    truncated: false,
-  });
+  const [saved, setSaved] = useState<{
+    /** R07 r01 (P2-A): записи принадлежат конкретному файлу — чужой файл
+     *  никогда не рендерится, даже одним кадром до окончания чтения. */
+    file: string | null;
+    entries: ChatEntry[];
+    cursor: string | null;
+    truncated: boolean;
+  }>({ file: null, entries: [], cursor: null, truncated: false });
   const [historyError, setHistoryError] = useState<{ code: string; message: string } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const historySeq = useRef(0);
+  const pageCountRef = useRef(0);
 
   const loadHistory = useCallback(
     async (since?: string) => {
@@ -61,16 +66,19 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
           ...(since ? { sinceEntryId: since } : {}),
         });
         if (seq !== historySeq.current) return; // a newer session/file won
-        const next = toChatEntries(page.entries as SavedEntry[]);
+        const nextPage = since ? pageCountRef.current : 0;
+        const next = toChatEntries(page.entries as SavedEntry[], nextPage);
+        pageCountRef.current = nextPage + 1;
         setSaved((prev) =>
           since
-            ? { entries: [...prev.entries, ...next], cursor: page.nextCursor ?? null, truncated: page.truncated }
-            : { entries: next, cursor: page.nextCursor ?? null, truncated: page.truncated },
+            ? { file, entries: [...(prev.file === file ? prev.entries : []), ...next], cursor: page.nextCursor ?? null, truncated: page.truncated }
+            : { file, entries: next, cursor: page.nextCursor ?? null, truncated: page.truncated },
         );
         setHistoryError(null);
       } catch (err) {
         if (seq !== historySeq.current) return;
-        setHistoryError(parseBridgeError(err));
+        // P1-A: та же централизованная редактирующая граница, что у остальных ошибок.
+        setHistoryError(toUiError(err));
       } finally {
         if (seq === historySeq.current) setHistoryLoading(false);
       }
@@ -83,14 +91,17 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   useEffect(() => {
     historySeq.current += 1;
     // Deferred: the strict set-state-in-effect rule forbids sync chains here.
+    pageCountRef.current = 0;
     const t = window.setTimeout(() => {
-      setSaved({ entries: [], cursor: null, truncated: false });
+      setSaved({ file, entries: [], cursor: null, truncated: false });
       setHistoryError(null);
       setHistoryLoading(false);
       void loadHistory();
     }, 0);
     return () => window.clearTimeout(t);
-  }, [loadHistory]);
+  }, [loadHistory, file]);
+  // Only entries read for THIS file are ever displayed (never the previous one).
+  const savedEntries = saved.file === file ? saved.entries : [];
   const activeModel = state.state?.model ?? null;
   // Defensive defaults: an older/partial state object must never crash the pane.
   const models = useMemo(() => state.models ?? [], [state.models]);
@@ -138,7 +149,7 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
           </div>
         </div>
       )}
-      {historyLoading && saved.entries.length === 0 && (
+      {historyLoading && savedEntries.length === 0 && (
         <div className="loading-row" data-testid="chat-history-loading">
           <span className="spinner" aria-hidden="true" />
           <span>Чтение сохранённых сообщений…</span>
@@ -169,13 +180,13 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
         <div className="error-box" role="alert">Не удалось открыть чат</div>
       )}
       {!isOpenLike && state.status !== 'opening' && (
-        <div className="chat-actions">
+        // R07 r01 (P2-B): компактная группа действия; явное открытие Pi RPC
+        // остаётся обязательным — никаких автоматических запросов к модели.
+        <div className="chat-open-notice" data-testid="chat-open-notice">
           <button type="button" className="primary" onClick={() => void open()}>
             Открыть чат
           </button>
-          <p className="muted">
-            Чат пишет в сессию только через официальный Pi RPC — каждый шаг требует вашего действия.
-          </p>
+          <span className="muted">Запись — только через официальный Pi RPC и по вашему действию.</span>
         </div>
       )}
       {isOpenLike && (
@@ -282,9 +293,43 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
     ) : null;
 
   // R07 §2: единая лента — сначала сохранённое (read-only), затем живые ходы.
-  const transcript = mergeTranscript(saved.entries, state.entries);
+  // R07 r01 (P1-B): пока есть непрочитанные более поздние записи, между ними
+  // вставляется явный разрыв — живые ходы не выдаются за прямое продолжение.
+  const hasGap = saved.file === file && saved.truncated && saved.cursor !== null;
+  const transcript = mergeTranscript(savedEntries, state.entries);
+  if (hasGap) {
+    // Разрыв встаёт ровно на стык: после показанных сохранённых записей,
+    // перед первым живым ходом (или в конец, если живых ещё нет).
+    const firstLive = transcript.findIndex((e) => e.key.startsWith('l:'));
+    transcript.splice(firstLive === -1 ? transcript.length : firstLive, 0, {
+      key: HISTORY_GAP_KEY,
+      kind: 'other',
+      text: '',
+    });
+  }
+
+  const gapBlock: ReactNode = hasGap ? (
+    <div className="chat-history-gap" data-testid="chat-history-gap">
+      <p className="muted">
+        Показаны первые сохранённые записи. Дальше по файлу есть ещё записи — загрузите следующие по
+        порядку, чтобы увидеть, что было до текущего чата.
+      </p>
+      <button
+        type="button"
+        data-testid="chat-history-more"
+        onClick={() => void loadHistory(saved.cursor ?? undefined)}
+        disabled={historyLoading}
+      >
+        {historyLoading ? 'Загрузка…' : 'Загрузить следующие сохранённые записи'}
+      </button>
+    </div>
+  ) : null;
 
   const turns: ChatTurn[] = transcript.map((entry) => {
+    // R07 r01 (P1-B): разрыв — отдельный ход между сохранённым и живым.
+    if (entry.key === HISTORY_GAP_KEY) {
+      return { kind: 'assistant', id: HISTORY_GAP_KEY, body: gapBlock };
+    }
     if (entry.kind === 'user') {
       return { kind: 'user', id: entry.key, text: entry.text };
     }
@@ -384,18 +429,6 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
             : null
         }
       />
-      {saved.truncated && saved.cursor ? (
-        <div className="history-more">
-          <button
-            type="button"
-            data-testid="chat-history-more"
-            onClick={() => void loadHistory(saved.cursor ?? undefined)}
-            disabled={historyLoading}
-          >
-            {historyLoading ? 'Загрузка…' : 'Загрузить более раннюю переписку'}
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -68,7 +68,13 @@ export const initialChatState: ChatUiState = {
  * bridge/RPC failures, failed model runs, disconnect banners and catalog reads.
  * Plain text only (never Markdown/HTML), redacted and bounded by shared/redact.
  */
-function toUiError(err: unknown): { code: string; message: string } {
+/**
+ * UI21 R07 r01 (P1-A): единственная граница отображения ошибок.
+ * Экспортируется, чтобы новые пути (чтение JSONL) не заводили вторую,
+ * неотредактированную ветку — секрет из bridge/readSession не должен
+ * попадать в DOM.
+ */
+export function toUiError(err: unknown): { code: string; message: string } {
   const parsed = parseBridgeError(err);
   return { code: parsed.code, message: redactSecrets(parsed.message) };
 }

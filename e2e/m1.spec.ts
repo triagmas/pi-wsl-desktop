@@ -67,7 +67,6 @@ test.describe('M1 sessions & chat E2E', () => {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
-      await page.getByTestId('tab-chat').click();
 
       // write boundary: nothing opens by itself
       const openBtn = page.getByRole('button', { name: /открыть чат/i });
@@ -121,7 +120,6 @@ test.describe('M1 sessions & chat E2E', () => {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
       await expect(page.getByText('E2E fixture session')).toBeVisible({ timeout: 15_000 });
       await page.getByText('E2E fixture session').click();
-      await page.getByTestId('tab-chat').click();
       await page.getByRole('button', { name: /открыть чат/i }).click();
       const alert = page.getByTestId('chat-error');
       await expect(alert).toBeVisible({ timeout: 20_000 });

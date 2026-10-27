@@ -71,7 +71,9 @@ test.describe('UI-A application shell E2E', () => {
       // §8 focus returns to the opening button.
       await page.getByTestId('open-details').click();
       await expect(page.getByTestId('right-sidebar')).toBeVisible();
-      await page.getByTestId('close-details').click();
+      // R07 §1: единственный тумблер шапки и открывает, и закрывает панель.
+      await page.getByTestId('open-details').click();
+      await expect(page.getByTestId('right-sidebar')).toHaveCount(0);
       await expect(page.getByTestId('open-details')).toBeFocused();
 
       // Sidebar collapse: labels hide, rail stays, saved state persists.
@@ -269,11 +271,10 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
   try {
     await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
 
-    // P1-code: открываем сессию и вкладку «История» — фикстурная история
-    // содержит markdown с inline- и fenced-кодом для проверки области §9.3.
+    // P1-code: R07 — сохранённая история открывается в общей ленте сразу,
+    // без вкладки «История»; фикстура содержит markdown с inline/fenced-кодом.
     await page.getByText('E2E fixture session').click();
-    await page.getByTestId('tab-history').click();
-    await expect(page.locator('.history code').first()).toBeVisible();
+    await expect(page.locator('[data-testid="chat-pane"] .dl-md code').first()).toBeVisible({ timeout: 20_000 });
 
     // P1-3: продуктовое дерево проектов/сессий — скроллируемая область
     const treeOverflow = await page.evaluate(() => {

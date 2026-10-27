@@ -415,7 +415,13 @@ describe('UI21-F2 model catalog & selector over the real bridge', () => {
     const after = readFileSync(fx.sessionFile, 'utf8');
     expect(after.startsWith(fx.originalText)).toBe(true);
     const appended = after.slice(fx.originalText.length).split('\n').filter((l) => l.trim() !== '');
-    expect(appended.map((l) => (JSON.parse(l) as { type: string }).type)).toEqual(['model_change', 'thinking_level_change']);
+    // native Pi: model_change, then the effective-level change forced by the
+    // non-reasoning model ("off"), then our explicit thinking switch to "high"
+    expect(appended.map((l) => (JSON.parse(l) as { type: string }).type)).toEqual([
+      'model_change',
+      'thinking_level_change',
+      'thinking_level_change',
+    ]);
   });
 
   it('rejects a switch ACK that get_state cannot confirm (null model/level) — no false PASS', async () => {
@@ -534,6 +540,83 @@ describe('UI21 R02: switch writes vs the idle external-writer gate', () => {
       // two records appeared (our model_change + a foreign message) → cannot attribute
       expect(errCode((await reader.waitForResponse('s1')).frame as ResponseErrorFrameT)).toBe('SESSION_CONFLICT');
       // the foreign write is still on disk — we never truncate or rewrite it
+      expect(readFileSync(fx.sessionFile, 'utf8')).toContain('cli wrote here');
+    } finally {
+      child.kill();
+    }
+  });
+});
+
+describe('UI21 R02 r01: native Pi may append model_change + thinking_level_change', () => {
+  it('accepts a switch that writes ONLY model_change (thinking level unchanged)', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader.waitForResponse('o1');
+      // model-one is reasoning-capable → Pi keeps the effective level, one record
+      child.stdin.write(req('s1', 'setModel', { provider: 'prov-a', modelId: 'model-one' }) + '\n');
+      expect(ok((await reader.waitForResponse('s1')).frame as ResponseOkFrameT)).toMatchObject({
+        state: { model: { provider: 'prov-a', id: 'model-one' }, thinkingLevel: 'medium' },
+      });
+      const appended = readFileSync(fx.sessionFile, 'utf8').slice(fx.originalText.length).split('\n').filter((l) => l.trim() !== '');
+      expect(appended.map((l) => (JSON.parse(l) as { type: string }).type)).toEqual(['model_change']);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('accepts the native TWO-record sequence and the next prompt still passes the gate', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge(fx.env);
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('sub', 'subscribeEvents', { topic: 'chat' }) + '\n');
+      await reader.waitForResponse('sub');
+      child.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader.waitForResponse('o1');
+      // raise the level so switching to a non-reasoning model forces "off"
+      child.stdin.write(req('t1', 'setThinkingLevel', { level: 'high' }) + '\n');
+      await reader.waitForResponse('t1');
+
+      child.stdin.write(req('s1', 'setModel', { provider: 'prov-b', modelId: 'model-two' }) + '\n');
+      const switched = ok((await reader.waitForResponse('s1')).frame as ResponseOkFrameT) as {
+        state: { model: { id: string }; thinkingLevel: string | null };
+      };
+      expect(switched.state.model.id).toBe('model-two');
+      expect(switched.state.thinkingLevel).toBe('off');
+
+      const appended = readFileSync(fx.sessionFile, 'utf8').slice(fx.originalText.length).split('\n').filter((l) => l.trim() !== '');
+      expect(appended.map((l) => (JSON.parse(l) as { type: string }).type)).toEqual([
+        'thinking_level_change', // our explicit level change
+        'model_change',
+        'thinking_level_change', // native follow-up from setModel
+      ]);
+
+      // the double write must not be mistaken for a foreign writer
+      child.stdin.write(req('p1', 'sendPrompt', { message: 'after native double write' }) + '\n');
+      expect((await reader.waitForResponse('p1')).frame).toMatchObject({ type: 'response', status: 'ok' });
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('still rejects a foreign record appended after the native two-record sequence', async () => {
+    const fx = makeFixture();
+    const child = await spawnBridge({ ...fx.env, FAKE_PI_MODE: 'switch-race' });
+    const reader = new FrameReader(child.stdout);
+    try {
+      await reader.waitForEvent('ready');
+      child.stdin.write(req('o1', 'openSession', { file: fx.sessionFile }) + '\n');
+      await reader.waitForResponse('o1');
+      child.stdin.write(req('t1', 'setThinkingLevel', { level: 'high' }) + '\n');
+      await reader.waitForResponse('t1');
+      child.stdin.write(req('s1', 'setModel', { provider: 'prov-b', modelId: 'model-two' }) + '\n');
+      expect(errCode((await reader.waitForResponse('s1')).frame as ResponseErrorFrameT)).toBe('SESSION_CONFLICT');
+      // the foreign bytes are preserved — we never truncate or rewrite them
       expect(readFileSync(fx.sessionFile, 'utf8')).toContain('cli wrote here');
     } finally {
       child.kill();

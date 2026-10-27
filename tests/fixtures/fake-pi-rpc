@@ -150,7 +150,15 @@ function handle(cmd) {
         ? null // ACK without an actual switch — the bridge must not report success
         : { id: match.id, name: match.name, provider: match.provider };
       if (MODE !== 'model-null') {
+        const previousThinking = currentThinking;
         appendRow({ type: 'model_change', timestamp: new Date().toISOString(), provider: match.provider, modelId: match.id });
+        // Native Pi 1.4.0: setModel() calls setThinkingLevel(effective) right after
+        // the model change, and that appends a second record whenever the
+        // effective level differs (e.g. a non-reasoning model forces "off").
+        if (match.reasoning === false && previousThinking !== 'off') {
+          currentThinking = 'off';
+          appendRow({ type: 'thinking_level_change', timestamp: new Date().toISOString(), thinkingLevel: 'off' });
+        }
         // race simulation: another writer appends while our switch is in flight
         if (MODE === 'switch-race') appendRow({ type: 'message', timestamp: new Date().toISOString(), message: { role: 'user', content: 'cli wrote here' } });
       }

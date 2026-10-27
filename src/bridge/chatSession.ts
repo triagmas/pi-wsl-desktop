@@ -324,13 +324,13 @@ export class ChatSessionManager {
 
   /**
    * Attribute the bytes appended during our own mutation. Only an EXACT,
-   * single, expected record may advance the idle baseline; anything else means
-   * a concurrent writer raced us, so we fail closed — without truncating,
-   * rewriting or absorbing the foreign record.
+   * expected Pi-owned record sequence may advance the idle baseline; anything
+   * else means a concurrent writer raced us, so we fail closed — without
+   * truncating, rewriting or absorbing the foreign record.
    */
   private async confirmOwnAppend(
     before: { size: number },
-    expected: (entry: Record<string, unknown>) => boolean,
+    validate: (entries: Record<string, unknown>[]) => boolean,
   ): Promise<void> {
     const file = this.file;
     if (!file) throw new BridgeError('DISCONNECTED', 'No chat session is open');
@@ -352,19 +352,19 @@ export class ChatSessionManager {
       .toString('utf8')
       .split('\n')
       .filter((line) => line.trim() !== '');
-    if (lines.length !== 1) {
-      throw new BridgeError(
-        'SESSION_CONFLICT',
-        `Concurrent external modification: ${lines.length} records appended during the switch`,
-      );
+    const entries: Record<string, unknown>[] = [];
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new BridgeError('SESSION_CONFLICT', 'Unexpected record appended during the switch');
+        }
+        entries.push(parsed as Record<string, unknown>);
+      } catch {
+        throw new BridgeError('SESSION_CONFLICT', 'Unparsable record appended during the switch');
+      }
     }
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(lines[0]) as Record<string, unknown>;
-    } catch {
-      throw new BridgeError('SESSION_CONFLICT', 'Unparsable record appended during the switch');
-    }
-    if (!expected(entry)) {
+    if (!validate(entries)) {
       throw new BridgeError('SESSION_CONFLICT', 'Another writer appended to the session during the switch');
     }
     this.idleMtimeMs = meta.mtimeMs;
@@ -388,6 +388,9 @@ export class ChatSessionManager {
       }
       // Fail closed BEFORE any mutation if another writer touched the file.
       const before = await this.assertIdleWriterGate('смены модели');
+      // Pre-state gives the effective thinking level BEFORE the switch: native Pi
+      // appends a second record only when that level actually changes.
+      const preState = mapRpcState(await client.request('get_state'));
       try {
         await client.request('set_model', { provider, modelId });
       } catch (err) {
@@ -399,11 +402,23 @@ export class ChatSessionManager {
         const current = state.model ? `${state.model.provider}/${state.model.id}` : 'модель не подтверждена';
         throw new BridgeError('INVALID_REQUEST', `Pi не переключил модель (сейчас ${current})`);
       }
-      // Our own model_change is the ONLY record we may absorb into the baseline.
-      await this.confirmOwnAppend(
-        before,
-        (e) => e.type === 'model_change' && e.provider === provider && e.modelId === modelId,
-      );
+      // Native Pi 1.4.0 writes `model_change` and then, when the effective
+      // thinking level changes (e.g. a non-reasoning model forces "off"),
+      // a second `thinking_level_change`. Accept exactly that ordered pair and
+      // nothing else — any extra/foreign record still fails closed.
+      const levelChanged = preState.thinkingLevel !== state.thinkingLevel;
+      await this.confirmOwnAppend(before, (entries) => {
+        if (entries.length === 0) return true;
+        if (entries.length > 2) return false;
+        const [first, second] = entries;
+        if (first?.type !== 'model_change' || first.provider !== provider || first.modelId !== modelId) return false;
+        if (entries.length === 1) return true;
+        return (
+          levelChanged &&
+          second?.type === 'thinking_level_change' &&
+          second.thinkingLevel === state.thinkingLevel
+        );
+      });
       return { state };
     });
   }
@@ -436,7 +451,12 @@ export class ChatSessionManager {
       if (state.thinkingLevel !== level) {
         throw new BridgeError('INVALID_REQUEST', `Pi не установил thinking level (сейчас ${state.thinkingLevel ?? 'не подтверждён'})`);
       }
-      await this.confirmOwnAppend(before, (e) => e.type === 'thinking_level_change' && e.thinkingLevel === level);
+      await this.confirmOwnAppend(
+        before,
+        (entries) =>
+          entries.length === 0 ||
+          (entries.length === 1 && entries[0]?.type === 'thinking_level_change' && entries[0].thinkingLevel === level),
+      );
       return { state };
     });
   }

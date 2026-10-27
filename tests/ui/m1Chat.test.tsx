@@ -293,6 +293,25 @@ describe('UI21-F1-C: failed generation shows a visible error (no blank bubble)',
     expect(visible.length).toBeLessThan(600);
   });
 
+  it('redacts GitHub PAT prefixes (ghp_/github_pat_), Bearer credentials and C:/ paths', async () => {
+    const { emit } = await openChat();
+    const rawError =
+      'push failed: ghp_16C7e42F292c6912E7710c838347Ae178B4a and github_pat_11ABCDEFG0123456789_abcdefghijklmnop ' +
+      'Authorization: Bearer dummyBearerToken1234567890 file C:/Users/triag/AppData/Local/secret.txt';
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: rawError, timestamp: 2 } },
+    });
+    const visible = (await screen.findByTestId('chat-message-error')).textContent ?? '';
+    // no fragment of any credential survives — neither prefix nor suffix
+    for (const leak of ['ghp_', '16C7e42F', 'github_pat_', '11ABCDEFG', 'dummyBearer', 'Bearer dummy', 'C:/Users', 'AppData']) {
+      expect(visible).not.toContain(leak);
+    }
+    expect(visible).toContain('[redacted]');
+    expect(visible).toContain('[path]');
+  });
+
   it('normal assistant finalization keeps rendering text with no error box', async () => {
     const { emit } = await openChat();
     emit({

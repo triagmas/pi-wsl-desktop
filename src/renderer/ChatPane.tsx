@@ -203,6 +203,22 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
     if (entry.kind === 'user') {
       return { kind: 'user', id: entry.key, text: entry.text };
     }
+    // UI21 R02: tool results are their own kind of chat content (§9.3
+    // toolOutput zone). Keep them semantically separate from assistant prose —
+    // the .bubble-tool presentation (tool card surface + its own typography
+    // tokens) was lost when every non-user entry became an assistant turn.
+    if (entry.kind === 'tool') {
+      return {
+        kind: 'assistant',
+        id: entry.key,
+        body: (
+          <div className="bubble bubble-tool" data-testid="chat-tool-entry">
+            <span className="bubble-role">tool</span>
+            <SafeMarkdown text={entry.text} />
+          </div>
+        ),
+      };
+    }
     const turn: ChatTurnAssistant = {
       kind: 'assistant',
       id: entry.key,

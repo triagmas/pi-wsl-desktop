@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { m1, parseBridgeError } from './m1api';
 import { messageText } from './entryText';
+import { redactSecrets } from '../shared/redact';
 import type { ChatEventT, ModelInfoT, RpcStateT } from './types';
 
 export type ChatStatus = 'closed' | 'opening' | 'open' | 'sending' | 'error';
@@ -63,45 +64,13 @@ export const initialChatState: ChatUiState = {
 };
 
 /**
- * UI21-F1-C review fix: redaction is a *conservative best-effort* filter over
- * the message before it reaches the DOM — not a guarantee that every arbitrary
- * secret format is caught. It covers the formats we can name precisely
- * (provider key prefixes with their real separators, HTTP auth schemes,
- * `key: value` credentials) and then removes long high-entropy identifiers we
- * do not recognise, so an unknown token shape still cannot pass through raw.
+ * UI21 R02: ONE safe error mapper for every error that can reach the DOM —
+ * bridge/RPC failures, failed model runs, disconnect banners and catalog reads.
+ * Plain text only (never Markdown/HTML), redacted and bounded by shared/redact.
  */
-const MODEL_ERROR_FALLBACK = 'Генерация завершилась с ошибкой';
-const MODEL_ERROR_MAX = 300;
-/** Ordered [pattern, replacement] matrix; order matters (scheme before value). */
-const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
-  // Provider key shapes. GitHub token prefixes use an underscore, not a hyphen.
-  [/\b(?:sk|pk|rk)-[A-Za-z0-9._-]{6,}/g, '[redacted]'],
-  [/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{6,}/g, '[redacted]'],
-  [/\bgithub_pat_[A-Za-z0-9_]{6,}/g, '[redacted]'],
-  [/\bglpat-[A-Za-z0-9_-]{6,}/g, '[redacted]'],
-  [/\bxox[abposr]-[A-Za-z0-9-]{6,}/g, '[redacted]'],
-  // HTTP auth schemes: drop the credential, not just the scheme word.
-  [/\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{6,}/gi, '$1 [redacted]'],
-  // Header-style credentials: drop the scheme + credential value, but stop at the
-  // next whitespace-delimited token so unrelated trailing text is preserved.
-  [/\b(authorization|proxy-authorization)\s*[:=]\s*[^\s,;}]+(?:\s+[^\s,;}]+)?/gi, 'authorization: [redacted]'],
-  [/\b(api[_-]?key|x-api-key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd)\s*[:=]\s*[^\s,;}]+/gi, '$1: [redacted]'],
-  // Conservative catch-all: long identifiers mixing letters and digits are
-  // treated as credentials — an unrecognised token shape must not leak.
-  [/\b(?=[A-Za-z0-9_-]{32,}\b)(?=[^\s]*\d)(?=[^\s]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/g, '[redacted]'],
-];
-/** Best-effort path shapes; not a claim to catch every possible file path. */
-const PATH_PATTERN = /(?:[A-Za-z]:[\\/][^\s"'`]+)|(?:\/(?:home|mnt|Users|root|var|etc|tmp|opt|srv|usr|proc|sys|dev|private|Applications)\/[^\s"'`]*)/g;
-
-function sanitizeModelError(raw: unknown): string {
-  if (typeof raw !== 'string' || raw.trim() === '') return MODEL_ERROR_FALLBACK;
-  let text = raw
-    // eslint-disable-next-line no-control-regex -- stripping C0/C1 control chars is the point
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ');
-  for (const [pattern, replacement] of REDACTIONS) text = text.replace(pattern, replacement);
-  text = text.replace(PATH_PATTERN, '[path]').trim();
-  if (text.length > MODEL_ERROR_MAX) text = `${text.slice(0, MODEL_ERROR_MAX)}…`;
-  return text === '' ? MODEL_ERROR_FALLBACK : text;
+function toUiError(err: unknown): { code: string; message: string } {
+  const parsed = parseBridgeError(err);
+  return { code: parsed.code, message: redactSecrets(parsed.message) };
 }
 
 function entryFromMessage(
@@ -113,7 +82,7 @@ function entryFromMessage(
   if (role === 'assistant') {
     // UI21-F1-C: a failed run must surface its real error — never a blank bubble.
     if (message.stopReason === 'error') {
-      return { key: `e${index}`, kind: 'assistant', text, error: sanitizeModelError(message.errorMessage) };
+      return { key: `e${index}`, kind: 'assistant', text, error: redactSecrets(message.errorMessage) };
     }
     return { key: `e${index}`, kind: 'assistant', text };
   }
@@ -131,7 +100,7 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
     return { ...state, status: 'open', state: ev.state, error: null, banner: null };
   }
   if (ev.kind === 'closed') {
-    const banner = ev.code === 'CANCELLED' ? null : { code: ev.code, message: ev.message };
+    const banner = ev.code === 'CANCELLED' ? null : { code: ev.code, message: redactSecrets(ev.message) };
     // UI21-F1-A P1: the live tool strip belongs to a running RPC — on close/
     // disconnect it must go with streamText, otherwise a reopened (resumed)
     // chat renders a phantom live run (stale ⏳ step from the dead process).
@@ -227,7 +196,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       void refreshModelsRef.current();
     } catch (err) {
       if (!mounted.current) return;
-      setState((s) => ({ ...s, status: 'error', error: parseBridgeError(err) }));
+      setState((s) => ({ ...s, status: 'error', error: toUiError(err) }));
     }
   }, [api, file]);
 
@@ -240,7 +209,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
         // stays 'sending' until agent_settled arrives via events
       } catch (err) {
         if (!mounted.current) return;
-        setState((s) => ({ ...s, status: 'open', error: parseBridgeError(err) }));
+        setState((s) => ({ ...s, status: 'open', error: toUiError(err) }));
       }
     },
     [api],
@@ -252,7 +221,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       await m1.interrupt(api);
     } catch (err) {
       if (!mounted.current) return;
-      setState((s) => ({ ...s, error: parseBridgeError(err) }));
+      setState((s) => ({ ...s, error: toUiError(err) }));
     }
   }, [api]);
 
@@ -269,10 +238,10 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       modelsLoading: false,
       ...(catalog.status === 'fulfilled'
         ? { models: catalog.value.models, modelsError: null }
-        : { models: [], modelsError: parseBridgeError(catalog.reason) }),
+        : { models: [], modelsError: toUiError(catalog.reason) }),
       ...(levels.status === 'fulfilled'
         ? { thinkingLevels: levels.value.levels, thinkingError: null }
-        : { thinkingLevels: [], thinkingError: parseBridgeError(levels.reason) }),
+        : { thinkingLevels: [], thinkingError: toUiError(levels.reason) }),
     }));
   }, [api]);
 
@@ -293,7 +262,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
         void refreshModelsRef.current();
       } catch (err) {
         if (!mounted.current) return;
-        setState((s) => ({ ...s, error: parseBridgeError(err) }));
+        setState((s) => ({ ...s, error: toUiError(err) }));
       }
     },
     [api],
@@ -309,7 +278,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
         setState((s) => ({ ...s, state: r.state ?? s.state, error: null }));
       } catch (err) {
         if (!mounted.current) return;
-        setState((s) => ({ ...s, error: parseBridgeError(err) }));
+        setState((s) => ({ ...s, error: toUiError(err) }));
       }
     },
     [api],
@@ -321,7 +290,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       await m1.closeSession(api);
     } catch (err) {
       if (!mounted.current) return false;
-      setState((s) => ({ ...s, error: parseBridgeError(err) }));
+      setState((s) => ({ ...s, error: toUiError(err) }));
       // Review P1: a refused close is a FAILED close — the caller must not
       // treat it as success and switch away from a possibly live session.
       return false;

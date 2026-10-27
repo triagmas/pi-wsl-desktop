@@ -518,3 +518,78 @@ describe('UI21-F2 r01: catalog availability and independent error handling', () 
     expect(screen.queryAllByTestId(/^thinking-option-/)).toHaveLength(0);
   });
 });
+
+describe('UI21 R02: redaction boundary and tool-entry presentation', () => {
+  async function openChat(route: ChatRoute = {}) {
+    const api = makeApi(route);
+    render(<ChatHarness api={api.api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'openSession')).toBe(true));
+    return api;
+  }
+
+  it('quoted JSON credentials never reach the DOM from a failed model message', async () => {
+    const { emit } = await openChat();
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: {
+        message: {
+          role: 'assistant',
+          content: [],
+          stopReason: 'error',
+          errorMessage: 'provider said {"api_key":"syntheticSecret123"} and {"apiKey": "syntheticSecret456"}',
+          timestamp: 2,
+        },
+      },
+    });
+    const visible = (await screen.findByTestId('chat-message-error')).textContent ?? '';
+    expect(visible).not.toContain('syntheticSecret123');
+    expect(visible).not.toContain('syntheticSecret456');
+    expect(visible).toContain('[redacted]');
+  });
+
+  it('bridge command errors (state.error) are redacted too', async () => {
+    await openChat({ errors: { setModel: new Error('INVALID_REQUEST: Authorization: Bearer syntheticCredential123') } });
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    await userEvent.click(await screen.findByTestId('model-option-prov-b:model-two'));
+    const err = await screen.findByTestId('chat-error');
+    expect(err.textContent).not.toContain('syntheticCredential123');
+    expect(err.textContent).toContain('INVALID_REQUEST');
+  });
+
+  it('catalog and thinking errors are redacted as well', async () => {
+    await openChat({ errors: { getAvailableModels: new Error('DISCONNECTED: sk-syntheticSecret789') } });
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    const empty = await screen.findByTestId('model-menu-empty');
+    expect(empty.textContent).not.toContain('syntheticSecret789');
+  });
+
+  it('a disconnect banner is redacted', async () => {
+    const { emit } = await openChat();
+    emit({ kind: 'closed', code: 'DISCONNECTED', message: 'socket died with token ghp_syntheticSecret999' });
+    const banner = await screen.findByTestId('chat-banner');
+    expect(banner.textContent).not.toContain('syntheticSecret999');
+  });
+
+  it('restores a semantically separate representation for persisted tool entries', async () => {
+    const { emit } = await openChat();
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'toolResult', toolName: 'bash', content: [{ type: 'text', text: 'stdout: ok' }], timestamp: 2 } },
+    });
+    const tool = await screen.findByTestId('chat-tool-entry');
+    expect(tool.className).toContain('bubble-tool');
+    expect(tool.textContent).toContain('bash');
+    expect(tool.textContent).toContain('stdout: ok');
+    // assistant entries keep the ordinary path (no tool styling)
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'final answer' }], stopReason: 'stop', timestamp: 3 } },
+    });
+    await screen.findByText('final answer');
+    expect(screen.queryAllByTestId('chat-tool-entry')).toHaveLength(1);
+  });
+});

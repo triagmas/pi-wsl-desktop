@@ -34,6 +34,19 @@ const STREAM_MS = Number(process.env.FAKE_PI_STREAM_MS || 0);
 let buf = '';
 let streaming = false;
 let sessionFile = null;
+{
+  const i = process.argv.indexOf('--session');
+  if (i > 0 && typeof process.argv[i + 1] === 'string') sessionFile = process.argv[i + 1];
+}
+let lastEntryId = 'seed';
+const { appendFileSync } = require('node:fs');
+const appendRow = (row) => {
+  if (!sessionFile) return;
+  lastEntryId = `fx-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    appendFileSync(sessionFile, `${JSON.stringify({ ...row, id: lastEntryId, parentId: lastEntryId === 'seed' ? null : lastEntryId })}\n`);
+  } catch {}
+};
 let streamTimer = null;
 // UI21-F2: mutable model/thinking state so get_state reflects real switches.
 let currentModel = { id: 'fake-model', name: 'Fake Model', provider: 'fake' };
@@ -136,6 +149,11 @@ function handle(cmd) {
       currentModel = MODE === 'model-null'
         ? null // ACK without an actual switch — the bridge must not report success
         : { id: match.id, name: match.name, provider: match.provider };
+      if (MODE !== 'model-null') {
+        appendRow({ type: 'model_change', timestamp: new Date().toISOString(), provider: match.provider, modelId: match.id });
+        // race simulation: another writer appends while our switch is in flight
+        if (MODE === 'switch-race') appendRow({ type: 'message', timestamp: new Date().toISOString(), message: { role: 'user', content: 'cli wrote here' } });
+      }
       send({ id: cmd.id, type: 'response', command: 'set_model', success: true, data: {} });
       return;
     }
@@ -150,6 +168,9 @@ function handle(cmd) {
         return;
       }
       currentThinking = MODE === 'thinking-null' ? null : String(cmd.level);
+      if (MODE !== 'thinking-null') {
+        appendRow({ type: 'thinking_level_change', timestamp: new Date().toISOString(), thinkingLevel: String(cmd.level) });
+      }
       send({ id: cmd.id, type: 'response', command: 'set_thinking_level', success: true, data: {} });
       return;
     }

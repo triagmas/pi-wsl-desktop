@@ -4,7 +4,7 @@
 
 **Сверено с GitHub 27 октября 2026 года.** M0–M3 приняты и слиты. M4 — выпуск 1.0 — продолжается: установщик и первая версия интерфейса уже в `main`, перенос утверждённого Design Lab в рабочее приложение ещё проходит приёмку. Версия пакета — `1.0.0-rc.1`; стабильный 1.0.0 пока не объявлен.
 
-[Обзор](README.md) · [Как участвовать](CONTRIBUTING.md) · [Продукт](PRODUCT.md) · [Техническая спецификация](SPECIFICATION.md) · [Общий план в GitHub](https://github.com/triagmas/pi-wsl-desktop/issues/1)
+[Обзор](README.md) · [Продукт](PRODUCT.md) · [Техническая спецификация](SPECIFICATION.md) · [Общий план в GitHub](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
 ## Где мы сейчас
 

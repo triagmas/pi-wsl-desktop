@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './index.css';
 import { getDesktopApi, type DesktopApi } from './api';
 import { phaseText } from './StatusPanel';
-import { HistoryView } from './HistoryView';
 import { ChatPane } from './ChatPane';
 import { ResourcesView } from './ResourcesView';
 import { ModulesView } from './ModulesView';
@@ -26,8 +25,7 @@ import { RightSidebar, RightSidebarHead, RightSidebarResize } from './shell/Righ
 import { TerminalDock } from './shell/TerminalDock';
 import { AppScreen } from './ui/AppScreen';
 import { ChatView } from './ui/ChatView';
-import { SessionTabs } from './ui/SessionTabs';
-import { IconPanelExpand } from './ui/icons';
+import { IconChevronRight } from './ui/icons';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
 import { THEME_PRESETS } from '../shared/design/presets';
@@ -58,14 +56,6 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const { snapshot, requestError, connectionSeq, retry, selectDistro, refreshRuntime } = useConnection(effectiveApi);
   /** §9.6 step 2: chat is the default workspace (details of the base screen). */
   const [view, setView] = useState<View>('chat');
-  /** D3: режим сессии (История | Чат) — кнопки в общей crumb-row AppScreen.
-   * Derived-состояние (без setState-in-effect): режим, сохранённый для ДРУГОЙ
-   * сессии, игнорируется — новая сессия всегда открывается в «Истории», как и
-   * прежний remount ChatWorkspace со своим локальным tab-state. */
-  const [sessionTabState, setSessionTabState] = useState<{
-    file: string | null;
-    tab: 'history' | 'chat';
-  }>({ file: null, tab: 'history' });
   // M3 module registry: registered once from the definitions, then toggled.
   const [moduleEntries, setModuleEntries] = useState<ModuleEntry[]>(() =>
     registerModules(moduleDefinitions ?? [DEMO_MODULE_MANIFEST]),
@@ -216,11 +206,6 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * ------------------------------------------------------------------ */
   const [activeSession, setActiveSession] = useState<SessionInfoT | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionInfoT | null>(null);
-  // D3 derived: режим привязан к сессии, которая его выбрала.
-  const sessionTab =
-    sessionTabState.file === (activeSession?.file ?? null) ? sessionTabState.tab : 'history';
-  const setSessionTab = (tab: 'history' | 'chat') =>
-    setSessionTabState({ file: activeSession?.file ?? null, tab });
   const chat = useChat(effectiveApi, activeSession?.file ?? '');
   const [draft, setDraft] = useState('');
   const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
@@ -476,15 +461,15 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       type="button"
       ref={detailsRef}
       data-testid="open-details"
-      className={
-        detailsOpen ? 'dl-btn-accent dl-toolbar-expand' : 'dl-btn-ghost dl-toolbar-dots'
-      }
+      className="dl-btn-ghost dl-collapse-btn dl-header-details-toggle"
       aria-pressed={detailsOpen}
-      aria-label="Показать панель деталей"
-      title="Показать панель деталей"
+      aria-expanded={detailsOpen}
+      aria-label={detailsOpen ? 'Скрыть детали' : 'Показать детали'}
+      title={detailsOpen ? 'Скрыть детали' : 'Показать детали'}
       onClick={() => (detailsOpen ? closeDetails() : openDetails())}
     >
-      <IconPanelExpand size={22} />
+      {/* R07 §1: облик прежней кнопки сворачивания «Детали действия» */}
+      <IconChevronRight size={18} />
     </button>
   );
 
@@ -509,10 +494,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     </>
   ) : null;
 
+  /** R07 §2: переключателя «История | Чат» больше нет — «Чат» это статичный
+   * контекст рядом с единственной кнопкой правой панели, не вторая вкладка. */
   const sessionTabs =
     view === 'chat' && activeSession ? (
-      // C1/L1: общий ui/SessionTabs — тот же узел рендерит Design Lab
-      <SessionTabs mode={sessionTab} onChange={setSessionTab} />
+      <span className="dl-crumb-context" data-testid="session-context">
+        Чат
+      </span>
     ) : null;
 
   const headerRow =
@@ -568,11 +556,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         {activeSession ? (
           <section className="dl-session-detail" data-testid="session-detail">
             <div className="dl-session-body">
-              {sessionTab === 'history' ? (
-                <HistoryView api={effectiveApi as DesktopApi} file={activeSession.file} />
-              ) : (
-                <ChatPane chat={chat} draft={draft} onDraftChange={setDraft} />
-              )}
+              <ChatPane
+                api={effectiveApi}
+                file={activeSession.file}
+                chat={chat}
+                draft={draft}
+                onDraftChange={setDraft}
+              />
             </div>
           </section>
         ) : (

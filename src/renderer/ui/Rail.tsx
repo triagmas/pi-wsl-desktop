@@ -29,7 +29,7 @@ export interface RailProps {
   onItemClick?: (id: string) => void;
 }
 
-export function Rail({ top, bottom, tooltip, connectionDot = true, onItemClick, testid, dataCollapsed }: RailProps) {
+export function Rail({ top, bottom, tooltip, onItemClick, testid, dataCollapsed }: RailProps) {
   return (
     <nav
       className="dl-rail"
@@ -64,7 +64,7 @@ export function Rail({ top, bottom, tooltip, connectionDot = true, onItemClick, 
           {item.icon}
         </button>
       ))}
-      {connectionDot ? <span className="dl-rail-dot" aria-label="Pi подключён" /> : null}
+      {/* R07 §3: подключение показывает только нижняя строка статуса. */}
       {tooltip ? (
         <span className="dl-rail-tooltip" role="tooltip" style={{ top: '-31px' }}>
           {tooltip}

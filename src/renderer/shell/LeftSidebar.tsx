@@ -20,7 +20,8 @@ import {
   IconDatabase,
   IconFolder,
   IconGear,
-  IconPanelExpand,
+  IconPanelLeft,
+  IconChevronLeft,
   IconPuzzle,
 } from '../ui/icons';
 import { useResizeHandle } from './useResizeHandle';
@@ -195,7 +196,8 @@ export function LeftSidebar({
       aria-expanded={!collapsed}
       onClick={onToggleCollapsed}
     >
-      <IconPanelExpand size={20} />
+      {/* R07 §4: своя иконка левой панели — не путается с правой панелью деталей */}
+      {collapsed ? <IconPanelLeft size={20} /> : <IconChevronLeft size={20} />}
     </button>
   );
 
@@ -220,12 +222,11 @@ export function LeftSidebar({
               label: 'Показать проекты',
               title: 'Показать проекты',
               testid: 'sidebar-collapse',
-              icon: <IconPanelExpand size={20} />,
+              icon: <IconPanelLeft size={20} />,
             },
             ...railTop,
           ]}
           bottom={railBottom}
-          connectionDot={connectionReady}
           onItemClick={(id) => {
             if (id === 'sidebar-expand') onToggleCollapsed();
             else onView(id);
@@ -262,10 +263,6 @@ export function LeftSidebar({
             projects={sidebarProjects}
             activeSessionId={activeSessionId}
             nav={nav}
-            connection={{
-              label: connectionReady ? 'Pi подключён' : 'Подключение…',
-              testid: 'sidebar-connection',
-            }}
             onNewChat={onNewChat}
             onToggleProject={(id) =>
               setOpenProjects((prev) => {

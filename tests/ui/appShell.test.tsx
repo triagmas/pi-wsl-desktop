@@ -38,7 +38,8 @@ describe('App shell', () => {
     const open = screen.getByTestId('open-details');
     await user.click(open);
     expect(screen.getByTestId('right-sidebar')).toBeInTheDocument();
-    await user.click(screen.getByTestId('close-details'));
+    // R07 §1: единственная кнопка шапки и открывает, и закрывает панель.
+    await user.click(screen.getByTestId('open-details'));
     expect(screen.queryByTestId('right-sidebar')).not.toBeInTheDocument();
     expect(screen.getByTestId('open-details')).toHaveFocus();
   });
@@ -147,7 +148,6 @@ describe('App shell', () => {
     });
     render(<App api={api} moduleDefinitions={[]} />);
     await user.click(await screen.findByTestId('session-s1'));
-    await user.click(await screen.findByTestId('tab-chat'));
     await user.click(screen.getByRole('button', { name: 'Открыть чат' }));
     await waitFor(() => expect(screen.getByTestId('chat-status')).toBeInTheDocument());
     await user.click(screen.getByTestId('session-s2'));
@@ -165,8 +165,8 @@ describe('App shell', () => {
 
   it('never claims a connected Pi while the bridge is still starting (review P2)', () => {
     render(<App api={makeApi({ ...READY_SNAPSHOT, phase: 'connecting' })} moduleDefinitions={[]} />);
-    const conn = within(screen.getByTestId('left-sidebar')).getByText(/Подключение/);
-    expect(conn).toBeInTheDocument();
+    // R07 §3: единственное место статуса подключения — нижняя строка статуса.
+    expect(screen.getByTestId('status-connection')).toHaveTextContent(/Подключение/);
     expect(screen.getByTestId('left-sidebar')).not.toHaveTextContent(/Pi подключён/);
   });
 

@@ -4,7 +4,7 @@
  * в Toolbar (AppFrame details.header), здесь — тело: вкладки, pill, секции.
  * Реальные вкладки «Файлы/Изменения» не выдумываем (design-system.md): данные — фикстура.
  */
-import { IconCheckCircle, IconChevronRight, IconClose, IconDots, IconFileDoc } from './icons';
+import { IconCheckCircle, IconClose, IconDots, IconFileDoc } from './icons';
 
 export interface DetailsTab {
   id: string;
@@ -121,21 +121,13 @@ export function DetailsHeader({
   onCollapse,
 }: {
   title: string;
+  /** R07 §1: кнопка сворачивания переехала в шапку чата; параметры сохранены
+   *  для обратной совместимости вызовов, но внутри заголовка кнопки больше нет. */
   collapseTestId?: string;
   onCollapse?: () => void;
 }) {
-  return (
-    <>
-      <span className="dl-details-title">{title}</span>
-      <button
-        type="button"
-        className="dl-btn-ghost dl-collapse-btn"
-        aria-label="Свернуть панель"
-        data-testid={collapseTestId}
-        onClick={onCollapse}
-      >
-        <IconChevronRight size={18} />
-      </button>
-    </>
-  );
+  void collapseTestId;
+  const collapsed = onCollapse;
+  void collapsed;
+  return <span className="dl-details-title">{title}</span>;
 }

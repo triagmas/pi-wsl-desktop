@@ -6,10 +6,15 @@
  * управляемый композер (textarea + отправка + прерывание).
  * Поведенческие контракты tests/ui/m1Chat.test.tsx сохранены 1:1.
  */
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { SafeMarkdown } from './SafeMarkdown';
-import type { ChatController } from './useChat';
+import type { ChatController, ChatEntry } from './useChat';
+import type { DesktopApi } from './api';
+import { m1, parseBridgeError } from './m1api';
+import { mergeTranscript, toChatEntries, type SavedEntry } from './transcript';
 import { ChatView, type ChatTurn, type ChatTurnAssistant } from './ui/ChatView';
+
+const HISTORY_PAGE = 100;
 
 export interface ChatPaneProps {
   /** Controller + composer draft live above the panel (§9.1 item 4): hiding
@@ -17,14 +22,75 @@ export interface ChatPaneProps {
   chat: ChatController;
   draft: string;
   onDraftChange: (value: string) => void;
+  /** R07 §2: read-only источник сохранённых сообщений (M1 pagination). */
+  api?: DesktopApi | null;
+  file?: string;
 }
 
-export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
+export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: ChatPaneProps) {
   const { state, open, send, interrupt, closeChat, selectModel, selectThinkingLevel } = chat;
   // UI21-F2: selector UI state is presentation-only; the truth lives in Pi.
   const [menu, setMenu] = useState<'model' | 'thinking' | null>(null);
   const [filter, setFilter] = useState('');
   const switchLocked = state.status === 'sending' || state.status === 'opening';
+
+  /* ------------------------------------------------------------------ *
+   * R07 §2: сохранённые сообщения Pi — в общей ленте.
+   * Читаем ТОЛЬКО первую/следующую страницу M1 readSession (bounded), один
+   * раз на файл; живые ходы никогда не перечитывают JSONL → дублей нет,
+   * файл не изменяется, external-writer/явный open гейты не обходятся.
+   * ------------------------------------------------------------------ */
+  const [saved, setSaved] = useState<{ entries: ChatEntry[]; cursor: string | null; truncated: boolean }>({
+    entries: [],
+    cursor: null,
+    truncated: false,
+  });
+  const [historyError, setHistoryError] = useState<{ code: string; message: string } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historySeq = useRef(0);
+
+  const loadHistory = useCallback(
+    async (since?: string) => {
+      if (!api || file === '') return;
+      const seq = ++historySeq.current;
+      setHistoryLoading(true);
+      try {
+        const page = await m1.readSession(api, {
+          file,
+          limit: HISTORY_PAGE,
+          ...(since ? { sinceEntryId: since } : {}),
+        });
+        if (seq !== historySeq.current) return; // a newer session/file won
+        const next = toChatEntries(page.entries as SavedEntry[]);
+        setSaved((prev) =>
+          since
+            ? { entries: [...prev.entries, ...next], cursor: page.nextCursor ?? null, truncated: page.truncated }
+            : { entries: next, cursor: page.nextCursor ?? null, truncated: page.truncated },
+        );
+        setHistoryError(null);
+      } catch (err) {
+        if (seq !== historySeq.current) return;
+        setHistoryError(parseBridgeError(err));
+      } finally {
+        if (seq === historySeq.current) setHistoryLoading(false);
+      }
+    },
+    [api, file],
+  );
+
+  // Session switch: drop the previous session's transcript immediately — a
+  // saved message from another file must never leak into this one.
+  useEffect(() => {
+    historySeq.current += 1;
+    // Deferred: the strict set-state-in-effect rule forbids sync chains here.
+    const t = window.setTimeout(() => {
+      setSaved({ entries: [], cursor: null, truncated: false });
+      setHistoryError(null);
+      setHistoryLoading(false);
+      void loadHistory();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [loadHistory]);
   const activeModel = state.state?.model ?? null;
   // Defensive defaults: an older/partial state object must never crash the pane.
   const models = useMemo(() => state.models ?? [], [state.models]);
@@ -62,6 +128,22 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
    * ------------------------------------------------------------------ */
   const notice: ReactNode = (
     <>
+      {historyError && (
+        <div className="error-box" role="alert" data-testid="chat-history-error">
+          <strong>{historyError.code}</strong> — {historyError.message}
+          <div>
+            <button type="button" onClick={() => void loadHistory()}>
+              Повторить чтение истории
+            </button>
+          </div>
+        </div>
+      )}
+      {historyLoading && saved.entries.length === 0 && (
+        <div className="loading-row" data-testid="chat-history-loading">
+          <span className="spinner" aria-hidden="true" />
+          <span>Чтение сохранённых сообщений…</span>
+        </div>
+      )}
       {state.banner && (
         <div className="error-box" role="alert" data-testid="chat-banner">
           <strong>{state.banner.code}</strong> — {state.banner.message}. Откройте чат заново, когда будет готовы.
@@ -199,7 +281,10 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
       </div>
     ) : null;
 
-  const turns: ChatTurn[] = state.entries.map((entry) => {
+  // R07 §2: единая лента — сначала сохранённое (read-only), затем живые ходы.
+  const transcript = mergeTranscript(saved.entries, state.entries);
+
+  const turns: ChatTurn[] = transcript.map((entry) => {
     if (entry.kind === 'user') {
       return { kind: 'user', id: entry.key, text: entry.text };
     }
@@ -299,6 +384,18 @@ export function ChatPane({ chat, draft, onDraftChange }: ChatPaneProps) {
             : null
         }
       />
+      {saved.truncated && saved.cursor ? (
+        <div className="history-more">
+          <button
+            type="button"
+            data-testid="chat-history-more"
+            onClick={() => void loadHistory(saved.cursor ?? undefined)}
+            disabled={historyLoading}
+          >
+            {historyLoading ? 'Загрузка…' : 'Загрузить более раннюю переписку'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

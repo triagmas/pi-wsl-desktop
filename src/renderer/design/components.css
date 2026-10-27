@@ -2185,11 +2185,14 @@ button.dl-theme-card:hover {
 /* D3: legacy-док shell/TerminalSlot удалён — док = approved ui/TerminalPane
  * (.dl-terminal) с честным содержимым; тело дока несёт PTY-уведомление. */
 .dl-term-note {
+  /* R07 §5: раньше nowrap+ellipsis резал честную подпись на 1239×898 и
+    1000×722. Переносим текст: подпись должна читаться целиком. */
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .dl-terminal .terminal-slot {
@@ -2387,4 +2390,27 @@ html:not([data-design-lab]) .dl-frame[data-layout="app"] .dl-side-divider {
 .dl-frame[data-layout="app"] pre code,
 .dl-frame[data-layout="app"] code {
   line-height: var(--pw-font-code-line-height, 1.5);
+}
+
+/* UI21 R07 §1–§2: единственный переключатель правой панели в шапке чата
+   (облик прежней кнопки сворачивания «Детали действия») и статичная метка
+   контекста «Чат» вместо сегментированного переключателя. */
+.dl-header-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.dl-crumb-context {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--pw-selected-background-color);
+  font-size: var(--dl-fs-sidebar, 13px);
+  font-weight: 600;
+  opacity: 0.9;
 }

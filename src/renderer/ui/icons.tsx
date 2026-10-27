@@ -141,6 +141,18 @@ export const IconPanelExpand = (p: IconProps = {}) =>
     p,
   );
 
+export const IconPanelLeft = (p: IconProps = {}) =>
+  // R07 §4: панель слева (сворачивание проектов) — визуально отличается от
+  // IconPanelExpand (правая панель деталей): залитая левая доля + шеврон «влево».
+  svg(
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" strokeWidth="1.6" />
+      <path d="M9.5 4.5v15" strokeWidth="1.6" />
+      <path d="M7.2 10l-1.6 2 1.6 2" strokeWidth="1.6" />
+    </>,
+    p,
+  );
+
 export const IconArrowUp = (p: IconProps = {}) => svg(<path d="M12 19V5.5M5.5 12L12 5.5 18.5 12" strokeWidth="2" />, p);
 
 export const IconArrowRight = (p: IconProps = {}) =>

@@ -31,12 +31,14 @@
 import { PiRpcClient, RpcCommandError, RpcDisconnectedError, RpcTimeoutError, type RpcProcess, type PiRpcClientOptions } from './piRpcClient';
 import { buildProbePath } from './probe';
 import { BridgeError } from '../shared/errors';
-import type { ChatEventT, RpcStateT } from '../shared/m1Protocol';
+import type { ChatEventT, ModelInfoT, RpcStateT } from '../shared/m1Protocol';
 import path from 'node:path';
 
 export interface ChatManagerFs {
   stat(p: string): Promise<{ size: number; mtimeMs: number }>;
   readHead(p: string, maxBytes: number): Promise<string>;
+  /** Bounded sequential read used to attribute appends after a mutation. */
+  readRange(p: string, offset: number, length: number): Promise<Buffer>;
 }
 
 export interface ChatSessionManagerDeps {
@@ -68,6 +70,33 @@ export function mapRpcState(raw: unknown): RpcStateT {
         : null,
     thinkingLevel: typeof r.thinkingLevel === 'string' ? r.thinkingLevel : null,
   };
+}
+
+/**
+ * UI21-F2: project Pi's model record down to the credential-free shape the app
+ * displays. Unknown/extra fields are dropped here, never forwarded to the
+ * renderer — this app owns no catalog of its own.
+ */
+function mapModels(raw: unknown): ModelInfoT[] {
+  const list = (raw as { models?: unknown } | null)?.models;
+  if (!Array.isArray(list)) return [];
+  const out: ModelInfoT[] = [];
+  for (const item of list) {
+    const m = item as Record<string, unknown>;
+    if (typeof m?.provider !== 'string' || typeof m.id !== 'string' || typeof m.name !== 'string') continue;
+    const model: ModelInfoT = { provider: m.provider, id: m.id, name: m.name };
+    if (typeof m.contextWindow === 'number' && m.contextWindow > 0) model.contextWindow = m.contextWindow;
+    if (typeof m.maxTokens === 'number' && m.maxTokens > 0) model.maxTokens = m.maxTokens;
+    if (typeof m.reasoning === 'boolean') model.reasoning = m.reasoning;
+    if (Array.isArray(m.input)) model.input = m.input.filter((v): v is string => typeof v === 'string');
+    out.push(model);
+  }
+  return out;
+}
+
+function mapThinkingLevels(raw: unknown): string[] {
+  const levels = (raw as { levels?: unknown } | null)?.levels;
+  return Array.isArray(levels) ? levels.filter((l): l is string => typeof l === 'string') : [];
 }
 
 async function readHeaderCwd(fs: ChatManagerFs, file: string, max: number): Promise<string | null> {
@@ -185,21 +214,20 @@ export class ChatSessionManager {
   }
 
   async sendPrompt(message: string, streamingBehavior?: 'steer' | 'followUp'): Promise<{ disposition: string }> {
+    return this.serialize(async () => this.sendPromptLocked(message, streamingBehavior));
+  }
+
+  private async sendPromptLocked(
+    message: string,
+    streamingBehavior?: 'steer' | 'followUp',
+  ): Promise<{ disposition: string }> {
     const client = this.client;
     if (!client || !client.alive || !this.file) {
       throw new BridgeError('DISCONNECTED', 'No chat session is open');
     }
 
-    // Idle-time external-writer gate (skip while OUR run owns the file).
-    if (!this.runActive && this.file) {
-      const meta = await this.statOrThrow(this.file);
-      if (meta.mtimeMs > this.idleMtimeMs) {
-        throw new BridgeError(
-          'SESSION_CONFLICT',
-          'Session file changed while the chat was idle — another writer (CLI?) appended to it. Reload the history before prompting.',
-        );
-      }
-    }
+    // Same fail-closed writer gate the model/thinking switches use.
+    await this.assertIdleWriterGate('отправки сообщения');
 
     let started;
     try {
@@ -257,6 +285,200 @@ export class ChatSessionManager {
     }
   }
 
+  /**
+   * UI21-F2: the model list is whatever the installed Pi reports for the active
+   * session's environment — no static list, no provider defaults, no fallback.
+   */
+  /**
+   * UI21 R02: every mutating operation (prompt, model switch, thinking switch,
+   * close) is serialized, so a check → RPC → baseline refresh sequence cannot
+   * interleave with another mutation from this bridge.
+   */
+  private mutationChain: Promise<unknown> = Promise.resolve();
+
+  private serialize<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.mutationChain.then(op, op);
+    this.mutationChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /**
+   * Fail-closed idle external-writer gate, shared by prompt and switches.
+   * While OUR run owns the file the gate is inert; otherwise any mtime newer
+   * than the confirmed idle baseline means another writer (CLI) is active.
+   */
+  private async assertIdleWriterGate(action: string): Promise<{ size: number; mtimeMs: number }> {
+    if (!this.file) throw new BridgeError('DISCONNECTED', 'No chat session is open');
+    const meta = await this.statOrThrow(this.file);
+    if (!this.runActive && meta.mtimeMs > this.idleMtimeMs) {
+      throw new BridgeError(
+        'SESSION_CONFLICT',
+        `Session file changed while the chat was idle — another writer (CLI?) appended to it. Reload the history before ${action}.`,
+      );
+    }
+    return meta;
+  }
+
+  /**
+   * Attribute the bytes appended during our own mutation. Only an EXACT,
+   * expected Pi-owned record sequence may advance the idle baseline; anything
+   * else means a concurrent writer raced us, so we fail closed — without
+   * truncating, rewriting or absorbing the foreign record.
+   */
+  private async confirmOwnAppend(
+    before: { size: number },
+    validate: (entries: Record<string, unknown>[]) => boolean,
+  ): Promise<void> {
+    const file = this.file;
+    if (!file) throw new BridgeError('DISCONNECTED', 'No chat session is open');
+    const meta = await this.statOrThrow(file);
+    if (meta.size < before.size) {
+      throw new BridgeError('SESSION_CONFLICT', 'Session file was truncated or rewritten during the switch');
+    }
+    if (meta.size === before.size) {
+      // Pi persisted nothing (e.g. no-op switch) — nothing to attribute.
+      this.idleMtimeMs = meta.mtimeMs;
+      return;
+    }
+    const added = meta.size - before.size;
+    if (added > 64 * 1024) {
+      throw new BridgeError('SESSION_CONFLICT', `Unexpected ${added} bytes appended during the switch`);
+    }
+    const raw = await this.deps.fs.readRange(file, before.size, added);
+    const lines = raw
+      .toString('utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '');
+    const entries: Record<string, unknown>[] = [];
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new BridgeError('SESSION_CONFLICT', 'Unexpected record appended during the switch');
+        }
+        entries.push(parsed as Record<string, unknown>);
+      } catch {
+        throw new BridgeError('SESSION_CONFLICT', 'Unparsable record appended during the switch');
+      }
+    }
+    if (!validate(entries)) {
+      throw new BridgeError('SESSION_CONFLICT', 'Another writer appended to the session during the switch');
+    }
+    this.idleMtimeMs = meta.mtimeMs;
+  }
+
+  async availableModels(): Promise<{ models: ModelInfoT[] }> {
+    const client = this.liveClient();
+    try {
+      return { models: mapModels(await client.request('get_available_models')) };
+    } catch (err) {
+      throw this.mapCommandError(err, 'get_available_models');
+    }
+  }
+
+  /** Explicit user switch only. Rejects while a run is in flight (no silent swap). */
+  async setModel(provider: string, modelId: string): Promise<{ state: RpcStateT | null }> {
+    return this.serialize(async () => {
+      const client = this.liveClient();
+      if (this.runActive) {
+        throw new BridgeError('RESOURCE_BUSY', 'Модель нельзя менять во время генерации');
+      }
+      // Fail closed BEFORE any mutation if another writer touched the file.
+      const before = await this.assertIdleWriterGate('смены модели');
+      // Pre-state gives the effective thinking level BEFORE the switch: native Pi
+      // appends a second record only when that level actually changes.
+      const preState = mapRpcState(await client.request('get_state'));
+      try {
+        await client.request('set_model', { provider, modelId });
+      } catch (err) {
+        throw this.mapCommandError(err, 'set_model');
+      }
+      const state = mapRpcState(await client.request('get_state'));
+      // Strict confirmation: an ACK alone is not proof.
+      if (state.model === null || state.model.provider !== provider || state.model.id !== modelId) {
+        const current = state.model ? `${state.model.provider}/${state.model.id}` : 'модель не подтверждена';
+        throw new BridgeError('INVALID_REQUEST', `Pi не переключил модель (сейчас ${current})`);
+      }
+      // Native Pi 1.4.0 writes `model_change` and then, when the effective
+      // thinking level changes (e.g. a non-reasoning model forces "off"),
+      // a second `thinking_level_change`. Accept exactly that ordered pair and
+      // nothing else — any extra/foreign record still fails closed.
+      const levelChanged = preState.thinkingLevel !== state.thinkingLevel;
+      await this.confirmOwnAppend(before, (entries) => {
+        if (entries.length === 0) return true;
+        if (entries.length > 2) return false;
+        const [first, second] = entries;
+        if (first?.type !== 'model_change' || first.provider !== provider || first.modelId !== modelId) return false;
+        if (entries.length === 1) return true;
+        return (
+          levelChanged &&
+          second?.type === 'thinking_level_change' &&
+          second.thinkingLevel === state.thinkingLevel
+        );
+      });
+      return { state };
+    });
+  }
+
+  /** Supported thinking levels for the CURRENTLY selected model, straight from Pi. */
+  async thinkingLevels(): Promise<{ levels: string[]; current: string | null }> {
+    const client = this.liveClient();
+    try {
+      const levels = mapThinkingLevels(await client.request('get_available_thinking_levels'));
+      const state = mapRpcState(await client.request('get_state'));
+      return { levels, current: state.thinkingLevel };
+    } catch (err) {
+      throw this.mapCommandError(err, 'get_available_thinking_levels');
+    }
+  }
+
+  async setThinkingLevel(level: string): Promise<{ state: RpcStateT | null }> {
+    return this.serialize(async () => {
+      const client = this.liveClient();
+      if (this.runActive) {
+        throw new BridgeError('RESOURCE_BUSY', 'Уровень thinking нельзя менять во время генерации');
+      }
+      const before = await this.assertIdleWriterGate('смены уровня thinking');
+      try {
+        await client.request('set_thinking_level', { level });
+      } catch (err) {
+        throw this.mapCommandError(err, 'set_thinking_level');
+      }
+      const state = mapRpcState(await client.request('get_state'));
+      if (state.thinkingLevel !== level) {
+        throw new BridgeError('INVALID_REQUEST', `Pi не установил thinking level (сейчас ${state.thinkingLevel ?? 'не подтверждён'})`);
+      }
+      await this.confirmOwnAppend(
+        before,
+        (entries) =>
+          entries.length === 0 ||
+          (entries.length === 1 && entries[0]?.type === 'thinking_level_change' && entries[0].thinkingLevel === level),
+      );
+      return { state };
+    });
+  }
+
+  private liveClient(): PiRpcClient {
+    const client = this.client;
+    if (!client || !client.alive) {
+      throw new BridgeError('DISCONNECTED', 'Нет активной RPC-сессии Pi — откройте чат');
+    }
+    return client;
+  }
+
+  private mapCommandError(err: unknown, command: string): BridgeError {
+    if (err instanceof RpcTimeoutError) return new BridgeError('BRIDGE_TIMEOUT', err.message);
+    if (err instanceof RpcDisconnectedError) return new BridgeError('DISCONNECTED', err.message);
+    // Pi answered success:false (unknown model/level, unsupported) — surface it,
+    // never fall back to a different model silently.
+    if (err instanceof RpcCommandError) return new BridgeError('INVALID_REQUEST', `${command}: ${err.message}`);
+    if (err instanceof BridgeError) return err;
+    return new BridgeError('UNKNOWN', err instanceof Error ? err.message : String(err));
+  }
+
   async getState(): Promise<{ state: RpcStateT | null }> {
     const client = this.client;
     if (!client || !client.alive) return { state: null };
@@ -270,6 +492,10 @@ export class ChatSessionManager {
   }
 
   async close(): Promise<void> {
+    return this.serialize(async () => this.closeLocked());
+  }
+
+  private async closeLocked(): Promise<void> {
     const client = this.client;
     this.client = null;
     this.file = null;

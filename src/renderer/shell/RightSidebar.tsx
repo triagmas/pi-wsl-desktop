@@ -1,84 +1,109 @@
 /**
- * Right details sidebar (Issue #21 §4): hidden by default, opened from the
- * chat header, ~340px, independent size. Shows REAL tool activity from the
- * active Pi session — no invented files or checks: the «Файлы» tab only
- * appears when the session actually reports file paths (currently the M1
- * event stream carries none, so the tab stays hidden — honest absence).
+ * Right details sidebar (D2): адаптер реального tool-state сессии поверх
+ * одобренного ui/DetailsPanel. Панель размещает AppFrame (слот details);
+ * здесь — шапка (заголовок + сворачивание) и тело (статус, инструменты,
+ * сводка). Файлы/диффы не выдумываются: M1-события их не несут, секция
+ * рендерится только при реальном наличии данных (честное отсутствие).
  */
 import type { ChatTool } from '../useChat';
+import { DetailsHeader, DetailsPanel, type DetailsCheck } from '../ui/DetailsPanel';
+import { useResizeHandle } from './useResizeHandle';
 
 export interface RightSidebarProps {
-  width: number;
   tools: ChatTool[];
   streaming: boolean;
-  onClose: () => void;
-  onCloseTargetRef?: (el: HTMLElement | null) => void;
+  /** Заголовок действия — имя активной сессии (реальный источник). */
+  title?: string;
 }
 
-export function RightSidebar({ width, tools, streaming, onClose }: RightSidebarProps) {
+const RIGHT_MIN = 240;
+const RIGHT_MAX = 560;
+
+export function RightSidebarHead({ onClose }: { onClose: () => void }) {
+  return (
+    <DetailsHeader title="Детали действия" collapseTestId="close-details" onCollapse={onClose} />
+  );
+}
+
+/**
+ * Handle изменения ширины правой панели: рендерится в AppFrame-слоте
+ * details.handle (прямой потомок <aside>, вне скролля тела) и живёт отдельно
+ * от контента — тянется мышью и клавиатурой, фиксирует width один раз.
+ */
+export function RightSidebarResize({
+  width,
+  onWidthPreview,
+  onWidthCommit,
+}: {
+  width: number;
+  onWidthPreview?: (width: number) => void;
+  onWidthCommit?: (width: number) => void;
+}) {
+  const resize = useResizeHandle({
+    axis: 'x',
+    value: width,
+    min: RIGHT_MIN,
+    max: RIGHT_MAX,
+    invert: true, // тянуть влево → панель шире
+    onPreview: (w) => onWidthPreview?.(w),
+    onCommit: (w) => onWidthCommit?.(w),
+  });
+  return (
+    <div
+      className="dl-resize dl-resize-x dl-resize-right"
+      role="separator"
+      aria-label="Ширина правой панели"
+      aria-orientation="vertical"
+      aria-valuenow={width}
+      aria-valuemin={RIGHT_MIN}
+      aria-valuemax={RIGHT_MAX}
+      tabIndex={0}
+      data-testid="resize-right"
+      onMouseDown={resize.onMouseDown}
+      onKeyDown={resize.onKeyDown}
+    />
+  );
+}
+
+export function RightSidebar({ tools, streaming, title }: RightSidebarProps) {
   const doneCount = tools.filter((t) => t.done && !t.error).length;
   const errorCount = tools.filter((t) => t.error).length;
+
+  const pill = streaming
+    ? 'Выполняется…'
+    : tools.length === 0
+      ? 'Действий пока нет'
+      : errorCount > 0
+        ? `Ошибок: ${errorCount}`
+        : 'Выполнено';
+
+  const checks: DetailsCheck[] = tools.map((t) => ({
+    id: t.id,
+    text: t.error
+      ? `${t.name} — ошибка`
+      : t.done
+        ? `${t.name} — готово`
+        : `${t.name} — выполняется`,
+    state: t.error ? 'error' : t.done ? 'done' : 'running',
+  }));
+
   return (
-    <aside
-      data-testid="right-sidebar"
-      className="right-sidebar"
-      style={{ width: `${width}px` }}
-      aria-label="Детали действия"
-    >
-      <header className="right-sidebar-head">
-        <h2>Детали действия</h2>
-        <button
-          type="button"
-          data-testid="close-details"
-          className="icon-btn"
-          title="Скрыть панель"
-          aria-label="Скрыть панель деталей"
-          onClick={onClose}
-        >
-          <span aria-hidden="true">›</span>
-        </button>
-      </header>
-
-      <div className="right-sidebar-body" data-testid="details-body">
-        <section aria-label="Обзор">
-          <div className="details-status" data-testid="details-status">
-            {streaming ? (
-              <span className="badge badge-active">Выполняется…</span>
-            ) : tools.length === 0 ? (
-              <span className="badge muted-badge">Действий пока нет</span>
-            ) : errorCount > 0 ? (
-              <span className="badge badge-error">Ошибок: {errorCount}</span>
-            ) : (
-              <span className="badge badge-ready">Выполнено</span>
-            )}
-          </div>
-
-          <h3 className="details-heading">Инструменты</h3>
-          {tools.length === 0 ? (
-            <p className="muted" data-testid="details-empty">
-              Инструменты появятся по мере работы Pi — здесь реальные события текущей сессии.
-            </p>
-          ) : (
-            <ul className="tool-details-list" data-testid="tool-details">
-              {tools.map((t) => (
-                <li key={t.id} className="tool-detail-row">
-                  <span aria-hidden="true">{t.error ? '✗' : t.done ? '✓' : '⏳'}</span>
-                  <span className="tool-detail-name">{t.name}</span>
-                  <span className="muted">
-                    {t.error ? 'ошибка' : t.done ? 'готово' : 'выполняется'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-        {/* «Файлы» tab is intentionally absent: M1 events carry no file paths
-            and Issue #21 §4 forbids inventing changed files. */}
-      </div>
-
-      <footer className="right-sidebar-foot muted" data-testid="details-summary">
-        {tools.length} инстр. · {doneCount} готово
-      </footer>
-    </aside>
+    <div className="dl-details-adapter" data-testid="right-sidebar">
+      <section aria-label="Обзор" data-testid="details-body">
+        <DetailsPanel
+          tabs={[]}
+          pill={pill}
+          title={title ?? 'Детали действия'}
+          checksLabel="Инструменты"
+          checks={checks}
+          footer={`${tools.length} инстр. · ${doneCount} готово`}
+        />
+        {tools.length === 0 && (
+          <p className="muted dl-details-empty" data-testid="details-empty">
+            Инструменты появятся по мере работы Pi — здесь реальные события текущей сессии.
+          </p>
+        )}
+      </section>
+    </div>
   );
 }

@@ -1,0 +1,350 @@
+/*
+ * Design Lab — геометрия каркаса приложения (Issue #21, D1).
+ *
+ * Все размеры — измеренные по эталонным мокапам ref px (холст 1586×992, 1:1).
+ * Ширины колонок ВКЛЮЧАЮТ их 1px границу (box-sizing: border-box).
+ *
+ * Два layout-режима (по design-system.md маппингу мокапов):
+ *   inline  — ref2/3/4/6: titlebar 63 + sidebar 357 | main;
+ *   split   — ref1/5:     titlebar 51 + toolbar 64  + rail 71 | main | details 462
+ *             (+ statusbar 49 в ref5, терминал строго под композером в main).
+ *
+ * Responsive зеркалит поведение приложения: ≤1100px правая панель скрывается;
+ * ≤800px левая панель скрывается (в лаборатории — без swap в rail; rail-режим
+ * показан состояниями split; поведенческий swap — задача интеграции D2/D3).
+ */
+
+:root {
+  --dl-titlebar-inline-h: 63px; /* 62 контента + 1 border-bottom */
+  --dl-titlebar-split-h: 51px;  /* 50 + 1 border-bottom */
+  --dl-toolbar-h: 64px;         /* 63 + 1 border-bottom */
+  --dl-rail-w: 71px;            /* 70 контента + 1 border-right */
+  --dl-sidebar-w: 357px;        /* 356 + 1 border-right */
+  --dl-details-w: 462px;        /* 461 + 1 border-left */
+  --dl-statusbar-h: 49px;
+
+  /* инсеты сообщений относительно колонок main (измерены) */
+  --dl-msgs-left: 85px;
+  --dl-msgs-right: 61px;
+  --dl-crumb-offset: 44px; /* inline: breadcrumb от края main */
+  --dl-toolbar-crumb-offset: 188px; /* split: breadcrumb от края main */
+
+  /* app (D1-этап 2): главный экран по Reference/01-chat-review-terminal.png.
+   * Замер PIL (холст 1586×992): titlebar 39 (граница y38), crumb-row 56
+   * (y39..95), sidebar 321 (граница x320), details 385 (граница x1200),
+   * details-head 49 (y39..88), statusbar 48 (граница y944), head сайдбара 62. */
+  --dl-app-titlebar-h: 39px;
+  --dl-app-crumb-h: 56px;
+  --dl-app-side-w: 321px;
+  --dl-app-details-w: 385px;
+  --dl-app-dhead-h: 49px;
+  --dl-app-sidehead-h: 62px;
+  --dl-app-status-h: 48px;
+}
+
+.dl-frame,
+.dl-frame *,
+.dl-frame *::before,
+.dl-frame *::after {
+  box-sizing: border-box;
+}
+
+/* Сбросы — ЭЛЕМЕНТНЫМИ селекторами (специфичность 0,0,1), чтобы класс-правила
+ * компонентов (.dl-btn-primary и др., 0,1,0) всегда их перекрывали. Раньше
+ * использовался .dl-frame button (0,1,1) и невидимо отменял фоны/рамки кнопок. */
+h1,
+h2,
+h3,
+p,
+ul,
+pre {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* в эталонах видимых полос прокрутки нет */
+.dl-frame ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.dl-frame {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--pw-window-background-color);
+  color: var(--pw-body-text-color);
+  font-family: var(--dl-font-stack);
+  font-size: var(--dl-fs-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+.dl-frame[data-layout="inline"] {
+  grid-template-columns: var(--dl-sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--dl-titlebar-inline-h) minmax(0, 1fr) auto;
+}
+
+.dl-frame[data-layout="split"] {
+  grid-template-columns: var(--dl-rail-w) minmax(0, 1fr) var(--dl-details-w);
+  grid-template-rows: var(--dl-titlebar-split-h) var(--dl-toolbar-h) minmax(0, 1fr) auto;
+}
+
+.dl-titlebar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  /* D2 frameless: строка перетаскивает окно; кнопки окна — no-drag. */
+  -webkit-app-region: drag;
+}
+
+.dl-titlebar button {
+  -webkit-app-region: no-drag;
+}
+
+.dl-toolbar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: var(--dl-rail-w) minmax(0, 1fr) var(--dl-details-w);
+}
+
+.dl-frame[data-layout="inline"] .dl-side {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dl-frame[data-layout="inline"] .dl-main {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.dl-frame[data-layout="split"] .dl-side {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.dl-frame[data-layout="split"] .dl-main {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.dl-frame[data-layout="split"] .dl-details {
+  grid-column: 3;
+  grid-row: 3;
+}
+
+.dl-frame[data-statusbar="on"] {
+  grid-template-rows: var(--dl-titlebar-split-h) var(--dl-toolbar-h) minmax(0, 1fr) var(--dl-statusbar-h);
+}
+
+.dl-frame[data-layout="inline"][data-statusbar="on"] {
+  grid-template-rows: var(--dl-titlebar-inline-h) minmax(0, 1fr) var(--dl-statusbar-h);
+}
+
+/* Без явного размещения Chrome трактует grid-row:-1 как неявную 5-ю строку
+   (пустой трек 49px + статус-бар в неявной) и 1fr сжимается до 779px. */
+.dl-frame[data-statusbar="on"] > .dl-status {
+  grid-row: 4;
+}
+
+.dl-frame[data-layout="inline"][data-statusbar="on"] > .dl-status {
+  grid-row: 3;
+}
+
+.dl-status {
+  grid-column: 1 / -1;
+  grid-row: -1;
+}
+
+/* ── app (D1-этап 2): целостный главный экран ───────────────────────────
+ * titlebar (wordmark) | [sidebar | main (crumb-row + чат + терминал) | details] |
+ * statusbar. Панели идут до статус-бара, терминал — только в центре. */
+.dl-frame[data-layout="app"] {
+  grid-template-columns: var(--dl-app-side-w) minmax(0, 1fr);
+  grid-template-rows: var(--dl-app-titlebar-h) minmax(0, 1fr) var(--dl-app-status-h);
+}
+
+.dl-frame[data-layout="app"][data-details="on"] {
+  grid-template-columns: var(--dl-app-side-w) minmax(0, 1fr) var(--dl-app-details-w);
+}
+
+.dl-frame[data-layout="app"] .dl-side {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dl-frame[data-layout="app"] .dl-main {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dl-frame[data-layout="app"] .dl-details {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.dl-frame[data-layout="app"] > .dl-status {
+  grid-row: 3;
+}
+
+/* ── Геометрические альтернативы A/B (owner-gate: не смешивать) ───────── */
+.dl-variant-root {
+  height: 100%;
+}
+
+/* A — IMPLEMENTATION-PROMPT.md: 44 / 28 / 260 / 340 */
+.dl-variant-root[data-variant="a"] {
+  --dl-app-titlebar-h: 44px;
+  --dl-app-status-h: 28px;
+  --dl-app-side-w: 260px;
+  --dl-app-details-w: 340px;
+}
+
+/* B — DESIGN-UPDATE.md v3: 36 / 26 / 240 / 360 */
+.dl-variant-root[data-variant="b"] {
+  --dl-app-titlebar-h: 36px;
+  --dl-app-status-h: 26px;
+  --dl-app-side-w: 240px;
+  --dl-app-details-w: 360px;
+}
+
+@media (max-width: 1100px) {
+  .dl-frame[data-layout="split"] {
+    grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
+  }
+
+  .dl-frame[data-layout="split"] .dl-toolbar {
+    grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
+  }
+
+  .dl-frame[data-layout="split"] .dl-details,
+  .dl-frame[data-layout="split"] .dl-toolbar-details {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .dl-frame[data-layout="inline"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dl-frame[data-layout="inline"] .dl-side {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  /* тот же specificity, что и у app-правил с [data-details] */
+  .dl-frame[data-layout="app"],
+  .dl-frame[data-layout="app"][data-details="on"] {
+    grid-template-columns: var(--dl-app-side-w) minmax(0, 1fr);
+  }
+
+  /* D2: правая панель на узком окне — overlay (кнопка open-details работает,
+   * а не «включает» невидимую колонку). Треки колонок не меняются. */
+  .dl-frame[data-layout="app"][data-details="on"] .dl-details {
+    position: absolute;
+    top: var(--dl-app-titlebar-h);
+    bottom: var(--dl-app-status-h);
+    right: 0;
+    width: var(--dl-app-details-w);
+    max-width: 84vw;
+    z-index: 6;
+    box-shadow: -10px 0 28px rgb(0 0 0 / 0.38);
+  }
+
+  /* C5-final: узкое окно — та же симметрия 16px, шапка и тело на одной линии */
+  .dl-frame[data-layout="app"] .dl-details-head {
+    padding: 0 16px;
+  }
+
+  .dl-frame[data-layout="app"] .dl-details-body {
+    padding: 16px 16px 40px;
+  }
+
+  /* html-префикс — сознательно выше app-override -24px в components.css:
+   * тот же селектор, а components идёт позже layout — без разницы
+   * спецификаций divider на узком окне остался бы -24 и вылезал за панель. */
+  html .dl-frame[data-layout="app"] .dl-details .dl-details-divider {
+    margin-left: -16px;
+    margin-right: -16px;
+  }
+}
+
+@media (max-width: 800px) {
+  /* D2: узкое окно — rail-трек; развёрнутая левая панель ложится overlay-ом
+   * поверх центра (сессии достижимы на любом размере окна), свёрнутая —
+   * занимает 71px-трек как обычный rail. */
+  .dl-frame[data-layout="app"],
+  .dl-frame[data-layout="app"][data-details="on"] {
+    grid-template-columns: var(--dl-rail-w) minmax(0, 1fr);
+  }
+
+  /* D2-overlay (P1-2) для approved-компонента: развёрнутый ui/Sidebar ложится
+   * поверх центра, свёрнутый живёт в 71px-треке (data-collapsed). */
+  .dl-frame[data-layout="app"] .dl-side > .dl-sidebar:not([data-collapsed]) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    z-index: 7;
+    box-shadow: 10px 0 28px rgb(0 0 0 / 0.38);
+  }
+
+  .dl-frame[data-layout="app"] .dl-resize-left {
+    display: none;
+  }
+}
+
+/* ── Design-lab: прежний визуальный адаптив (D1-контракт) ───────────────
+ * Прод (без html[data-design-lab]) использует overlay/rail-стратегию выше;
+ * лаба скрывает панели, как было принято визуально. Специфика (0,4,1) >
+ * (0,4,0) overlay-правил. */
+@media (max-width: 1100px) {
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-details {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-details {
+    display: none;
+  }
+  /* Review P2-8: лаба возвращает прежнюю ОДНУ центральную колонку —
+   * rail-трек71px остаётся только продуктовой стратегией. */
+  html[data-design-lab] .dl-frame[data-layout="app"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 800px) {
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-side {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  /* Review r2 P2: в лабе main должен лечь в ЕДИНСТВЕННУЮ колонку —
+   * иначе grid-колонка 2 создаётся неявно из-за grid-column: 2 у .dl-main. */
+  html[data-design-lab] .dl-frame[data-layout="app"] .dl-main {
+    grid-column: 1;
+  }
+}

@@ -29,8 +29,11 @@
 - [pi-desktop-development](.pi/skills/pi-desktop-development/SKILL.md) — TDD, архитектура, точечные/полные проверки.
 - [pi-desktop-safety](.pi/skills/pi-desktop-safety/SKILL.md) — разрешения, данные Pi, безопасность операций.
 - [pi-desktop-review](.pi/skills/pi-desktop-review/SKILL.md) — независимый review и приёмка PR.
+- [pi-desktop-design-lab](.pi/skills/pi-desktop-design-lab/SKILL.md) — Design Lab и визуальные итерации: референсы, токены, замеры, скриншоты, Visual ACCEPT.
 
 Релевантные Skills применяются совместно, а не заменяют друг друга. В отчёте указывать discovered / loaded / applied / unavailable / skipped с причинами.
+
+**Маршрутизация визуал ↔ функционал:** чисто визуальные итерации (design-lab, вид по `Reference/`-эталонам, board-ячейки, скриншот-сравнения) — первичен `pi-desktop-design-lab`, его гейты: tsc + lint + build + адресные Playwright-пробы — **без** полного Vitest, Electron E2E, installer и CI. Изменение функциональных контрактов или подготовка merge — обычные продуктовые проверки: `pi-desktop-development` (typecheck/lint/build/`npm test`/`test:e2e`/CI, явный `NOT RUN`) + независимый `pi-desktop-review`. Оба Skill при смешанной задаче применяются совместно.
 
 ## Выбор thinking и отчёт
 

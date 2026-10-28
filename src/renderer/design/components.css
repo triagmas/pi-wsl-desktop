@@ -1,0 +1,2488 @@
+/*
+ * Design Lab — стили presentational-компонентов (Issue #21, D1).
+ *
+ * Геометрия измерена по шести эталонам (ref px @1586×992).
+ * Цвета — ТОЛЬКО var(--pw-*) токены ( Issue §1/presets.ts ); литовых цветов нет.
+ * Допустимые производные: color-mix() от токенов (пill «Выполнено» и др.)
+ * и opacity для иконок. Известные расхождения токен ↔ эталон задокументированы
+ * в docs/ui/design-lab-comparison.md (владелец решает в D2).
+ */
+
+/* ─────────────────────────── TitleBar ─────────────────────────── */
+
+.dl-titlebar {
+  display: grid;
+  align-items: center;
+  background: var(--pw-title-bar-background-color);
+  border-bottom: 1px solid var(--pw-divider-color);
+  user-select: none;
+}
+
+.dl-frame[data-layout="inline"] .dl-titlebar {
+  grid-template-columns: var(--dl-sidebar-w) minmax(0, 1fr) auto;
+}
+
+.dl-frame[data-layout="split"] .dl-titlebar {
+  grid-template-columns: minmax(0, 1fr) 0px auto;
+}
+
+/* C5.1 (frameless): app-layout — тот же правый трек для .dl-wc, что inline/split.
+ * Без явных колонок .dl-wc падал в нижнюю строку grid и перекрывался шапкой
+ * сайдбара — оконные кнопки были невидимы/некликабельны (DOM-замер C5). */
+.dl-frame[data-layout="app"] .dl-titlebar {
+  grid-template-columns: minmax(0, 1fr) 0px auto;
+}
+
+.dl-wordmark {
+  display: flex;
+  align-self: start;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-left: 26px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--pw-body-text-color);
+  white-space: nowrap;
+}
+
+.dl-crumb {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: var(--dl-fs-ui);
+  line-height: var(--dl-lh-ui);
+  font-weight: 500;
+  color: var(--pw-body-text-color);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dl-frame[data-layout="inline"] .dl-crumb {
+  padding-left: var(--dl-crumb-offset);
+}
+
+.dl-crumb-part {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-crumb-sep {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-wc {
+  display: flex;
+  height: 100%;
+}
+
+.dl-wc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 40px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-wc-btn:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-wc-btn:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: -2px;
+}
+
+/* ─────────────────────────── Toolbar (split) ─────────────────────────── */
+
+.dl-toolbar {
+  align-items: stretch;
+  background: var(--pw-window-background-color);
+}
+
+.dl-toolbar-rail {
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
+  background: var(--pw-sidebar-left-background-color);
+  border-right: 1px solid var(--pw-divider-color);
+}
+
+.dl-toolbar-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-toolbar-main .dl-crumb {
+  padding-left: var(--dl-toolbar-crumb-offset);
+  flex: 0 1 auto;
+}
+
+.dl-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+  margin-right: 20px;
+}
+
+.dl-toolbar-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+  padding-left: 31px;
+  padding-right: 22px;
+  background: var(--pw-sidebar-right-background-color);
+}
+
+.dl-btn-ghost.dl-toolbar-dots {
+  background: none;
+  border: 0;
+}
+
+.dl-toolbar-dots {
+  width: 36px;
+  height: 36px;
+}
+
+.dl-toolbar-expand {
+  width: 44px;
+  height: 44px;
+}
+
+/* зелёная кнопка-разворот в Toolbar — эталон: заливка accent α36% поверх
+   window-фона (измерение ref1: (65,83,66) над (37,40,35)) */
+.dl-btn-accent.dl-toolbar-expand {
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 36%,
+    transparent);
+  color: var(--pw-body-text-color);
+}
+
+.dl-btn-accent.dl-toolbar-expand:hover {
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 50%,
+    transparent);
+}
+
+.dl-details-title {
+  font-size: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─────────────────────────── Общие кнопки ─────────────────────────── */
+
+.dl-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  background: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+  border-radius: var(--pw-radius-medium);
+}
+
+.dl-btn-primary:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+.dl-btn-primary:active {
+  background: var(--pw-button-primary-active-color);
+}
+
+.dl-btn-primary:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 2px;
+}
+
+.dl-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  background: var(--pw-tool-card-background-color);
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-btn-ghost:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-btn-ghost:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 1px;
+}
+
+.dl-btn-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  background: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+  border-radius: var(--pw-radius-medium);
+}
+
+.dl-btn-accent:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+/* зелёная кнопка-тумблер rail («Показать/Скрыть панель») в эталоне:
+   кольцо accent α55% + тёмная внутренняя часть (ref1: (18..53, 68..102)) */
+.dl-rail-toggle {
+  width: 36px;
+  height: 35px;
+  background: none;
+  border: 5px solid color-mix(in srgb, var(--pw-button-primary-background-color) 55%,
+    transparent);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-rail-toggle:hover {
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 18%,
+    transparent);
+}
+
+/* ─────────────────────────── Rail ─────────────────────────── */
+
+.dl-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--pw-sidebar-left-background-color);
+  border-right: 1px solid var(--pw-divider-color);
+  padding-top: 15px;
+  padding-bottom: 47px;
+  overflow: visible;
+}
+
+.dl-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 16px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-rail-btn:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-rail-glyph {
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--pw-body-text-color);
+}
+
+.dl-rail-spacer {
+  flex: 1;
+}
+
+.dl-rail-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--pw-success-color);
+  margin-top: 27px;
+}
+
+.dl-rail-tooltip {
+  position: absolute;
+  left: 86px;
+  background: var(--pw-tool-card-background-color);
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-small);
+  color: var(--pw-body-text-color);
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 10px 7px;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* ─────────────────────────── Sidebar ─────────────────────────── */
+
+/* обёртки grid-ячейки: панель рисует сама себя */
+.dl-side {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.dl-sidebar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pw-sidebar-left-background-color);
+  border-right: 1px solid var(--pw-divider-color);
+  overflow: hidden;
+}
+
+.dl-sidebar-top {
+  padding: 4px 25px 0 24px;
+}
+
+.dl-newchat {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  height: 52px;
+  padding-left: 24px;
+  background: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+  border-radius: var(--pw-radius-medium);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+/* C1/P5: подпись кнопки однострочна при любой ширине панели/кегле
+   («Открыть последний диалог» — честная длинная подпись продукта) */
+.dl-newchat-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dl-newchat:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+.dl-search {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 49px;
+  margin-top: 17px;
+  padding-left: 16px;
+  background: var(--pw-input-background-color);
+  border: 1px solid transparent;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-placeholder-color);
+  font-size: var(--dl-fs-sidebar);
+}
+
+.dl-search:focus-within {
+  border-color: var(--pw-focus-ring-color);
+}
+
+.dl-side-label {
+  margin-top: 33px;
+  padding-left: 36px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-side-label-first {
+  margin-top: 33px;
+}
+
+.dl-tree {
+  padding-top: 13px;
+}
+
+.dl-tree-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+
+/* высота строки-проекта без вложенных сессий (эталон: шаг проектов 58px) */
+.dl-row-project + .dl-row-project {
+  margin-top: 6px;
+}
+
+.dl-row {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 32px);
+  margin: 0 16px;
+  height: 52px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-sidebar);
+  text-align: left;
+  overflow: hidden;
+}
+
+.dl-row:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-row:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: -2px;
+}
+
+.dl-row-active,
+.dl-row-active:hover {
+  background: var(--pw-selected-background-color);
+}
+
+.dl-row-project {
+  padding-left: 24px;
+  gap: 20px;
+}
+
+.dl-row-project .dl-row-text {
+  font-weight: 500;
+}
+
+.dl-row-session {
+  padding-left: 62px;
+  gap: 22px;
+}
+
+.dl-row-nav {
+  padding-left: 20px;
+  gap: 25px;
+}
+
+.dl-row-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-row-chevron {
+  flex: none;
+  color: var(--pw-muted-text-color);
+  padding-right: 14px;
+}
+
+.dl-row-chevron-session {
+  padding-right: 14px;
+}
+
+.dl-side-divider {
+  height: 1px;
+  margin: 129px 16px 0;
+  background: var(--pw-divider-color);
+}
+
+.dl-nav-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 17px;
+}
+
+.dl-nav-rows .dl-row {
+  height: 50px;
+}
+
+.dl-conn {
+  margin-top: auto;
+  padding: 0 0 31px 36px;
+}
+
+.dl-conn-main {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 17px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--pw-success-color);
+  flex: none;
+}
+
+.dl-conn-detail {
+  margin-top: 6px;
+  margin-left: 21px;
+  font-size: 15px;
+  color: var(--pw-muted-text-color);
+}
+
+/* ─────────────────────────── Main / Chat ─────────────────────────── */
+
+.dl-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--pw-window-background-color);
+}
+
+.dl-chat-head {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  height: 38px;
+  padding: 1px 24px 0;
+  flex: none;
+}
+
+.dl-btn-dots {
+  width: 36px;
+  height: 28px;
+}
+
+.dl-msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--dl-msgs-right) 8px var(--dl-msgs-left);
+}
+
+.dl-frame[data-layout="split"] .dl-msgs {
+  --dl-msgs-left: 56px;
+  --dl-msgs-right: 21px;
+  padding-top: 33px;
+}
+
+/* ref5 (terminal-on): макет смещает колонку контента до x=442 (rail + 371px).
+ * R02: 371px — измерение эталона 1586×992, а не константа для любой ширины.
+ * Фиксированный отступ сжимал колонку до 355px при 1280 и ломал подписи
+ * действий/шагов на две строки. min(371px, 35.23%) даёт ровно 371px на
+ * эталоне (35.23% × 1053 ≈ 371) и пропорционально освобождает место уже. */
+.dl-frame[data-terminal="on"] .dl-msgs {
+  padding-top: 8px;
+  /* R02: 371px при 1586 (эталон), но не уже 471px полезной ширины колонки
+   * в запас под ряд действий (196+33+221 = 450px). */
+  --dl-msgs-left: clamp(0px, calc(100% - 521px), 371px);
+}
+
+.dl-frame[data-terminal="on"] .dl-turn-user {
+  padding-bottom: 0;
+}
+
+.dl-turn-user {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dl-bubble-user {
+  max-width: 526px;
+  background: var(--pw-chat-bubble-user-background-color);
+  color: var(--pw-body-text-color);
+  border-radius: var(--pw-radius-large);
+  padding: 11px 26px;
+  font-size: var(--dl-fs-chat-input);
+  line-height: 30px;
+}
+
+/* эталоны 03-panels/05 (dark): фон user-пузыря равен surface,
+   а не chat-bubble-user (token-vs-reference delta, см. design-lab-comparison.md) */
+.dl-frame[data-theme="dark"] .dl-bubble-user {
+  background: var(--pw-surface-background-color);
+}
+
+.dl-frame[data-terminal="on"] .dl-bubble-user {
+  padding-top: 10px;
+  /* эталон 05: нижний край пузыря 198 при тексте 185 */
+  padding-bottom: 4px;
+}
+
+.dl-turn-assistant {
+  display: flex;
+  gap: 20px;
+  margin-top: 27px;
+}
+
+.dl-avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  background: var(--pw-elevated-surface-background-color);
+  color: var(--pw-body-text-color);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.dl-assistant-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-name {
+  font-size: var(--dl-fs-name);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dl-md {
+  margin-top: 21px;
+  max-width: 740px;
+  font-size: var(--dl-fs-chat-response);
+  line-height: 31px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-md p + p {
+  margin-top: 12px;
+}
+
+.dl-md code {
+  font-family: var(--dl-font-mono);
+  font-size: var(--dl-fs-code);
+  background: var(--pw-code-background-color);
+  color: var(--pw-code-foreground-color);
+  border-radius: var(--pw-radius-small);
+  padding: 1px 6px;
+}
+
+.dl-md pre {
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--pw-code-background-color);
+  border: 1px solid var(--pw-tool-card-border-color);
+  border-radius: var(--pw-radius-medium);
+  overflow-x: auto;
+}
+
+.dl-md pre code {
+  background: none;
+  padding: 0;
+  font-size: var(--dl-fs-code);
+  line-height: 1.5;
+  color: var(--pw-code-foreground-color);
+}
+
+.dl-md ul {
+  margin-top: 14px;
+}
+
+.dl-md li {
+  position: relative;
+  padding-left: 35px;
+}
+
+.dl-md li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 13px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pw-muted-text-color);
+}
+
+.dl-steps {
+  margin-top: 23px;
+  margin-left: -4px;
+  padding: 5px 0 5px 32px;
+  border-left: 2px solid var(--pw-divider-color);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* UI21 Corrective R02: шаг — потомок flex-колонки чата; без min-width:0
+   * nowrap-текст шага выталкивал «Подробнее» за границу строки (ref5 @1280). */
+  min-width: 0;
+}
+
+.dl-step {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  /* эталон 01-chat: pitch шагов 51.5 (height46+gap4 = 50) */
+  height: 47.5px;
+  border-radius: var(--pw-radius-medium);
+  padding-right: 20px;
+}
+
+.dl-step-active {
+  background: var(--pw-selected-background-color);
+}
+
+/* IconCheckCircle: круг = currentColor (success), галка внутри — bodyText */
+.dl-step-check {
+  flex: none;
+  display: flex;
+  width: var(--dl-step-circle, 26px);
+  height: var(--dl-step-circle, 26px);
+  border-radius: 999px;
+  /* эталоны: кружок шага = success поверх фона (измеренный 03-panels: 97,136,103) */
+  color: color-mix(in srgb, var(--pw-success-color) 70%, transparent);
+}
+
+/* light-эталон 01-chat: кружок = accent (измеренный 102,126,105 ≈ light accent #65816D),
+   не прозрачный success (0.7×success по light-фону даёт светлее эталона) */
+.dl-frame[data-theme="light"] .dl-step-check {
+  color: var(--pw-accent-color);
+}
+
+.dl-step-text {
+  font-size: var(--dl-fs-step);
+  /* Метка шага не переносится, но и не выпихивает affordance: усечение с
+   * ellipsis вместо переполнения строки (первопричина ref5 @1280). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.dl-step-chevron {
+  color: var(--pw-muted-text-color);
+  display: flex;
+}
+
+.dl-step-more {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex: none;
+  font-size: var(--dl-fs-step);
+  color: var(--pw-link-color);
+}
+
+.dl-step-more span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dl-heading {
+  margin-top: 25px;
+  /* эталон 01-chat: «Готово» w69 (наш 56 при 18px) → 22px */
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.dl-bullets {
+  /* эталон 01-chat/03-panels: до первого маркера после блока шагов/заголовка */
+  margin-top: 8px;
+}
+
+.dl-bullets li {
+  position: relative;
+  padding-left: 35px;
+  font-size: var(--dl-fs-bullet);
+  line-height: 31px;
+}
+
+.dl-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pw-muted-text-color);
+}
+
+.dl-actions {
+  display: flex;
+  align-items: center;
+  gap: 33px;
+  margin-top: 39px;
+}
+
+.dl-action {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  /* R02: подпись действия — одна строка (перенос ломал ref5 при 1280). */
+  white-space: nowrap;
+  font-size: var(--dl-fs-ui);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-action:hover {
+  color: var(--pw-body-text-color);
+}
+
+/* ─────────────────────────── Composer ─────────────────────────── */
+
+.dl-composer-wrap {
+  flex: none;
+  margin: 0 24px 41px;
+}
+
+/* при видимой hint-строке блок ниже композера = hint (измерено ref2/ref4) */
+.dl-composer-wrap:has(.dl-hint) {
+  margin-bottom: 13px;
+}
+
+.dl-frame[data-layout="split"] .dl-composer-wrap {
+  margin: 0 20px 41px;
+}
+
+.dl-frame[data-terminal="on"] .dl-composer-wrap {
+  margin: 0 13px 11px 9px;
+}
+
+.dl-composer {
+  position: relative;
+  background: var(--pw-chat-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: 16px;
+  padding: 20px 12px 17px 23px;
+}
+
+.dl-composer-row1 {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.dl-composer-attach {
+  flex: none;
+  display: flex;
+  color: var(--pw-muted-text-color);
+  padding-top: 3px;
+}
+
+.dl-composer-placeholder {
+  font-size: var(--dl-fs-chat-input);
+  line-height: 29px;
+  color: var(--pw-placeholder-color);
+}
+
+.dl-composer-row2 {
+  display: flex;
+  align-items: center;
+  /* F4 P2: два самостоятельных контрола не должны слипаться в один
+   * double-border; 8px — тот же шаг, что в утверждённом Lab-композере. */
+  gap: 8px;
+  margin-left: 41px;
+  margin-top: 20px;
+  /* F4 P2 (первопричина, не маскировка): .dl-send — absolute по эталону ref1
+   * (54×52, right 16, bottom 13) и лежит ВНУТРИ композера. Ряд чипов обязан
+   * резервировать её след, иначе длинная реальная подпись модели
+   * (длинная реальная подпись провайдера/модели = 438px) уводит thinking-чип под
+   * кнопку: измерено на 1280×800 (панель деталей открыта) и на 1024×768.
+   * Ровно то же значение (78px) использует утверждённый Lab-композер
+   * .dl-board-composer-box .dl-composer-row2. */
+  padding-right: calc(54px + 16px + 8px);
+  min-width: 0;
+}
+
+/* F4 P2: длину неизвестной подписи модели поглощает её собственный чип
+ * (flex-shrink + ellipsis по .dl-chip-label), а thinking-чип — короткий и
+ * фиксированный, поэтому он не усекается: «Thinking: off» читается всегда. */
+.dl-composer-row2 .dl-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.dl-composer-row2 .dl-chip-thinking {
+  flex: 0 0 auto;
+}
+
+.dl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 16px;
+  /* R02: чип модели — одна строка; длинный provider/id усекается по метке,
+   * шеврон не сжимается (ellipsis на контейнере не усекает anonymous flex
+   * item, поэтому метка обёрнута в .dl-chip-label). */
+  max-width: 100%;
+  min-width: 0;
+  /* nowrap на контейнере обязателен: анонимный текстовый flex-item иначе
+   * переносится и вылезает по высоте (board-чип 43px при clientH 32). */
+  white-space: nowrap;
+  font-weight: 500;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-chat-input);
+}
+
+.dl-chip:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dl-chip-chevron {
+  display: flex;
+  flex: none;
+  color: var(--pw-muted-text-color);
+}
+
+/* UI21-F2: модель/thinking — данные Pi; отключение при генерации и для
+ * моделей с единственным уровнем (дизайн D1/D2 не меняется). */
+.dl-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dl-chip-thinking {
+  font-variant-numeric: tabular-nums;
+}
+
+/* UI21-F2: выпадающий список моделей/уровней — над композером, в токенах
+ * композиции (никаких новых цветов/радиусов вне переменных). */
+.dl-chip-menu {
+  /* В потоке над строкой ввода: композер живёт в скролл-контейнере панели,
+   * и absolute-меню срезалось бы его верхней границей. */
+  position: static;
+  width: 100%;
+  margin-bottom: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(40vh, 380px);
+  padding: 10px;
+  background: var(--pw-chat-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+}
+
+.dl-chip-menu-search {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-chat-input);
+}
+
+.dl-chip-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(26vh, 240px);
+  overflow-y: auto;
+}
+
+.dl-chip-menu-item {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dl-chip-menu-item:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-chip-menu-provider {
+  color: var(--pw-muted-text-color);
+  font-size: var(--dl-fs-meta);
+}
+
+.dl-chip-menu-name {
+  font-size: var(--dl-fs-ui);
+}
+
+.dl-chip-menu-id {
+  color: var(--pw-muted-text-color);
+  font-family: var(--dl-font-mono);
+  font-size: var(--dl-fs-meta);
+}
+
+.dl-chip-menu-empty {
+  padding: 10px;
+  color: var(--pw-muted-text-color);
+  font-size: var(--dl-fs-meta);
+}
+
+.dl-chip-menu-refresh {
+  align-self: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-meta);
+  cursor: pointer;
+}
+
+.dl-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 20px;
+  font-size: var(--dl-fs-ui);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+  white-space: nowrap;
+}
+
+.dl-send {
+  position: absolute;
+  right: 16px;
+  bottom: 13px;
+  width: 54px;
+  height: 52px;
+  border-radius: var(--pw-radius-large);
+  /* эталон ref1: заливка accent α70% поверх chat-input (93,121,96), белый глиф */
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 70%,
+    transparent);
+  color: var(--pw-body-text-color);
+}
+
+.dl-send:hover {
+  background: color-mix(in srgb, var(--pw-button-primary-hover-color) 78%,
+    transparent);
+}
+
+/* плотности композера, измеренные по эталонам */
+.dl-composer[data-density="standard"] {
+  padding-top: 20px;
+  padding-bottom: 16px;
+}
+
+.dl-composer[data-density="compact"] {
+  padding-top: 10px;
+  padding-bottom: 3px;
+}
+
+.dl-composer[data-density="compact"] .dl-composer-row2 {
+  margin-top: 4px;
+}
+
+.dl-composer[data-density="compact"] .dl-chip {
+  height: 34px;
+}
+
+.dl-composer[data-density="compact"] .dl-send {
+  right: 6px;
+  top: auto;
+  bottom: 9px;
+  width: 54px;
+  height: 49px;
+}
+
+.dl-hint {
+  flex: none;
+  margin-top: 16px;
+  text-align: center;
+  font-size: var(--dl-fs-hint);
+  line-height: 1;
+  color: var(--pw-muted-text-color);
+  padding-bottom: 4px;
+}
+
+/* ─────────────────────────── Terminal ─────────────────────────── */
+
+.dl-terminal {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 231px; /* ref5: tabbar 49 + тело 182 */
+  min-height: 0;
+}
+
+.dl-grip {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 118px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pw-divider-color);
+}
+
+.dl-term-tabs {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 49px;
+  padding: 0 15px 0 12px;
+  background: var(--pw-sidebar-left-background-color);
+  border-top: 1px solid var(--pw-divider-color);
+}
+
+.dl-term-tab {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--pw-radius-medium);
+  font-size: var(--dl-fs-terminal);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-term-tab-active,
+.dl-term-tab-active:hover {
+  background: var(--pw-surface-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.dl-term-tab-close {
+  display: flex;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-term-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-term-add:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-term-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.dl-term-iconbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+}
+
+.dl-term-iconbtn:hover {
+  background: var(--pw-hover-background-color);
+}
+
+.dl-term-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--pw-terminal-background-color);
+  color: var(--pw-terminal-foreground-color);
+  font-family: var(--dl-font-mono);
+  font-size: var(--dl-fs-terminal);
+  line-height: 19px; /* замер строк эталона: шаг 18-19px */
+  padding: 14px 27px;
+  white-space: pre-wrap;
+}
+
+/* пустая строка вывода (fixtures: после `> vitest run`) */
+.dl-term-body > div:empty {
+  min-height: 19px;
+}
+
+.t-green {
+  color: var(--pw-terminal-ansi-green-color);
+}
+
+.t-blue {
+  color: var(--pw-terminal-ansi-blue-color);
+}
+
+.t-muted {
+  color: var(--pw-terminal-ansi-bright-black-color);
+}
+
+.t-bold {
+  font-weight: 700;
+}
+
+.t-cursor {
+  display: inline-block;
+  width: 9px;
+  height: 18px;
+  margin-left: 2px;
+  vertical-align: -3px;
+  background: var(--pw-terminal-cursor-color);
+}
+
+/* ─────────────────────────── StatusBar ─────────────────────────── */
+
+.dl-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--dl-statusbar-h);
+  /* эталон 05: левый край 28 (наш 25 при 24px) */
+  padding: 0 27px;
+  background: var(--pw-status-bar-background-color);
+  border-top: 1px solid var(--pw-divider-color);
+  font-size: var(--dl-fs-status);
+  /* D3: фантомный legacy-токен удалён — он никогда не производился пресетом,
+   * всегда брался fallback, поэтому замена эквивалентна (без изменения вида). */
+  color: var(--pw-body-text-color);
+}
+
+.dl-status-group {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.dl-status-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dl-status-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--pw-divider-color);
+}
+
+.dl-status-mute {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-status-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  /* эталон 05: точка подключения lime (измеренный 96,193,73), не success */
+  background: var(--dl-online-color, #60C149);
+}
+
+/* иконки CPU/RAM в эталоне — глиф в тонкой рамке-боксе 22×22 */
+.dl-status-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--pw-divider-color);
+  border-radius: 4px;
+}
+
+.dl-status-ico svg {
+  color: var(--pw-body-text-color);
+}
+
+.dl-status-term {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  /* эталон 05: кнопка w134 = icon+gap12+text+padding20×2 */
+  padding: 0 20px;
+  border-radius: var(--pw-radius-small);
+  /* эталон 05: заливка accent α53% поверх statusbar (измеренный 75,95,74) */
+  background: color-mix(in srgb, var(--pw-button-primary-background-color) 53%,
+    transparent);
+  /* в эталоне подпись светло-зелёная (измеренный контраст), а не тёмная */
+  color: color-mix(in srgb, var(--pw-accent-hover-color) 70%, white);
+}
+
+.dl-status-term:hover {
+  background: var(--pw-button-primary-hover-color);
+}
+
+/* ─────────────────────────── DetailsPanel ─────────────────────────── */
+
+.dl-details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 21px 30px 70px;
+  background: var(--pw-sidebar-right-background-color);
+  border-left: 1px solid var(--pw-divider-color);
+}
+
+.dl-details-tabs {
+  position: relative;
+  display: flex;
+  gap: 46px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-tab {
+  position: relative;
+  font-size: 18px;
+  line-height: var(--dl-lh-ui);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-tab-active {
+  color: var(--pw-body-text-color);
+  font-weight: 600;
+}
+
+.dl-tab-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  height: 4px;
+  background: var(--pw-accent-active-color);
+  border-radius: 2px;
+}
+
+.dl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  align-self: flex-start;
+  margin-top: 32px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pw-success-color) 17%,
+    var(--pw-sidebar-right-background-color));
+  color: var(--pw-body-text-color);
+  font-size: 17px;
+}
+
+.dl-pill-icon {
+  display: flex;
+  color: var(--pw-success-color);
+}
+
+.dl-details h2 {
+  margin-top: 20px;
+}
+
+.dl-details-sub {
+  margin-top: 11px;
+  font-size: 18px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-details-divider {
+  height: 1px;
+  background: var(--pw-divider-color);
+  margin: 31px -30px 0;
+}
+
+.dl-details-section {
+  margin-top: 21px;
+}
+
+.dl-details-section-late {
+  margin-top: 27px;
+}
+
+.dl-file-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 15px;
+}
+
+.dl-file {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 40px;
+  font-size: 18px;
+}
+
+.dl-file-icon {
+  flex: none;
+  display: flex;
+  color: var(--pw-body-text-color);
+}
+
+.dl-check-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.dl-check {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 40px;
+  font-size: 18px;
+}
+
+.dl-check-icon {
+  flex: none;
+  display: flex;
+  color: var(--pw-success-color);
+}
+
+.dl-details-divider-bottom {
+  margin-top: 24px;
+}
+
+.dl-details-foot-block {
+  margin-top: auto;
+}
+
+.dl-details-foot-block .dl-details-divider {
+  margin-top: 0;
+}
+
+.dl-details-foot {
+  margin-top: 22px;
+  font-size: 16px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-collapse-btn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--pw-input-border-color);
+  background: var(--pw-sidebar-left-background-color);
+}
+
+/* ─────────────────────────── Screens (Resources / Settings) ───────────── */
+
+.dl-screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 29px 33px 32px 44px;
+}
+
+.dl-screen-sub {
+  margin-top: 8px;
+}
+
+.dl-res-tabs {
+  position: relative;
+  display: flex;
+  gap: 52px;
+  margin-top: 31px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-res-tab {
+  position: relative;
+  font-size: 19px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-res-tab-active {
+  color: var(--pw-body-text-color);
+  font-weight: 600;
+}
+
+.dl-res-tab-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  /* эталон 02-skills: underline 401..495 (w94) = текст таба + gap52 к следующему */
+  right: -52px;
+  /* эталон 02-skills: y245..249 (bottom −15 от текста таба) */
+  bottom: -15px;
+  height: 5px;
+  background: var(--pw-accent-active-color);
+}
+
+.dl-res-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 25px;
+}
+
+.dl-input-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 474px;
+  height: 50px;
+  padding-left: 16px;
+  background: var(--pw-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-placeholder-color);
+  font-size: var(--dl-fs-sidebar);
+}
+
+.dl-input-box input.dl-input-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font: inherit;
+}
+
+.dl-input-box input.dl-input-field::placeholder {
+  color: var(--pw-placeholder-color);
+}
+
+.dl-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 191px;
+  height: 50px;
+  padding: 0 14px 0 16px;
+  background: var(--pw-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-sidebar);
+}
+
+.dl-select select.dl-select-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* C4 (review): the wrappers themselves must glow while a field inside has
+   keyboard focus — the global :focus-visible ring stays for the field. */
+.dl-input-box:focus-within,
+.dl-select:focus-within {
+  border-color: var(--pw-focus-ring-color);
+}
+
+.dl-install {
+  margin-left: auto;
+  width: 247px;
+  height: 51px;
+  gap: 16px;
+  font-size: var(--dl-fs-ui);
+  font-weight: 600;
+  border-radius: var(--pw-radius-medium);
+}
+
+.dl-res-meta {
+  margin-top: 22px;
+}
+
+.dl-list {
+  margin-top: 15px;
+  border-top: 1px solid var(--pw-divider-color);
+}
+
+.dl-skill {
+  display: flex;
+  align-items: center;
+  height: 87px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-skill-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 73px;
+  height: 60px;
+  border-radius: var(--pw-radius-large);
+  background: var(--pw-surface-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.dl-skill-text {
+  flex: 1;
+  min-width: 0;
+  margin-left: 22px;
+}
+
+.dl-skill-title {
+  font-size: 19px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-skill-desc {
+  margin-top: 4px;
+  font-size: 17px;
+  color: var(--pw-muted-text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-skill-badge {
+  flex: none;
+  width: 276px;
+  font-size: 16px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-skill-link {
+  flex: none;
+  width: 135px;
+  font-size: 16px;
+  color: var(--pw-muted-text-color);
+  text-align: left;
+}
+
+.dl-skill-link:hover {
+  color: var(--pw-link-color);
+}
+
+.dl-skill-dots {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 31px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-note {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}
+
+/* ─────────────────────────── Settings (fixture, без эталона) ───────────── */
+
+.dl-set-section {
+  margin-top: 44px;
+}
+
+.dl-set-section h2 {
+  font-size: var(--dl-fs-h2);
+  font-weight: 700;
+}
+
+.dl-set-section-sub {
+  margin-top: 8px;
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.dl-theme-card {
+  padding: 16px;
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--pw-radius-medium);
+  background: var(--pw-tool-card-background-color);
+}
+
+.dl-theme-card-active {
+  border-color: var(--pw-accent-color);
+}
+
+/* C5.2: продуктовые карточки тем — интерактивные кнопки на одобренном контуре
+ * (радио-семантика/тестовые id сохранены, legacy-полоса .theme-swatch убрана). */
+button.dl-theme-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.dl-theme-card:hover {
+  border-color: var(--pw-accent-hover-color);
+}
+
+.dl-theme-card-note {
+  font-size: 11.5px;
+}
+
+.dl-theme-swatches {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dl-theme-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--pw-radius-small);
+  border: 1px solid var(--pw-divider-color);
+}
+
+/* C5.2-ревью: fieldset — только ради доступной группы (aria-label);
+ * UA-рамка/отступы/min-width сбрасываются, иначе ряд теряет одобренную
+ * анатомию (groove-бордер + легенда сверху вместо колонок). */
+.dl-type-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+/* одобренная строка: на узких колонках (1000px) — перенос, чтобы
+ * имя/контролы жили в первой строке, а превью+spec уходили ниже.
+ * Общий для лабы и продукта (C5-R02 owner #6415236125). */
+.dl-type-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-type-name {
+  width: 220px;
+  font-weight: 500;
+}
+
+.dl-type-preview {
+  flex: 1 1 240px;
+  min-width: 200px;
+  color: var(--pw-body-text-color);
+}
+
+.dl-type-spec {
+  width: 240px;
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}
+
+/* C5.2: продуктовые строки (типографика/пространство) — одобренная анатомия
+ * .dl-type-row с инлайн-контролами вместо legacy-стека .field-block. */
+.dl-type-fields {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 300px;
+  min-width: 0;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.dl-type-fields .field-inline {
+  min-width: 0;
+}
+
+.dl-type-fields input,
+.dl-type-fields select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dl-type-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-type-spec-auto {
+  width: auto;
+  min-width: 120px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * app (D1-этап 2): целостный главный экран
+ * Эталон Reference/01-chat-review-terminal.png; геометрия — layout.css (--dl-app-*).
+ * Всё ниже — только этот layout: состояния ref1–ref6/settings не затронуты.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/* строка breadcrumb + actions ВНУТРИ main (titlebar app — только wordmark) */
+.dl-app-crumb {
+  flex: 0 0 var(--dl-app-crumb-h);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: var(--dl-crumb-offset);
+}
+
+.dl-app-crumb .dl-crumb {
+  flex: 1;
+  min-width: 0;
+}
+
+.dl-app-crumb .dl-toolbar-actions {
+  gap: 14px;
+  margin-right: 24px;
+}
+
+/* chat-кегль app — токены DEFAULT_TYPOGRAPHY (chatResponse 15/1.6, chatInput 14):
+ * эталон 01-… компактный; --dl-fs-* (17–20px) — семейство Issue-мокапов ref1–ref5. */
+.dl-frame[data-layout="app"] .dl-md {
+  max-width: 580px;
+  font-size: var(--pw-font-chat-response-size, 15px);
+  line-height: 1.6;
+}
+
+.dl-frame[data-layout="app"] .dl-bullets {
+  font-size: var(--pw-font-chat-response-size, 15px);
+  line-height: 1.6;
+}
+
+.dl-frame[data-layout="app"] .dl-bullets li {
+  font-size: var(--pw-font-chat-response-size, 15px);
+  line-height: 1.7;
+}
+
+.dl-frame[data-layout="app"] .dl-bubble-user {
+  font-size: var(--pw-font-chat-input-size, 14px);
+  line-height: 1.55;
+}
+
+/* строки/поля сайдбара app — по замеру 01-chat-review-terminal (семейство v3:
+ * «Новый диалог» без заливки, поля 38, строки 46, метка строчными). Для
+ * ref-состояний (семейство 01-chat) остаются текущие размеры. */
+.dl-frame[data-layout="app"] .dl-newchat {
+  height: 40px;
+  gap: 14px;
+  background: transparent;
+  color: var(--pw-body-text-color);
+  font-size: var(--dl-fs-sidebar);
+  font-weight: 400;
+}
+
+.dl-frame[data-layout="app"] .dl-search {
+  height: 38px;
+}
+
+.dl-frame[data-layout="app"] .dl-sidebar-top {
+  padding: 0 15px;
+}
+
+.dl-frame[data-layout="app"] .dl-side-label {
+  margin-top: 20px;
+  padding-left: 24px;
+}
+
+.dl-frame[data-layout="app"] .dl-row {
+  height: 46px;
+}
+
+.dl-frame[data-layout="app"] .dl-status {
+  padding: 0 12px;
+}
+
+/* заголовок раздела «Проекты» app: строчные + шеврон (эталон 01-…);
+ * для inline-состояний остаётся uppercase из .dl-side-label */
+.dl-side-label-app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0.2px;
+}
+
+/* проект app: зелёная точка состояния и подпись ветки под именем */
+.dl-row-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--pw-success-color);
+}
+
+.dl-row-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--pw-muted-text-color);
+}
+
+/* инсеты ленты чата app: измерены по эталону (сводка x335..1175 при колонке
+ * x321..1200 → 14 / 25). Реф5-инсет 371px относится к split+rail и сюда не идёт. */
+.dl-frame[data-layout="app"] .dl-msgs {
+  --dl-msgs-left: 14px;
+  --dl-msgs-right: 25px;
+  padding-top: 8px;
+}
+
+/* высота статус-бара app: своя переменная (иначе --dl-statusbar-h из эталона 05
+ * перебивает геометрию вариантов A/B) */
+.dl-frame[data-layout="app"] .dl-status {
+  height: var(--dl-app-status-h);
+}
+
+/* верхняя строка сайдбара app: «Открыть проект» + сворачивание (эталон) */
+.dl-sidebar-head {
+  flex: 0 0 var(--dl-app-sidehead-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 0 24px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-sidebar-head-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: var(--dl-fs-ui);
+  line-height: var(--dl-lh-ui);
+  color: var(--pw-body-text-color);
+}
+
+/* app-порядок верхних строк сайдбара: поиск → «Новый диалог» (эталонная
+ * последовательность 01-chat-review-terminal); для inline-состояний — без изменений. */
+.dl-frame[data-layout="app"] .dl-sidebar-top .dl-search {
+  margin-top: 6px;
+}
+
+.dl-frame[data-layout="app"] .dl-sidebar-top .dl-newchat {
+  margin-top: 14px;
+}
+
+/* правая колонка app: шапка-вкладки (49px) + тело с независимой прокруткой */
+.dl-frame[data-layout="app"] .dl-details {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* C5-final: секционный divider идёт от общей линии 24px — во всю ширину панели */
+.dl-frame[data-layout="app"] .dl-details .dl-details-divider {
+  margin-left: -24px;
+  margin-right: -24px;
+}
+
+.dl-details-head {
+  flex: 0 0 var(--dl-app-dhead-h);
+  display: flex;
+  align-items: center;
+  /* UI21 P1: минимум 16px между заголовком и кнопкой сворачивания —
+   * контейнерных отступов (24/16px) недостаточно, элементы склеивались */
+  gap: 16px;
+  /* C5-final: симметрия панели — шапка на той же линии, что и тело (24px;
+   * владелец в 6cb28dd пробовал 30px — финальное ТЗ требует 24px, узкое окно 16px) */
+  padding: 0 24px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+/* UI21 P1: кнопка у правого внутреннего края панели (не сразу после текста),
+ * не сжимается при сужении; заголовок может ужаться в ellipsis (min-width:0) */
+.dl-details-head .dl-collapse-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.dl-details-head .dl-details-title {
+  min-width: 0;
+}
+
+.dl-details-head .dl-details-tabs {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  align-items: center;
+  gap: 36px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.dl-details-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px 40px; /* C5-final: симметрия 24px (узкое окно — 16px в layout.css) */
+}
+
+/* тело «Изменения»: scope-segmented + ветка + файлы + unified diff */
+.dl-changes-scope {
+  display: flex;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.dl-changes-scope .v5-seg {
+  display: flex;
+  flex: 1;
+}
+
+.dl-changes-scope .v5-seg button {
+  flex: 1;
+}
+
+.dl-changes-branch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  border-bottom: 1px solid var(--pw-divider-color);
+  font-size: 15px;
+}
+
+.dl-changes-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.dl-changes-counts .is-add,
+.dl-file-counts .is-add,
+.dl-tool-summary-counts .is-add {
+  color: var(--pw-success-color);
+}
+
+.dl-changes-counts .is-del,
+.dl-file-counts .is-del,
+.dl-tool-summary-counts .is-del {
+  color: var(--pw-error-color);
+}
+
+.dl-file-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.dl-changes-filehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.dl-changes-body .dl-file {
+  gap: 14px;
+  height: 36px;
+  font-size: 15px;
+}
+
+/* свёрнутая строка-сводка над ответом (pre в ChatTurnAssistant) */
+.dl-turn-pre {
+  width: 100%;
+  margin-top: 24px;
+}
+
+.dl-tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--pw-surface-background-color);
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+  font-size: 14px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-tool-summary-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+/* блок «Изменены 2 файла» + строки счётчиков (post в ChatTurnAssistant) */
+.dl-turn-post {
+  display: flex;
+  flex-direction: column;
+  margin-top: 18px;
+}
+
+.dl-turn-post-label {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-turn-post .dl-file {
+  gap: 14px;
+  height: 36px;
+  margin-bottom: 8px;
+  padding: 0 14px;
+  font-size: 15px;
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+}
+
+/* ───────────────── D2: интеграция в рабочее приложение ─────────────────
+ * Только app-layout ([data-layout="app"]) и нейтральные новые классы;
+ * состояния design-lab ref1–ref6/settings не трогаются. */
+
+/* D3: app-переопределения --dl-fs-* УДАЛЕНЫ (owner #6398531407) — канон
+ * типографики приходит из typography.css/DEFAULT_TYPOGRAPHY через единый
+ * applyTypography, который пишет и lab-переменные (--dl-fs-*, --dl-font-*)
+ * напрямую.
+ * Мёртвые legacy-правила .left-sidebar удалены вместе с обёртками D2. */
+
+.dl-side-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dl-sidebar-notice {
+  padding: 8px 24px 0;
+}
+
+/* Поиск сайдбара: design-lab — статичный div, продукт — настоящий input */
+.dl-search-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.dl-search-input::placeholder {
+  color: var(--pw-placeholder-color);
+}
+
+.dl-search:focus-within {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Статус-бар: группы ui/StatusBar внутри footer-а AppFrame */
+.dl-status-inner {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Handle-ы изменения размеров (мышь + клавиатура) ──────────────────── */
+.dl-resize {
+  position: absolute;
+  z-index: 8;
+  background: transparent;
+  touch-action: none;
+}
+
+.dl-resize-x {
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.dl-resize-left {
+  right: 0;
+}
+
+.dl-resize-right {
+  left: 0;
+  width: 9px;
+}
+
+.dl-resize-y {
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.dl-resize:hover {
+  background: var(--pw-divider-color);
+}
+
+.dl-resize:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: -1px;
+  background: var(--pw-divider-color);
+}
+
+.dl-frame[data-layout="app"] .dl-details {
+  position: relative;
+}
+
+/* ── Терминальный док (только центральная колонка) ────────────────────── */
+/* D3: legacy-док shell/TerminalSlot удалён — док = approved ui/TerminalPane
+ * (.dl-terminal) с честным содержимым; тело дока несёт PTY-уведомление. */
+.dl-term-note {
+  /* R07 §5: раньше nowrap+ellipsis резал честную подпись на 1239×898 и
+    1000×722. Переносим текст: подпись должна читаться целиком. */
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.dl-terminal .terminal-slot {
+  flex: 1;
+  min-height: 0;
+  border-top: 0;
+}
+
+/* ── Сессия и чат в центре ────────────────────────────────────────────── */
+.dl-session-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dl-session-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* D3: сессионная цепь использует отступы app-контура чата (14/25 — те же
+ * значения, что на .dl-msgs), иначе пузыри read-only истории читают
+ * эталон-глобальные 85/61 и упираются в края окна. */
+.dl-frame[data-layout="app"] .dl-session-body {
+  --dl-msgs-left: 14px;
+  --dl-msgs-right: 25px;
+}
+
+.dl-frame[data-layout="app"] .dl-session-body .history {
+  padding-left: var(--dl-msgs-left, 14px);
+  padding-right: var(--dl-msgs-right, 25px);
+}
+
+.dl-session-tabs {
+  display: flex;
+  gap: 6px;
+  margin-right: 18px;
+}
+
+.dl-session-tab {
+  font-size: var(--dl-fs-meta);
+  padding: 6px 14px;
+  border-radius: 9px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-session-tab[aria-selected="true"] {
+  background: var(--pw-hover-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.dl-chatpane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dl-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* Композер продукта: настоящий textarea вместо статичного placeholder */
+.dl-composer-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 132px;
+  resize: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.dl-composer-input::placeholder {
+  color: var(--pw-placeholder-color);
+}
+
+/* Пустое состояние чата в app-цепочке растягивается и скроллится честно */
+.dl-frame[data-layout="app"] .empty-state {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Legacy-текстовые элементы внутри frame: восстанавливаем UA-ритм,
+ * сброшенный глобальными reset-ами layout.css (h/p/ul → margin 0).
+ * D3: правило обёртки .center-body удалено вместе с обёрткой. */
+.dl-session-body p,
+.dl-session-body h3 {
+  margin-bottom: 0.75em;
+}
+
+/* Обёртка центральной колонки AppFrame: прод-правило живёт в index.css, но
+ * design-lab его не подключает — дублируем в общем слое (то же значение). */
+.center-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Review-фиксы D2 (независимое ревью, только app-layout/продукт) ─────── */
+
+/* P1-6: типографика §9.3 управляет ВСЕМИ свойствами областей, не только
+ * кеглем — family/weight/line-height доходят до реальных регионов. */
+.dl-frame[data-layout="app"] {
+  font-family: var(--pw-font-ui-family, var(--dl-font-stack));
+}
+
+.dl-frame[data-layout="app"] .dl-md {
+  font-family: var(--pw-font-chat-response-family, inherit);
+  font-weight: var(--pw-font-chat-response-weight, inherit);
+  line-height: var(--pw-font-chat-response-line-height, 1.6);
+}
+
+.dl-frame[data-layout="app"] .dl-composer-input {
+  font-family: var(--pw-font-chat-input-family, inherit);
+  font-size: var(--pw-font-chat-input-size, 14px);
+  font-weight: var(--pw-font-chat-input-weight, inherit);
+  line-height: var(--pw-font-chat-input-line-height, 1.5);
+}
+
+.dl-frame[data-layout="app"] .dl-sidebar {
+  font-family: var(--pw-font-sidebar-family, inherit);
+  font-weight: var(--pw-font-sidebar-weight, inherit);
+  line-height: var(--pw-font-sidebar-line-height, 1.45);
+}
+
+.dl-frame[data-layout="app"] .dl-status {
+  font-family: var(--pw-font-status-bar-family, inherit);
+  font-weight: var(--pw-font-status-bar-weight, inherit);
+}
+
+.dl-frame[data-layout="app"] .dl-terminal {
+  font-family: var(--pw-font-terminal-family, inherit);
+  font-weight: var(--pw-font-terminal-weight, inherit);
+  line-height: var(--pw-font-terminal-line-height, 1.5);
+}
+
+/* P1-3: реальные списки проектов/сессий скроллятся, навигация остаётся
+ * доступной внизу (overflow:hidden сайдбара раньше обрезал длинные выдачи). */
+.dl-frame[data-layout="app"] .dl-sidebar-top,
+.dl-frame[data-layout="app"] .dl-side-label,
+.dl-frame[data-layout="app"] .dl-side-divider,
+.dl-frame[data-layout="app"] .dl-nav-rows {
+  flex: none;
+}
+
+.dl-frame[data-layout="app"] .dl-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* P1-5: док не съедает рабочую область чата — жёсткий предел от высоты
+ * центральной колонки с резервом на композер/сессию (сохранённые 600px
+ * применяются только пока хватает места). D3: селектор approved .dl-terminal. */
+.dl-frame[data-layout="app"] .dl-terminal {
+  max-height: calc(100% - 220px);
+}
+
+/* R02: в inline/split-состояниях дерево сессий сжимается (но не растёт) при
+ * нехватке высоты — нижняя навигация остаётся на месте. Утверждённые эталоны
+ * не меняются: пока места хватает, flex-basis:auto сохраняет исходную высоту. */
+.dl-frame:not([data-layout="app"]) .dl-tree {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Review r2: короткие окна — сайдбар сам по себе скроллится как fallback,
+ * чтобы навигация была достижима, когда flex-none блоков не хватает высоты.
+ * R02: правило не должно зависеть от layout — в inline/split-состояниях
+ * (Design Lab ?state=settings) нижняя навигация обрезалась при высоте ≤800. */
+.dl-frame .dl-sidebar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* Review r2 P1-nav: декоративный 129px-разделитель — только визуал лабы;
+ * продукту нужен компактный разделитель, иначе nav уезжает за обрез. */
+html:not([data-design-lab]) .dl-frame[data-layout="app"] .dl-side-divider {
+  margin-top: 24px;
+}
+
+/* Review r2/r3 P1-code: область кода §9.3 (чат, история, любые markdown-регионы
+ * продукта) целиком управляется code-токенами: семейство, начертание, размер
+ * и интерлиньяж — inline- и fenced-код не наследуют ответ/историю. */
+.dl-frame[data-layout="app"] code {
+  font-family: var(--pw-font-code-family, var(--dl-font-mono));
+  font-weight: var(--pw-font-code-weight, 400);
+  font-size: var(--pw-font-code-size, var(--dl-fs-code));
+}
+
+.dl-frame[data-layout="app"] pre,
+.dl-frame[data-layout="app"] pre code,
+.dl-frame[data-layout="app"] code {
+  line-height: var(--pw-font-code-line-height, 1.5);
+}
+
+/* UI21 R07 §1–§2: единственный переключатель правой панели в шапке чата
+   (облик прежней кнопки сворачивания «Детали действия») и статичная метка
+   контекста «Чат» вместо сегментированного переключателя. */
+.dl-header-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.dl-crumb-context {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--pw-selected-background-color);
+  font-size: var(--dl-fs-sidebar, 13px);
+  font-weight: 600;
+  opacity: 0.9;
+}

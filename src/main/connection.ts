@@ -4,6 +4,7 @@
  * One persistent bridge per connection; selectDistro restarts the stack.
  */
 import { BridgeError } from '../shared/errors';
+import { GATE_REQUEST_MS } from '../shared/timeouts';
 import { BridgeClient } from './bridgeClient';
 import { initialState, reduce, type ConnEvent, type ConnSnapshot } from './state';
 import { listDistros, probeNode, startBridgeProcess } from './wsl';
@@ -14,7 +15,19 @@ export interface Timeouts {
   probeMs?: number;
   readyMs?: number;
   requestMs?: number;
+  /**
+   * UI21 F1-B R01: бюджет готового гейта (проба Pi внутри моста может включать
+   * резервный `pi --help`). Должен быть больше RPC_PROBE_BUDGET_MS (25 с),
+   * иначе совместимый Pi с медленным help не успеет доказать RPC и упрётся
+   * в тайм-аут запроса.
+   */
+  gateMs?: number;
 }
+
+// Готовый гейт: бюджет пробы Pi целиком (version + режим + резервный help) плюс
+// запас, который вычитает BridgeClient (см. PI_RPC_PROBE_BUDGET_MS и
+// GATE_REQUEST_MS в src/shared/timeouts.ts — единственный источник истины).
+export { GATE_REQUEST_MS } from '../shared/timeouts';
 
 export interface ConnectionOptions {
   bridgeWinPath: string;
@@ -33,6 +46,13 @@ export interface ConnectionSnapshot extends ConnSnapshot {
 }
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Транзиентные коды готового гейта (UI21 F1-B R01): проба Pi не доказана или
+ * транспорт сорвался. Такие ошибки повторяются в рамках ограниченного backoff —
+ * в отличие от PI_INCOMPATIBLE/PI_NOT_FOUND, которые остаются отказом.
+ */
+const TRANSIENT_GATE_CODES = new Set<string>(['BRIDGE_TIMEOUT', 'DISCONNECTED', 'PROTOCOL_ERROR']);
 
 export class WslConnection {
   private state: ConnSnapshot = initialState();
@@ -73,6 +93,12 @@ export class WslConnection {
 
   private dispatch(e: ConnEvent): void {
     this.state = reduce(this.state, e, { maxAutoAttempts: this.opts.maxAutoAttempts ?? 5 });
+    this.notify();
+  }
+
+  /** Публикация текущего снапшота подписчикам (закрытое соединение молчит). */
+  private notify(): void {
+    if (this.closed) return;
     const snap = this.snapshot();
     for (const cb of this.subscribers) cb(snap);
   }
@@ -120,15 +146,41 @@ export class WslConnection {
     const token = ++this.runToken;
     const t = this.opts.timeouts ?? {};
     try {
-      const distros = await listDistros({
-        wslPath: this.opts.wslPath,
-        env: this.opts.env,
-        timeoutMs: t.listMs ?? 10_000,
-      });
+      // UI21 F1-B R01: список дистрибутивов нужен в критическом пути только
+      // когда дистрибутив ещё не выбран. Если он известен (настройка/выбор
+      // владельца), wsl.exe --list идёт ФОНОМ для UI и больше не тормозит старт.
+      const configured = this.currentDistro || this.opts.env?.PI_WS_DESKTOP_DISTRO || '';
+      let distro: string;
+      let known = this.distrosCache;
+      if (configured) {
+        distro = configured;
+        known = known ?? null;
+        if (!known) {
+          void listDistros({
+            wslPath: this.opts.wslPath,
+            env: this.opts.env,
+            timeoutMs: t.listMs ?? 10_000,
+          }).then(
+            (d) => {
+              this.distrosCache = d;
+              // Список дистрибутивов пришёл уже после READY: UI-селекторы
+              // читают snapshot.distros, поэтому публикуем обновление.
+              this.notify();
+            },
+            () => undefined,
+          );
+        }
+      } else {
+        known = await listDistros({
+          wslPath: this.opts.wslPath,
+          env: this.opts.env,
+          timeoutMs: t.listMs ?? 10_000,
+        });
+        this.distrosCache = known;
+        distro = known[0];
+      }
       if (token !== this.runToken) return;
-      this.distrosCache = distros;
-      const distro = this.currentDistro || this.opts.env?.PI_WS_DESKTOP_DISTRO || distros[0];
-      if (!distros.includes(distro)) {
+      if (known && known.length > 0 && !known.includes(distro)) {
         throw new BridgeError('WSL_UNAVAILABLE', `distribution not found: ${distro}`);
       }
       this.currentDistro = distro;
@@ -210,16 +262,24 @@ export class WslConnection {
       // advertised). A failed gate lands in an explicit error state with the
       // diagnostic code, tears the stack down (no stale bridge process) and
       // leaves only manual retry — never a false READY.
+      //
+      // UI21 F1-B R01: оба запроса идут ПАРАЛЛЕЛЬНО (один RTT вместо двух),
+      // а внутри моста их делит один общий probe. Ошибка «проба не доказана»
+      // (BRIDGE_TIMEOUT) — транзиентная: ограниченный автоповтор, а не
+      // окончательный отказ; PI_INCOMPATIBLE/PI_NOT_FOUND остаются отказом.
       try {
-        const runtime = (await client.request('getRuntimeInfo', {}, { timeoutMs: t.requestMs ?? 10_000 })) as {
-          pi: { version: string; rpcSupported: boolean } | null;
-        };
+        const gateMs = t.gateMs ?? GATE_REQUEST_MS;
+        const [runtime, caps] = await Promise.all([
+          client.request('getRuntimeInfo', {}, { timeoutMs: gateMs }) as Promise<{
+            pi: { version: string; rpcSupported: boolean } | null;
+          }>,
+          client.request('getCapabilities', {}, { timeoutMs: gateMs }) as Promise<{
+            methods?: unknown;
+          }>,
+        ]);
         if (!runtime?.pi?.version) {
           throw new BridgeError('PI_NOT_FOUND', 'Pi executable not found (bridge probe returned no pi)');
         }
-        const caps = (await client.request('getCapabilities', {}, { timeoutMs: t.requestMs ?? 10_000 })) as {
-          methods?: unknown;
-        };
         if (!Array.isArray(caps.methods) || !caps.methods.includes('health')) {
           throw new BridgeError('PI_INCOMPATIBLE', 'bridge capabilities are missing required M0 methods');
         }
@@ -232,6 +292,14 @@ export class WslConnection {
         const message = err instanceof Error ? err.message : String(err);
         this.runtime = null;
         this.client = null;
+        if (TRANSIENT_GATE_CODES.has(code)) {
+          // Сначала состояние: тогда 'lost' от close() ниже уже игнорируется,
+          // а ограниченный backoff перезапустит весь цикл целиком.
+          this.dispatch({ type: 'PI_GATE_RETRY', error: { code, message } });
+          client.close();
+          this.scheduleBackoff(token);
+          return;
+        }
         // State first: the 'lost' event fired by close() below is then
         // ignored (reduce ignores LOST from phase error), so a broken Pi can
         // never auto-retry into backoff.

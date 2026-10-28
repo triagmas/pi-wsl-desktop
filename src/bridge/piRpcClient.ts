@@ -20,6 +20,12 @@
  *   generation), every pending promise rejects with RpcDisconnectedError.
  */
 import { LineAssembler } from '../shared/framing';
+import {
+  PI_COMMAND_TIMEOUT_MS,
+  PI_INTERRUPT_TIMEOUT_MS,
+  PI_PROMPT_ACK_TIMEOUT_MS,
+  PI_SETTLE_TIMEOUT_MS,
+} from '../shared/timeouts';
 
 export interface RpcProcess {
   stdin: NodeJS.WritableStream;
@@ -85,8 +91,8 @@ export interface PiRpcClientOptions {
 
 const DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor']);
 const DEFAULTS = {
-  commandTimeoutMs: 15_000,
-  settleTimeoutMs: 180_000,
+  commandTimeoutMs: PI_COMMAND_TIMEOUT_MS,
+  settleTimeoutMs: PI_SETTLE_TIMEOUT_MS,
   exitWaitMs: 3_000,
   maxLineBytes: 16 * 1024 * 1024,
 };
@@ -201,7 +207,11 @@ export class PiRpcClient {
     const epochBefore = this.settledEpoch;
     const fields: Record<string, unknown> = { message };
     if (opts.streamingBehavior) fields.streamingBehavior = opts.streamingBehavior;
-    const data = (await this.request<{ disposition?: string }>('prompt', fields)) ?? {};
+    // UI21 F1-B R02 (P1): это бюджет ACK, а не длительности ответа модели —
+    // холодная сессия подтверждает приём дольше общего тайм-аута команд.
+    const data = (await this.request<{ disposition?: string }>('prompt', fields, {
+      timeoutMs: PI_PROMPT_ACK_TIMEOUT_MS,
+    })) ?? {};
     const disposition = typeof data.disposition === 'string' ? data.disposition : 'started';
     if (disposition === 'handled') return { disposition, run: Promise.resolve({ aborted: false }) };
     if (this.settledEpoch > epochBefore) {
@@ -248,7 +258,7 @@ export class PiRpcClient {
 
   /** Abort the current run; Pi responds only once the session is idle. */
   interrupt(): Promise<unknown> {
-    return this.request('abort', {}, { timeoutMs: Math.max(30_000, this.opts.commandTimeoutMs ?? 0) });
+    return this.request('abort', {}, { timeoutMs: Math.max(PI_INTERRUPT_TIMEOUT_MS, this.opts.commandTimeoutMs ?? 0) });
   }
 
   async close(): Promise<void> {

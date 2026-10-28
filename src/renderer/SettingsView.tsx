@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
 import { StatusPanel } from './StatusPanel';
+import { SettingsScreen } from './ui/SettingsScreen';
 import {
   COLOR_TOKEN_KEYS,
   PRESET_IDS,
@@ -202,11 +203,8 @@ export interface SettingsViewProps {
   layout: LayoutControls;
 }
 
-type Section = 'appearance' | 'typography' | 'workspace' | 'connection';
-
 export function SettingsView(props: SettingsViewProps) {
   const { appearance, ready, onChange, onReset, layout } = props;
-  const [section, setSection] = useState<Section>('appearance');
 
   /* Custom editor state (§9.2): opened only under the fifth card. */
   const [editorOpen, setEditorOpen] = useState(false);
@@ -303,37 +301,14 @@ export function SettingsView(props: SettingsViewProps) {
   };
 
   return (
-    <section className="settings" data-testid="settings-root">
-      <h1 className="settings-title">Настройки</h1>
-      <nav className="settings-tabs" role="tablist" aria-label="Разделы настроек">
-        {(
-          [
-            ['appearance', 'Внешний вид'],
-            ['typography', 'Типографика'],
-            ['workspace', 'Рабочее пространство'],
-            ['connection', 'Подключение'],
-          ] as [Section, string][]
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            data-testid={`settings-tab-${id}`}
-            aria-selected={section === id}
-            onClick={() => setSection(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      {section === 'appearance' && (
-        <div className="settings-section" data-testid="settings-appearance">
-          <p className="muted">
+    <SettingsScreen testid="settings-root">
+      <section className="dl-set-section" data-testid="settings-appearance">
+        <h2>Внешний вид</h2>
+        <p className="dl-set-section-sub">
             Тема меняет только оформление — сессии, потоки и настройки Pi не затрагиваются.
             {!ready && ' Загрузка…'}
           </p>
-          <div className="theme-cards" role="radiogroup" aria-label="Темы">
+          <div className="dl-theme-grid" role="radiogroup" aria-label="Темы">
             {PRESET_IDS.map((id) => {
               const preset = THEME_PRESETS[id];
               const active = appearance.theme.preset === id;
@@ -344,17 +319,17 @@ export function SettingsView(props: SettingsViewProps) {
                   role="radio"
                   data-testid={`theme-card-${id}`}
                   aria-checked={active}
-                  className={`theme-card${active ? ' theme-card-active' : ''}`}
+                  className={`dl-theme-card${active ? ' dl-theme-card-active' : ''}`}
                   onClick={() => onChange({ ...appearance, theme: { ...appearance.theme, preset: id } })}
                 >
-                  <span className="theme-swatch" aria-hidden="true">
-                    <span style={{ background: preset.tokens.windowBackgroundColor }} />
-                    <span style={{ background: preset.tokens.sidebarLeftBackgroundColor }} />
-                    <span style={{ background: preset.tokens.accentColor }} />
-                    <span style={{ background: preset.tokens.bodyTextColor }} />
+                  <span style={{ fontWeight: 600 }}>{preset.label}</span>
+                  <span className="dl-theme-swatches" aria-hidden="true">
+                    <span className="dl-theme-swatch" style={{ background: preset.tokens.windowBackgroundColor }} />
+                    <span className="dl-theme-swatch" style={{ background: preset.tokens.sidebarLeftBackgroundColor }} />
+                    <span className="dl-theme-swatch" style={{ background: preset.tokens.accentColor }} />
+                    <span className="dl-theme-swatch" style={{ background: preset.tokens.bodyTextColor }} />
                   </span>
-                  <span className="theme-card-name">{preset.label}</span>
-                  {preset.attribution && <span className="theme-card-note muted">inspired-by</span>}
+                  {preset.attribution && <span className="dl-theme-card-note muted">inspired-by</span>}
                 </button>
               );
             })}
@@ -363,20 +338,20 @@ export function SettingsView(props: SettingsViewProps) {
               role="radio"
               data-testid="theme-card-custom"
               aria-checked={appearance.theme.preset === 'custom'}
-              className={`theme-card${appearance.theme.preset === 'custom' ? ' theme-card-active' : ''}`}
+              className={`dl-theme-card${appearance.theme.preset === 'custom' ? ' dl-theme-card-active' : ''}`}
               onClick={() => {
                 if (!editorOpen) startEditor('dark');
                 else setEditorOpen((v) => v);
               }}
             >
-              <span className="theme-swatch" aria-hidden="true">
-                <span style={{ background: appearance.theme.custom?.windowBackgroundColor ?? '#20221F' }} />
-                <span style={{ background: appearance.theme.custom?.sidebarLeftBackgroundColor ?? '#191C19' }} />
-                <span style={{ background: appearance.theme.custom?.accentColor ?? '#78957C' }} />
-                <span style={{ background: appearance.theme.custom?.bodyTextColor ?? '#E7EAE3' }} />
+              <span style={{ fontWeight: 600 }}>Своя тема</span>
+              <span className="dl-theme-swatches" aria-hidden="true">
+                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.windowBackgroundColor ?? '#20221F' }} />
+                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.sidebarLeftBackgroundColor ?? '#191C19' }} />
+                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.accentColor ?? '#78957C' }} />
+                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.bodyTextColor ?? '#E7EAE3' }} />
               </span>
-              <span className="theme-card-name">Своя тема</span>
-              <span className="theme-card-note muted">{appearance.theme.customName}</span>
+              <span className="dl-theme-card-note muted">{appearance.theme.customName}</span>
             </button>
           </div>
 
@@ -552,12 +527,11 @@ export function SettingsView(props: SettingsViewProps) {
             </div>
           )}
           <div className="card-group-note muted">{COLOR_TOKEN_KEYS.length} семантических цветов · 4 пресета + своя</div>
-        </div>
-      )}
+      </section>
 
-      {section === 'typography' && (
-        <div className="settings-section" data-testid="settings-typography">
-          <p className="muted">
+      <section className="dl-set-section" data-testid="settings-typography">
+        <h2>Типографика</h2>
+        <p className="dl-set-section-sub">
             Шрифты задаются для каждой области отдельно и не сбрасываются при смене темы.
           </p>
           {TYPOGRAPHY_AREAS.map((area) => (
@@ -573,13 +547,12 @@ export function SettingsView(props: SettingsViewProps) {
               }
             />
           ))}
-        </div>
-      )}
+      </section>
 
-      {section === 'workspace' && (
-        <div className="settings-section" data-testid="settings-workspace">
-          <label className="field-block">
-            Ширина левой панели: {layout.leftWidth}px
+      <section className="dl-set-section" data-testid="settings-workspace">
+        <h2>Рабочее пространство</h2>
+          <label className="dl-type-row">
+            <span className="dl-type-name">Ширина левой панели</span>
             <input
               type="range"
               min={200}
@@ -589,9 +562,10 @@ export function SettingsView(props: SettingsViewProps) {
               value={layout.leftWidth}
               onChange={(e) => layout.onLeftWidth(Number(e.target.value))}
             />
+            <span className="dl-type-spec dl-type-spec-auto">{layout.leftWidth}px</span>
           </label>
-          <label className="field-block">
-            Ширина панели деталей: {layout.rightWidth}px
+          <label className="dl-type-row">
+            <span className="dl-type-name">Ширина панели деталей</span>
             <input
               type="range"
               min={240}
@@ -601,9 +575,10 @@ export function SettingsView(props: SettingsViewProps) {
               value={layout.rightWidth}
               onChange={(e) => layout.onRightWidth(Number(e.target.value))}
             />
+            <span className="dl-type-spec dl-type-spec-auto">{layout.rightWidth}px</span>
           </label>
-          <label className="field-block">
-            Высота слота терминала: {appearance.layout.terminalSlotHeight}px
+          <label className="dl-type-row">
+            <span className="dl-type-name">Высота слота терминала</span>
             <input
               type="range"
               min={120}
@@ -613,25 +588,25 @@ export function SettingsView(props: SettingsViewProps) {
               value={appearance.layout.terminalSlotHeight}
               onChange={(e) => layout.onTerminalHeight(Number(e.target.value))}
             />
+            <span className="dl-type-spec dl-type-spec-auto">{appearance.layout.terminalSlotHeight}px</span>
           </label>
-          <label className="field-inline">
+          <label className="dl-type-row">
+            <span className="dl-type-name">Сворачивать левую панель</span>
             <input
               type="checkbox"
               data-testid="left-collapsed"
               checked={layout.leftCollapsed}
               onChange={layout.onToggleLeft}
             />
-            Сворачивать левую панель
           </label>
           <p className="muted">
             Состояние и размеры сохраняются; автоподстройка при узком окне сохранённые значения не
             перезаписывает.
           </p>
-        </div>
-      )}
+      </section>
 
-      {section === 'connection' && (
-        <div className="settings-section" data-testid="settings-connection">
+      <section className="dl-set-section" data-testid="settings-connection">
+        <h2>Подключение</h2>
           <StatusPanel
             snapshot={props.snapshot}
             requestError={props.requestError}
@@ -640,9 +615,8 @@ export function SettingsView(props: SettingsViewProps) {
             onRefresh={props.onRefresh}
             onSelectDistro={props.onSelectDistro}
           />
-        </div>
-      )}
-    </section>
+      </section>
+    </SettingsScreen>
   );
 }
 
@@ -667,10 +641,12 @@ function TypoRow({
   };
   const isMonoArea = area === 'code' || area === 'toolOutput' || area === 'terminal';
   return (
-    <fieldset className="typo-row" data-testid={`typo-${area}`}>
-      <legend>{labels[area]}</legend>
-      <label className="field-block">
-        Семейство шрифта
+    <fieldset className="dl-type-group" aria-label={labels[area]}>
+      <div className="dl-type-row" data-testid={`typo-${area}`}>
+        <span className="dl-type-name">{labels[area]}</span>
+        <span className="dl-type-fields">
+      <label className="field-inline">
+        Семейство
         <input
           data-testid={`${area}-family`}
           value={zone.fontFamily}
@@ -685,8 +661,8 @@ function TypoRow({
           {isMonoArea && <option value={'"Courier New", monospace'} />}
         </datalist>
       </label>
-      <label className="field-block">
-        Размер (px)
+      <label className="field-inline">
+        px
         <input
           type="number"
           min={8}
@@ -696,8 +672,8 @@ function TypoRow({
           onChange={(e) => onChange({ ...zone, fontSizePx: Number(e.target.value) })}
         />
       </label>
-      <label className="field-block">
-        Высота строки
+      <label className="field-inline">
+        Строка
         <input
           type="number"
           step={0.05}
@@ -708,7 +684,7 @@ function TypoRow({
           onChange={(e) => onChange({ ...zone, lineHeight: Number(e.target.value) })}
         />
       </label>
-      <label className="field-block">
+      <label className="field-inline">
         Насыщенность
         <select
           data-testid={`${area}-weight`}
@@ -722,14 +698,23 @@ function TypoRow({
           ))}
         </select>
       </label>
-      <p className="typo-preview" data-testid={`${area}-preview`} style={{
-        fontFamily: zone.fontFamily,
-        fontSize: `${zone.fontSizePx}px`,
-        lineHeight: zone.lineHeight,
-        fontWeight: zone.weight,
-      }}>
-        Пример текста — Áбвгд 0123 {isMonoArea ? '$ pi run' : 'съешь ещё этих мягких булок'}
-      </p>
+      </span>
+        <span
+          className="dl-type-preview"
+          data-testid={`${area}-preview`}
+          style={{
+            fontFamily: zone.fontFamily,
+            fontSize: `${zone.fontSizePx}px`,
+            lineHeight: String(zone.lineHeight),
+            fontWeight: String(zone.weight),
+          }}
+        >
+          Поиск по истории диалогов · MiMo v2.6 · npm run test
+        </span>
+        <span className="dl-type-spec dl-type-spec-auto">
+          {zone.fontSizePx}px / {zone.lineHeight} · {zone.weight}
+        </span>
+      </div>
     </fieldset>
   );
 }

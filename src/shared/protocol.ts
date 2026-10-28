@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BRIDGE_MAX_REQUEST_TIMEOUT_MS } from './timeouts';
 
 // Transport constants live in the node-free module so renderer bundles stay
 // Buffer-free; everything below is re-exported for existing imports.
@@ -23,7 +24,9 @@ const RequestFrameSchema = z.strictObject({
   requestId: RequestIdSchema,
   method: z.string().min(1),
   params: z.record(z.string(), z.unknown()).optional(),
-  timeoutMs: z.number().int().positive().max(60_000).optional(),
+  // UI21 F1-B R02: бюджет обработчика bridge. Потолок — общий предел запроса,
+  // иначе медленный (но успешный) ACK отвергался бы схемой.
+  timeoutMs: z.number().int().positive().max(BRIDGE_MAX_REQUEST_TIMEOUT_MS).optional(),
 });
 
 const ResponseOkFrameSchema = z.object({
@@ -119,6 +122,40 @@ export function encodeFrame(frame: FrameT): string {
     throw new FrameTooLargeError(Buffer.byteLength(json, 'utf8'));
   }
   return json;
+}
+
+/**
+ * UI21 F1-B R03 (P1): encode a frame, but NEVER let an oversized response kill
+ * the bridge. `encodeFrame` throws `FrameTooLargeError`; an uncaught throw in
+ * the bridge's write chain terminated the whole process (exit code 1), so ONE
+ * long session made the app look completely dead after a restart.
+ *
+ * Fail closed, keep serving: an oversized RESPONSE becomes a bounded
+ * PROTOCOL_ERROR for that requestId; an oversized EVENT becomes a protocol
+ * event. The caller still gets an answer instead of a disconnect.
+ */
+export function encodeFrameOrError(frame: FrameT): string {
+  try {
+    return encodeFrame(frame);
+  } catch (err) {
+    if (!(err instanceof FrameTooLargeError)) throw err;
+    const requestId = 'requestId' in frame && typeof frame.requestId === 'string' ? frame.requestId : null;
+    const fallback: FrameT = requestId
+      ? {
+          v: PROTOCOL_VERSION,
+          type: 'response',
+          requestId,
+          status: 'error',
+          error: { code: 'PROTOCOL_ERROR', message: `response exceeds MAX_FRAME_BYTES=${MAX_FRAME_BYTES} and was not delivered` },
+        }
+      : {
+          v: PROTOCOL_VERSION,
+          type: 'event',
+          event: 'protocol_error',
+          payload: { reason: `response exceeds MAX_FRAME_BYTES=${MAX_FRAME_BYTES}` },
+        };
+    return JSON.stringify(fallback);
+  }
 }
 
 /** Return a METHOD_NOT_ALLOWED error body for methods outside the M0∪M1 allowlist. */

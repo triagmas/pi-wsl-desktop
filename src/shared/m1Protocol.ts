@@ -78,6 +78,13 @@ export const ReadSessionParamsSchema = z.object({
    * pages; real Pi entry ids are UUIDs, so the forms cannot collide in
    * practice (review round 4: documented shadowing rule). */
   sinceEntryId: z.string().min(1).optional(),
+  /** UI21 F1-B R03: cursor for BACKWARD paging — entries strictly BEFORE it.
+   * Omitted together with `direction:'backward'` → the file tail (newest). */
+  beforeEntryId: z.string().min(1).optional(),
+  /** UI21 F1-B R03: page direction. `forward` (default) keeps the historic
+   * earliest-first cursor; `backward` serves the newest entries first so a
+   * reopened session shows what the user just wrote. */
+  direction: z.enum(['forward', 'backward']).optional(),
   limit: z.number().int().min(1).max(500).optional(),
   branch: z.enum(['active', 'all']).optional(),
 });
@@ -103,11 +110,29 @@ export type ReadDiagnosticT = z.infer<typeof ReadDiagnosticSchema>;
  * diagnostics accumulated across pagination pages (renderer mergeHistoryPage). */
 export const MAX_READ_DIAGNOSTICS = 100;
 
+/**
+ * UI21 F1-B R03 (P1): hard budget for ONE readSession result.
+ *
+ * The page limit is counted in ENTRIES, but a session entry carries the raw Pi
+ * record (tool output, long answer). 100 such entries encoded to ~1.1 MiB and
+ * exceeded `MAX_FRAME_BYTES` (1 MiB) — the bridge's frame encoder threw and the
+ * process EXITED, so a long session could not be opened at all. The reader now
+ * trims the page to this budget, the same fail-closed shape `listModules` uses.
+ */
+export const MAX_READ_RESULT_BYTES = 786_432; // 768 KiB
+
+/** Per-entry framing overhead reserved while packing a page (type/id/raw keys). */
+export const READ_ENTRY_OVERHEAD_BYTES = 96;
+
 export const ReadSessionResultSchema = z.object({
   header: SessionHeaderSchema.nullable(),
   entries: z.array(SessionEntrySchema),
   leafId: z.string().nullable(),
   nextCursor: z.string().nullable(),
+  /** UI21 F1-B R03: cursor for the OLDER page of this window (backward paging). */
+  prevCursor: z.string().nullable().optional(),
+  /** UI21 F1-B R03: true when nothing older than the page exists (no dead end). */
+  atStart: z.boolean().optional(),
   truncated: z.boolean(),
   /** True when the file ended mid-record (concurrent append in progress). */
   partialTrailing: z.boolean(),
@@ -184,6 +209,59 @@ export const OpenSessionResultSchema = z.object({
   state: RpcStateSchema.nullable(),
 });
 export type OpenSessionResultT = z.infer<typeof OpenSessionResultSchema>;
+
+/**
+ * UI21-F2: model catalog & selection contract.
+ *
+ * Source of truth is the installed Pi (`get_available_models` / `get_state`):
+ * this app never ships a static model list, defaults or provider IDs. `ModelInfo`
+ * is a deliberately small, credential-free projection of Pi's model record —
+ * fields the app does not use are dropped by the schema, so nothing
+ * secret-adjacent can travel over IPC.
+ */
+export const ModelInfoSchema = z.object({
+  provider: z.string().min(1),
+  id: z.string().min(1),
+  name: z.string().min(1),
+  contextWindow: z.number().int().positive().nullable().optional(),
+  maxTokens: z.number().int().positive().nullable().optional(),
+  reasoning: z.boolean().optional(),
+  input: z.array(z.string()).optional(),
+});
+export type ModelInfoT = z.infer<typeof ModelInfoSchema>;
+
+export const GetAvailableModelsResultSchema = z.object({
+  models: z.array(ModelInfoSchema),
+});
+export type GetAvailableModelsResultT = z.infer<typeof GetAvailableModelsResultSchema>;
+
+export const SetModelParamsSchema = z.object({
+  provider: z.string().min(1),
+  modelId: z.string().min(1),
+});
+export type SetModelParamsT = z.infer<typeof SetModelParamsSchema>;
+
+export const SetModelResultSchema = z.object({
+  /** Fresh `get_state` after the switch — the display follows Pi, not the request. */
+  state: RpcStateSchema.nullable(),
+});
+export type SetModelResultT = z.infer<typeof SetModelResultSchema>;
+
+export const GetThinkingLevelsResultSchema = z.object({
+  levels: z.array(z.string()),
+  current: z.string().nullable(),
+});
+export type GetThinkingLevelsResultT = z.infer<typeof GetThinkingLevelsResultSchema>;
+
+export const SetThinkingLevelParamsSchema = z.object({
+  level: z.string().min(1),
+});
+export type SetThinkingLevelParamsT = z.infer<typeof SetThinkingLevelParamsSchema>;
+
+export const SetThinkingLevelResultSchema = z.object({
+  state: RpcStateSchema.nullable(),
+});
+export type SetThinkingLevelResultT = z.infer<typeof SetThinkingLevelResultSchema>;
 
 export const SendPromptParamsSchema = z.object({
   message: z.string().min(1).max(100_000),

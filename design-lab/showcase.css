@@ -1,0 +1,150 @@
+/* Design Lab — «Витрина всего продукта» (?state=showcase).
+ *
+ * Оформление страницы-обзора: подписи секций, рамки-экраны 760px и
+ * переиспользование продуктовых правил index.css (.panel, .module-*,
+ * .badge, .muted, .request-error) — design-lab изолированно НЕ подключает
+ * index.css, поэтому эти значения скопированы 1:1 из него. Палитра/радиусы
+ * остаются токенными --pw-* (presets не изменяются). */
+
+.dl-showcase {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 26px 22px 72px;
+  background: var(--pw-window-background-color);
+  color: var(--pw-body-text-color);
+  font-family: var(--dl-font-stack);
+}
+
+.dl-showcase-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dl-showcase-head p {
+  max-width: 760px;
+  margin: 0;
+}
+
+.dl-showcase-section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.dl-showcase-label {
+  font-size: var(--dl-fs-ui);
+  font-weight: 600;
+}
+
+.dl-showcase-hint {
+  font-size: var(--dl-fs-meta);
+  font-weight: 400;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-showcase-frame {
+  position: relative;
+  height: 760px;
+  border: 1px solid var(--pw-divider-color);
+  border-radius: var(--pw-radius-medium);
+  overflow: hidden;
+  background: var(--pw-window-background-color);
+}
+
+/* board и другие длинные экраны скроллятся внутри своей рамки */
+.dl-showcase-frame--scroll {
+  height: 900px;
+  overflow-y: auto;
+}
+
+.dl-showcase-fill {
+  height: 100%;
+}
+
+/* ── Продуктовые правила index.css (копия 1:1 для секции «Модули») ─────── */
+.dl-showcase .muted {
+  color: var(--pw-muted-text-color);
+}
+
+.dl-showcase .request-error {
+  font-size: 12.5px;
+  color: var(--pw-error-color);
+}
+
+.dl-showcase .panel {
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--pw-radius-medium, 8px);
+  background: var(--pw-surface-background-color);
+  padding: 12px;
+}
+
+.dl-showcase .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dl-showcase .panel-header h2,
+.dl-showcase .panel-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.dl-showcase .module-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dl-showcase .module-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--pw-divider-color);
+}
+
+.dl-showcase .module-entry-main {
+  flex: 1;
+}
+
+.dl-showcase .module-entry-version {
+  font-size: 11.5px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-showcase .module-entry-fixed {
+  font-size: 12.5px;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-showcase .badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--pw-border-color);
+}
+
+/* Продуктовые правила index.css для секции «Диалог: пустое состояние»
+ * (L2: статус-цепь как в реальном Electron; копия 1:1) */
+.empty-status {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.distro-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}

@@ -23,6 +23,9 @@ done
 if [ "$1" = "-l" ] || [ "$1" = "--list" ]; then
   case "${FAKE_WSL_LIST_MODE:-list}" in
     list)
+      # UI21 F1-B R01: фоновый wsl --list не должен обгонять READY —
+      # с этой задержкой проверяется публикация списка подписчикам.
+      if [ -n "${FAKE_WSL_LIST_DELAY_MS:-}" ]; then sleep "$(awk "BEGIN{print $FAKE_WSL_LIST_DELAY_MS/1000}")"; fi
       printf 'Ubuntu\r\nUbuntu\xe4\xb8\xad\xe6\x96\x87\r\n' | iconv -f UTF-8 -t UTF-16LE
       exit 0 ;;
     hang) exec sleep 30 ;;

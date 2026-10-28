@@ -23,6 +23,11 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 export function useConnection(api: DesktopApi | null) {
   const [snapshot, setSnapshot] = useState<RendererSnapshot>(api ? IDLE_SNAPSHOT : NO_API_SNAPSHOT);
+  // Актуальная фаза для обработчиков без лишних зависимостей useCallback.
+  const phaseRef = useRef(snapshot.phase);
+  useEffect(() => {
+    phaseRef.current = snapshot.phase;
+  }, [snapshot.phase]);
   const [requestError, setRequestError] = useState<string | null>(null);
   /**
    * Monotonic connection-generation counter (review R04 N1): every REAL
@@ -95,6 +100,9 @@ export function useConnection(api: DesktopApi | null) {
 
   const refreshRuntime = useCallback(async () => {
     if (!api) return;
+    // UI21 F1-B R01: до READY запрос законно отвергается (DISCONNECTED) —
+    // не показываем это как ошибку подключения.
+    if (phaseRef.current !== 'ready') return;
     setRequestError(null);
     try {
       const runtime = (await api.request('getRuntimeInfo')) as RendererSnapshot['runtime'];

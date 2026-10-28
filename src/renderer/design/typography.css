@@ -1,0 +1,93 @@
+/*
+ * Design Lab — типографическая шкала (Issue #21, D1).
+ *
+ * КАНОНИЧЕСКИЕ токены — таблица владельца (согласована 2026-10-24):
+ *   Обычный текст      18px / 1.45 / 400   --dl-fs-body
+ *   Интерфейс          18px / 1.40 / 500   --dl-fs-ui (кнопки, вкладки, поля, подсказки)
+ *   Боковая панель     17px / 1.50 / 400   --dl-fs-sidebar
+ *   Ввод сообщения     20px / 1.45 / 400   --dl-fs-chat-input
+ *   Осн. текст чата    20px / 1.55 / 400   --dl-fs-chat-response
+ *   Код                17px / 1.50 / 500   --dl-fs-code
+ *   Вывод инструментов 16px / 1.50 / 400   --dl-fs-tool-output
+ *   Терминал           17px / 1.50 / 400   --dl-fs-terminal
+ *   Статус-строка      16px / 1.40 / 400   --dl-fs-status
+ *   Заголовки          22px / 1.30 / 600   --dl-fs-h2 (dl-h2)
+ *   Подзаголовки       20px / 1.40 / 500   --dl-fs-page-sub (dl-page-sub)
+ *
+ * Производные кегли, измеренные отдельно по эталонам и не входящие в таблицу
+ * (холст 1586×992, 1:1; font-size ≈ glyph / 0.70 Segoe UI): h1 44, name 20,
+ * step 18, bullet 20 (= «осн. текст чата» — шаг/пуанты чата), hint 15, meta 17.
+ * Расхождения кеглей с эталоном — docs/ui/design-lab-comparison.md.
+ *
+ * Цвета текста в components.css берутся ТОЛЬКО из var(--pw-*).
+ */
+
+:root {
+  --dl-font-stack: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --dl-font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --dl-fs-h1: 44px;
+  --dl-lh-h1: 1.14;
+  --dl-fs-h2: 22px;
+  --dl-lh-h2: 1.3;
+  --dl-fs-page-sub: 20px;
+  --dl-lh-page-sub: 1.4;
+
+  --dl-fs-body: 18px;
+  --dl-lh-body: 1.45;
+  --dl-fs-ui: 18px;
+  --dl-lh-ui: 1.4;
+  --dl-fs-sidebar: 17px;
+  --dl-lh-sidebar: 1.5;
+  --dl-fs-chat-input: 20px;
+  --dl-lh-chat-input: 1.45;
+  --dl-fs-chat-response: 20px;
+  --dl-lh-chat-response: 1.55;
+  --dl-fs-code: 17px;
+  --dl-lh-code: 1.5;
+  --dl-fs-tool-output: 16px;
+  --dl-fs-terminal: 17px;
+  --dl-fs-status: 16px;
+
+  /* производные кегли (см. шапку) */
+  --dl-fs-step: 18px;
+  --dl-fs-bullet: 20px;
+  --dl-fs-name: 20px;
+  /* эталон 01-chat: hint w273 при тексте 332px@15px → 12.5px */
+  --dl-fs-hint: 12.5px;
+  --dl-fs-meta: 17px;
+}
+
+.dl-h1 {
+  font-size: var(--dl-fs-h1);
+  line-height: var(--dl-lh-h1);
+  font-weight: 600;
+  margin: 0;
+}
+
+.dl-h2 {
+  font-size: var(--dl-fs-h2);
+  line-height: var(--dl-lh-h2);
+  font-weight: 600;
+  margin: 0;
+}
+
+.dl-page-sub {
+  font-size: var(--dl-fs-page-sub);
+  line-height: var(--dl-lh-page-sub);
+  font-weight: 500;
+  color: var(--pw-muted-text-color);
+}
+
+.dl-section-label {
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--pw-body-text-color);
+  margin: 0;
+}
+
+.dl-meta {
+  font-size: var(--dl-fs-meta);
+  color: var(--pw-muted-text-color);
+}

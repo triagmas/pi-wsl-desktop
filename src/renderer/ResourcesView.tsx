@@ -9,6 +9,8 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { DesktopApi } from './api';
+import { ResourcesScreen, type SkillRow } from './ui/ResourcesScreen';
+import { IconCheckCircle, IconInfo } from './ui/icons';
 import { parseBridgeError } from './m1api';
 import { m2, type PreviewOpInput } from './m2api';
 import type { BuiltinInfoT, McpServerInfoT, PackageInfoT, ResourceOpPlanT, SkillInfoT } from './types';
@@ -25,6 +27,8 @@ interface OpResult {
 
 export function ResourcesView({ api }: { api: DesktopApi | null }) {
   const [tab, setTab] = useState<ResTab>('skills');
+  const [query, setQuery] = useState('');
+  const [source, setSource] = useState('');
   const [skills, setSkills] = useState<SkillInfoT[] | null>(null);
   const [packages, setPackages] = useState<{ packages: PackageInfoT[]; builtins: BuiltinInfoT[]; settingsExtensions: string[] } | null>(null);
   const [mcp, setMcp] = useState<{ servers: McpServerInfoT[]; builtinEnabled: boolean; logDiagnostics: string[] } | null>(null);
@@ -138,39 +142,81 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
 
   const excluded = (s: SkillInfoT): boolean => s.status === 'excluded';
 
-  return (
-    <section data-testid="resources-view" className="resources">
-      <nav className="main-tabs" data-testid="res-tabs">
-        {(
-          [
-            ['skills', 'Skills'],
-            ['packages', 'Extensions'],
-            ['mcp', 'MCP'],
-          ] as Array<[ResTab, string]>
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            data-testid={`res-tab-${key}`}
-            className={tab === key ? 'tab tab-active' : 'tab'}
-            aria-pressed={tab === key}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+  // Approved presentation rows: filter first (query + source), then map to
+  // the Design Lab list — inventory itself is never narrowed.
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredSkills =
+    skills === null
+      ? []
+      : skills.filter(
+          (s) =>
+            (source === '' || s.source === source) &&
+            (normalizedQuery.length === 0 ||
+              s.name.toLowerCase().includes(normalizedQuery) ||
+              (s.description ?? '').toLowerCase().includes(normalizedQuery)),
+        );
+  const skillRows: SkillRow[] = filteredSkills.map((s) => ({
+    id: `${s.source}:${s.dir}`,
+    title: s.name,
+    // Provenance is part of the m2 contract — keep source visible in the row.
+    desc: `${s.source} · ${s.description ?? (s.diagnostics.length > 0 ? s.diagnostics.join(' · ') : '—')}`,
+    badge: s.status,
+    icon: s.status === 'ok' ? <IconCheckCircle size={20} /> : <IconInfo size={20} />,
+    testid: 'skill-row',
+    statusTestid: 'skill-status',
+    disabled: s.status === 'missing' || s.status === 'invalid',
+    actions: (
+      <button
+        type="button"
+        data-testid="skill-toggle"
+        disabled={s.status === 'missing' || s.status === 'invalid'}
+        onClick={() => startPreview({ kind: 'skill-set', source: s.dir, disable: !excluded(s) })}
+      >
+        {excluded(s) ? 'Включить' : 'Отключить'}
+      </button>
+    ),
+  }));
+  const sourceOptions = [
+    { value: '', label: 'Все источники' },
+    ...Array.from(new Set((skills ?? []).map((s) => s.source)))
+      .sort()
+      .map((src) => ({ value: src, label: src })),
+  ];
+  // "enabled" = loadable: missing/invalid skills are never loaded by Pi
+  // (bridge skills.ts) and must not inflate the counter (review P2).
+  const skillsMeta =
+    skills === null ? undefined : `${skills.length} навыков · ${skills.filter((s) => s.status === 'ok').length} включено`;
 
-      {error && (
-        <div className="error-box" data-testid="res-error" role="alert">
-          <strong>{error.code}</strong> — {error.message}
-        </div>
-      )}
-      {notice && (
-        <p className="notice" data-testid="res-notice">
-          {notice}
-        </p>
-      )}
+  return (
+    <ResourcesScreen
+      testid="resources-view"
+      tabs={[
+        { id: 'skills', label: 'Skills', active: tab === 'skills' },
+        { id: 'packages', label: 'Extensions', active: tab === 'packages' },
+        { id: 'mcp', label: 'MCP', active: tab === 'mcp' },
+      ]}
+      onTabChange={(id) => setTab(id as ResTab)}
+      searchValue={query}
+      onSearchChange={setQuery}
+      filter={{ value: source, options: sourceOptions, onChange: setSource, ariaLabel: 'Источник навыка' }}
+      installLabel="Установить навык"
+      onInstall={() => setTab('packages')}
+      meta={tab === 'skills' ? skillsMeta : undefined}
+      metaTestid="res-meta"
+      rows={tab === 'skills' && skills !== null ? skillRows : undefined}
+      note={tab === 'skills' ? 'Список обновляется после каждой операции внутри приложения' : undefined}
+      banner={
+        <>
+          {error && (
+            <div className="error-box" data-testid="res-error" role="alert">
+              <strong>{error.code}</strong> — {error.message}
+            </div>
+          )}
+          {notice && (
+            <p className="notice" data-testid="res-notice">
+              {notice}
+            </p>
+          )}
 
       {plan && (
         <div className="op-plan" data-testid="op-plan">
@@ -222,51 +268,18 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
         </div>
       )}
 
-      {tab === 'skills' && (
-        <div className="res-panel" data-testid="panel-skills">
-          {skills === null ? (
-            <p className="muted">Загрузка…</p>
-          ) : (
-            <table className="res-table" data-testid="skills-table">
-              <thead>
-                <tr>
-                  <th>Имя</th>
-                  <th>Источник</th>
-                  <th>Статус</th>
-                  <th>Описание</th>
-                  <th>Действие</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skills.map((s) => (
-                  <tr key={`${s.source}:${s.dir}`} data-testid="skill-row">
-                    <td>{s.name}</td>
-                    <td>{s.source}</td>
-                    <td data-testid="skill-status">{s.status}</td>
-                    <td>{s.description ?? '—'}</td>
-                    <td>
-                      <button
-                        type="button"
-                        data-testid="skill-toggle"
-                        disabled={s.status === 'missing' || s.status === 'invalid'}
-                        onClick={() =>
-                          startPreview({
-                            kind: 'skill-set',
-                            source: s.dir,
-                            disable: !excluded(s),
-                          })
-                        }
-                      >
-                        {excluded(s) ? 'Включить' : 'Отключить'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+          </>
+        }
+      >
+
+        {tab === 'skills' && skills === null ? <p className="muted">Загрузка…</p> : null}
+        {tab === 'skills' && skills !== null && skillRows.length === 0 ? (
+          <p className="muted" data-testid="res-empty">
+            {query.trim().length > 0 || source !== ''
+              ? 'Ничего не найдено по запросу или фильтру'
+              : 'Навыков пока нет'}
+          </p>
+        ) : null}
 
       {tab === 'packages' && (
         <div className="res-panel" data-testid="panel-packages">
@@ -456,6 +469,6 @@ export function ResourcesView({ api }: { api: DesktopApi | null }) {
           ))}
         </ul>
       )}
-    </section>
+    </ResourcesScreen>
   );
 }

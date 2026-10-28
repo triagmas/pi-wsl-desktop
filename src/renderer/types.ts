@@ -27,6 +27,7 @@ export type {
   SearchResultT,
   RpcStateT,
   ChatEventT,
+  ModelInfoT,
 } from '../shared/m1Protocol';
 
 /* M2 Pi Resource Manager — shared contract types (type-only, no zod runtime). */

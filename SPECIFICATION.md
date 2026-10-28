@@ -100,6 +100,7 @@ flowchart TB
 - `readSession`: чтение структуры и сообщений без изменения JSONL.
 - `openSession`: запуск Pi с нужным CWD и правильным исходным session ID/path.
 - `sendPrompt`, `interrupt`, `getState`, `subscribeEvents`: действия и потоковые события Pi.
+- `getAvailableModels`, `setModel`, `getThinkingLevels`, `setThinkingLevel`: каталог моделей и переключение модели/уровня thinking **из установленного Pi**; источник истины — Pi выбранного дистрибутива, приложение не задаёт обязательных моделей и провайдеров по умолчанию (UI21-F2).
 - `searchSessions`: поиск по доступным метаданным и, если явно включено, содержимому.
 
 **Названия выше — контракт нашего Bridge, не утверждение о буквальных названиях команд Pi RPC.** Bridge переводит их в поддерживаемый Pi API.

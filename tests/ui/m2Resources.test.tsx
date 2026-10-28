@@ -106,10 +106,14 @@ describe('ResourcesView — skills inventory', () => {
     expect(rows[0]).toHaveTextContent('code-review');
     expect(rows[0]).toHaveTextContent('user-agents');
     expect(rows[1]).toHaveTextContent('missing');
-    // hostile description stays TEXT — no element was parsed
+    // hostile description stays TEXT — no element was parsed anywhere on the
+    // approved screen (the legacy .res-panel wrapper is gone with the table;
+    // the check is widened to the whole resources root instead of vacuous).
     expect(screen.getByText(/review diffs <img src=x/)).toBeTruthy();
-    expect(document.querySelector('.res-panel img')).toBeNull();
-    expect(document.querySelector('.res-panel [onerror]')).toBeNull();
+    const root = document.querySelector('[data-testid="resources-view"]');
+    expect(root).not.toBeNull();
+    expect(root!.querySelector('img')).toBeNull();
+    expect(root!.querySelector('[onerror]')).toBeNull();
     expect(screen.getByTestId('res-diagnostics')).toHaveTextContent(/collision/);
     // missing skill cannot be toggled
     expect(screen.getAllByTestId('skill-toggle')[1]).toHaveProperty('disabled', true);

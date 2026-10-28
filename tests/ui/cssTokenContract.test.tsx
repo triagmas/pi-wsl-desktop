@@ -16,7 +16,13 @@ import { THEME_PRESETS } from '../../src/shared/design/presets';
 import { TYPOGRAPHY_AREAS } from '../../src/shared/appearance';
 
 const cssPath = path.join(__dirname, '..', '..', 'src', 'renderer', 'index.css');
-const css = readFileSync(cssPath, 'utf8');
+const designPaths = ['components.css', 'layout.css'].map((f) =>
+  path.join(__dirname, '..', '..', 'src', 'renderer', 'design', f),
+);
+// D3: одобренные компоненты живут в design-слое — контракт читает и его,
+// иначе потребление токена вне legacy index.css считается «мёртвым».
+const css =
+  readFileSync(cssPath, 'utf8') + designPaths.map((p) => readFileSync(p, 'utf8')).join('\n');
 
 const used = new Set([...css.matchAll(/var\((--pw-[a-z0-9-]+)/g)].map((m) => m[1]));
 const declaredLocally = new Set(
@@ -71,6 +77,26 @@ describe('zone → real content element links (round-2 review)', () => {
   }
 });
 
+describe('C4: toolbar fields keep a visible keyboard focus indicator', () => {
+  const componentsCss = readFileSync(designPaths[0], 'utf8');
+
+  it('the search/filter fields do not silence :focus-visible with outline:none', () => {
+    const rules =
+      componentsCss.match(
+        /\.(dl-input-box input\.dl-input-field|dl-select select\.dl-select-field)\s*\{[^}]*\}/g,
+      ) ?? [];
+    expect(rules).toHaveLength(2);
+    for (const rule of rules) expect(rule).not.toMatch(/outline\s*:\s*none/);
+  });
+
+  it('both wrappers glow with the focus ring on :focus-within', () => {
+    const block = componentsCss.match(/\.dl-input-box:focus-within[^{]*\{[^}]*\}/);
+    expect(block).not.toBeNull();
+    expect(block![0]).toContain('var(--pw-focus-ring-color)');
+    expect(componentsCss).toContain('.dl-select:focus-within');
+  });
+});
+
 describe('design token delivery contract (index.css ↔ design system)', () => {
   it('every var(--pw-…) consumed by the stylesheet is declared locally or produced by applyTheme/applyTypography', () => {
     const dead = [...used].filter(
@@ -103,5 +129,167 @@ describe('design token delivery contract (index.css ↔ design system)', () => {
       missing,
       `typography properties written by applyTypography but not consumed by index.css:\n${missing.join('\n')}`,
     ).toEqual([]);
+  });
+});
+
+describe('C1: legacy panel heading parity (modules panel h2 = approved 15px scale)', () => {
+  it('index.css limits .panel-header h2 like .panel-header h3 (Design Lab modules panel)', () => {
+    const rule = css.match(/\.panel-header\s+h2\s*\{[^}]*\}/);
+    expect(rule, '.panel-header h2 rule missing in index.css').not.toBeNull();
+    expect(rule?.[0]).toMatch(/font-size:\s*15px/);
+    expect(rule?.[0]).toMatch(/margin:\s*0/);
+  });
+});
+
+describe('C5.1: app-layout TitleBar keeps window controls in the rightmost track', () => {
+  // Frameless window: without an explicit app-layout column template the
+  // .dl-wc stack falls into a lower grid row and is covered by the sidebar
+  // head — window controls become invisible/unclickable (DOM-verified C5).
+  it('components.css pins .dl-titlebar columns for data-layout="app" (wordmark | empty | wc auto)', () => {
+    const rule = cssBlocks().find(
+      (b) => b.selectors.includes('.dl-frame[data-layout="app"] .dl-titlebar'),
+    );
+    expect(rule, 'app-layout .dl-titlebar grid-template-columns rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*0px\s*auto/);
+  });
+});
+
+describe('C5.2: typography group keeps the approved row without UA fieldset chrome', () => {
+  // Ревью P2: fieldset по умолчанию рисует groove-бордер и margins, легенда
+  // садится сверху — ряд теряет одобренную анатомию. Сброс обязателен.
+  it('components.css resets border/margin/padding on the .dl-type-group fieldset', () => {
+    const rule = cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '') // cssBlocks сохраняет комментарии перед правилом
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes('.dl-type-group');
+    });
+    expect(rule, '.dl-type-group reset rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/border:\s*(0|none)/);
+    expect(rule?.body).toMatch(/margin:\s*0/);
+    expect(rule?.body).toMatch(/padding:\s*0/);
+  });
+});
+
+describe('UI21-C5 R02: spaced chat status + shared responsive type rows (owner #6415236125)', () => {
+  const findRule = (exact: string) =>
+    cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes(exact);
+    });
+
+  it('chat-status-row lays out as a spaced flex row (no «Чат открытЗакрыть чат» jam)', () => {
+    const rule = findRule('.chat-status-row');
+    expect(rule, '.chat-status-row rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/display:\s*flex/);
+    expect(rule?.body).toMatch(/gap:\s*\d/);
+    expect(rule?.body).toMatch(/flex-wrap:\s*wrap/);
+  });
+
+  it('base .dl-type-row wraps and base .dl-type-preview keeps a readable column (lab@1000 == product)', () => {
+    const row = findRule('.dl-type-row');
+    expect(row, '.dl-type-row base rule missing').toBeTruthy();
+    expect(row?.body, 'row must wrap on narrow columns').toMatch(/flex-wrap:\s*wrap/);
+    const preview = findRule('.dl-type-preview');
+    expect(preview, '.dl-type-preview base rule missing').toBeTruthy();
+    expect(preview?.body).toMatch(/flex:\s*1 1 240px/);
+    expect(preview?.body).toMatch(/min-width:\s*200px/);
+  });
+});
+
+describe('UI21-C5 final: details panel — symmetric padding + one left line (owner)', () => {
+  const findRule = (exact: string) =>
+    cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes(exact);
+    });
+
+  it('details head sits on the shared 24px line (padding 0 24px, collapse btn kept)', () => {
+    const rule = findRule('.dl-details-head');
+    expect(rule, '.dl-details-head rule missing').toBeTruthy();
+    expect(rule?.body, 'head must carry symmetric 24px padding').toMatch(/padding:\s*0 24px/);
+  });
+
+  it('details body mirrors the same 24px left/right padding (symmetric)', () => {
+    const rule = findRule('.dl-details-body');
+    expect(rule, '.dl-details-body rule missing').toBeTruthy();
+    expect(rule?.body).toMatch(/padding:\s*16px 24px 40px/);
+  });
+
+  it('app section divider still reaches the panel edges from the new line', () => {
+    const rule = findRule('.dl-frame[data-layout="app"] .dl-details .dl-details-divider');
+    expect(rule, 'app .dl-details-divider override missing').toBeTruthy();
+    expect(rule?.body).toMatch(/margin-left:\s*-24px/);
+    expect(rule?.body).toMatch(/margin-right:\s*-24px/);
+  });
+
+  it('narrow window (D2 overlay media ≤1100px) tightens the same line to 16px', () => {
+    const layoutRaw = readFileSync(designPaths[1], 'utf8');
+    const overlay = /@media \(max-width: 1100px\) \{[\s\S]*?box-shadow: -10px 0 28px rgb\(0 0 0 \/ 0\.38\);[\s\S]*?\n\}/.exec(
+      layoutRaw,
+    );
+    expect(overlay, 'D2 overlay media block (max-width:1100) missing').toBeTruthy();
+    const block = overlay?.[0] ?? '';
+    expect(block, 'head 16px rule missing inside the overlay media block').toMatch(
+      /\.dl-details-head \{\s*padding: 0 16px/,
+    );
+    expect(block, 'body 16px rule missing inside the overlay media block').toMatch(
+      /\.dl-details-body \{\s*padding: 16px 16px 40px/,
+    );
+    expect(block, 'divider -16px rule missing inside the overlay media block').toMatch(
+      /html \.dl-frame\[data-layout="app"\] \.dl-details \.dl-details-divider \{\s*margin-left: -16px;\s*margin-right: -16px/,
+    );
+    // Надёжность против гонки каскада: media-правило обязано быть строже
+    // app-override -24px в components.css (там тот же селектор без html),
+    // иначе на узком окне divider остаётся -24 и вылезает за панель.
+    expect(block, 'media divider selector must outrank the app -24px override').toMatch(
+      /html \.dl-frame\[data-layout="app"\]/,
+    );
+  });
+});
+
+describe('UI21 P1: details head — title/button breathing room (owner #6431060048)', () => {
+  // Владелец: «Детали действия» вплотную к кнопке сворачивания. Отступы
+  // контейнера не спасают — нужен внутренний зазор шапки и правое крепление
+  // кнопки (никакого нового дизайна — одобренный компонент Design Lab).
+  const findRule = (exact: string) =>
+    cssBlocks().find((b) => {
+      const sels = b.selectors
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      return sels.includes(exact);
+    });
+
+  it('head flex carries a 16px gap so title and collapse button never glue', () => {
+    const rule = findRule('.dl-details-head');
+    expect(rule, '.dl-details-head rule missing').toBeTruthy();
+    expect(rule?.body, 'head must reserve >=16px between title and button').toMatch(
+      /gap:\s*16px/,
+    );
+  });
+
+  it('collapse button pins to the panel right inner edge and cannot shrink', () => {
+    const rule = findRule('.dl-details-head .dl-collapse-btn');
+    expect(rule, '.dl-details-head .dl-collapse-btn rule missing').toBeTruthy();
+    expect(rule?.body, 'button must be pushed to the right inner edge').toMatch(
+      /margin-left:\s*auto/,
+    );
+    expect(rule?.body, 'button must not compress at narrow widths').toMatch(/flex-shrink:\s*0/);
+  });
+
+  it('title may shrink (min-width:0) so the ellipsis works on narrow panels', () => {
+    const rule = findRule('.dl-details-head .dl-details-title');
+    expect(rule, '.dl-details-head .dl-details-title rule missing').toBeTruthy();
+    expect(rule?.body, 'title must be allowed to shrink below its content width').toMatch(
+      /min-width:\s*0/,
+    );
   });
 });

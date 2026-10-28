@@ -9,14 +9,19 @@
  */
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
+import path from 'node:path';
 import { fakePi, launchApp } from './launchApp';
+
+const repoRoot = path.join(__dirname, '..');
+/** Рабочий фикстурный Pi RPC (как в m1.spec) — нужен для открытия истории. */
+const fakePiRpc = path.join(repoRoot, 'tests', 'fixtures', 'fake-pi-rpc');
 
 /** Body background per theme — proves the tokens actually reach the DOM. */
 const DARK_BG = 'rgb(32, 34, 31)'; // #20221F
 const LIGHT_BG = 'rgb(250, 249, 246)'; // #FAF9F6
 
-async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
-  return launchApp({ PI_WS_DESKTOP_PI: fakePi });
+async function launch(pi = fakePi): Promise<{ app: ElectronApplication; page: Page }> {
+  return launchApp({ PI_WS_DESKTOP_PI: pi });
 }
 
 async function bodyBackground(page: Page): Promise<string> {
@@ -41,7 +46,8 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
 
       // §5: left sidebar expanded by default, details panel hidden, status bar present.
-      const sidebar = page.getByRole('complementary').first();
+      // D3: approved DOM — корень ui/Sidebar (div), поэтому по testid, не по aside-роли.
+      const sidebar = page.getByTestId('left-sidebar');
       await expect(sidebar).toBeVisible();
       await expect(page.getByTestId('open-details')).toHaveAttribute('aria-pressed', 'false');
 
@@ -52,27 +58,34 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('status-connection')).toBeVisible();
       await expect(page.getByTestId('status-distro')).toContainText('Ubuntu');
 
-      // Terminal toggle is disabled in UI-A; the reserved slot renders inert.
-      await expect(page.getByTestId('status-terminal-btn')).toBeDisabled();
+      // D2 (owner #6395777040): честный тумблер терминала — НЕ disabled:
+      // кнопка показывает состояние нижнего дока, слот несёт честное уведомление
+      // о PTY-контракте (без фиктивного вывода).
+      await expect(page.getByTestId('status-terminal-btn')).not.toBeDisabled();
+      await expect(page.getByTestId('status-terminal-btn')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('terminal-slot')).toBeVisible();
-      await expect(page.getByTestId('terminal-slot')).toHaveText(''); // inert
+      await expect(page.getByTestId('terminal-slot')).toHaveText(''); // инвариант: в слоте НЕТ фиктивного вывода
+      await expect(page.getByTestId('terminal-dock')).toHaveText(/PTY/i); // честная надпись дока о реальном PTY в UI-B
 
       // Right details panel: open → focus lands in the panel context; close →
       // §8 focus returns to the opening button.
       await page.getByTestId('open-details').click();
-      await expect(page.getByTestId('details-body')).toBeVisible();
-      await page.getByRole('button', { name: 'Скрыть панель деталей' }).click();
+      await expect(page.getByTestId('right-sidebar')).toBeVisible();
+      // R07 §1: единственный тумблер шапки и открывает, и закрывает панель.
+      await page.getByTestId('open-details').click();
+      await expect(page.getByTestId('right-sidebar')).toHaveCount(0);
       await expect(page.getByTestId('open-details')).toBeFocused();
 
       // Sidebar collapse: labels hide, rail stays, saved state persists.
       await page.getByTestId('sidebar-collapse').click();
-      await expect(sidebar).toHaveClass(/sidebar-collapsed/);
+      // D3: свёрнутая панель — approved ui/Rail (data-collapsed), не legacy-класс.
+      await expect(sidebar).toHaveClass(/dl-rail/);
       await page.getByTestId('sidebar-collapse').click();
-      await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
+      await expect(sidebar).not.toHaveClass(/dl-rail/);
       // Don't snapshot mid-transition (width animates 140ms — round-2 review).
       await expect
         .poll(() => sidebar.evaluate((el) => (el as unknown as { offsetWidth: number }).offsetWidth))
-        .toBe(260);
+        .toBe(321); // DEFAULT leftWidth = канон лабы
 
       // Fresh dark profile: the preset tokens must actually paint the body
       // (the stylesheet consumes exactly what applyTheme writes — review P1).
@@ -125,8 +138,8 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
       await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG); // preview did not leak
 
-      // Typography: eight independent areas (§9.3).
-      await page.getByTestId('settings-tab-typography').click();
+      // Typography: eight independent areas (§9.3) — all sections share the
+      // approved screen (C3), so no section-tab click is needed.
       for (const area of ['ui', 'sidebar', 'chatInput', 'chatResponse', 'code', 'terminal', 'statusBar']) {
         await expect(page.getByTestId(`typo-${area}`)).toBeVisible();
       }
@@ -165,7 +178,7 @@ test.describe('UI-A application shell E2E', () => {
               document: { querySelector: (s: string) => unknown };
               getComputedStyle: (el: unknown) => { fontSize: string };
             };
-            const el = w.document.querySelector('.status-bar');
+            const el = w.document.querySelector('.dl-status') ?? w.document.querySelector('.status-bar');
             return el ? w.getComputedStyle(el).fontSize : 'missing';
           }),
         )
@@ -173,13 +186,10 @@ test.describe('UI-A application shell E2E', () => {
 
       // Workspace: layout controls exist and the status panel keeps the real
       // connection data (§5 settings scope).
-      await page.getByTestId('settings-tab-workspace').click();
       await expect(page.getByTestId('left-width')).toBeVisible();
-      await page.getByTestId('settings-tab-connection').click();
       await expect(page.getByTestId('status-phase')).toBeVisible();
       await expect(page.getByTestId('runtime')).toContainText('9.9.9');
 
-      await page.getByTestId('settings-tab-appearance').click();
       await page.getByTestId('theme-card-dark').click();
       await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
       await page.screenshot({ path: testInfo.outputPath('ui-settings-dark.png') });
@@ -208,27 +218,40 @@ test.describe('UI-A application shell E2E', () => {
 
       const matrix = async (theme: 'dark' | 'light'): Promise<void> => {
         // Each iteration re-asserts desktop size: the previous one ends at
-        // 1024 where the right panel is media-hidden (≤1100).
+        // 1024 where the right panel becomes an overlay (≤1100).
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.getByTestId('nav-settings').click();
         await page.getByTestId(`theme-card-${theme}`).click();
         await expect.poll(() => bodyBackground(page)).toBe(theme === 'dark' ? DARK_BG : LIGHT_BG);
         await chatScreen();
-        await page.getByTestId('open-details').click();
-        await expect(page.getByTestId('details-body')).toBeVisible();
+        // open-details — toggle: после первой матрицы панель уже открыта
+        // (rightVisible живёт в appearance), повторный клик закрыл бы её.
+        const od = page.getByTestId('open-details');
+        if ((await od.getAttribute('aria-pressed')) !== 'true') await od.click();
+        await expect(page.getByTestId('right-sidebar')).toBeVisible();
         for (const [w, h] of [
           [1440, 900],
           [1280, 800],
           [1024, 768],
         ] as const) {
           await page.setViewportSize({ width: w, height: h });
-          // Hide order (§7): the right details panel hides first (≤1100),
-          // while the left sidebar survives down to the rail (≤800).
-          if (w <= 1100) {
-            await expect(page.getByTestId('right-sidebar')).toBeHidden();
-          } else {
-            await expect(page.getByTestId('right-sidebar')).toBeVisible();
-          }
+          // D2 overlay-адаптив (Issue #21, owner #6395777040): на узком окне
+          // открытая правая панель не вытесняет центральную колонку — она
+          // ложится overlay-ом (position:absolute); на десктопе — обычная
+          // колонка grid. Левая панель видима на всех трёх ширинах
+          // (≤800 развёрнутая — overlay поверх центра).
+          await expect(page.getByTestId('right-sidebar')).toBeVisible();
+          const detailsPos = await page.evaluate((sel) => {
+            const w = window as unknown as {
+              document: { querySelector: (s: string) => unknown };
+              getComputedStyle: (el: unknown) => { position: string };
+            };
+            const el = w.document.querySelector(sel);
+            return el ? w.getComputedStyle(el).position : 'missing';
+          }, 'aside.dl-details');
+          // десктоп: обычная колонка grid (relative — контекст для resize-handle);
+          // ≤1100: overlay (absolute) поверх центральной колонки.
+          expect(detailsPos).toBe(w <= 1100 ? 'absolute' : 'relative');
           await expect(page.getByTestId('left-sidebar')).toBeVisible();
           await page.screenshot({ path: testInfo.outputPath(`ui-chat-${theme}-${w}x${h}.png`) });
         }
@@ -240,4 +263,120 @@ test.describe('UI-A application shell E2E', () => {
       await app.close();
     }
   });
+
+});
+
+test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', async () => {
+  const { app, page } = await launch(fakePiRpc);
+  try {
+    await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+
+    // P1-code: R07 — сохранённая история открывается в общей ленте сразу,
+    // без вкладки «История»; фикстура содержит markdown с inline/fenced-кодом.
+    await page.getByText('E2E fixture session').click();
+    await expect(page.locator('[data-testid="chat-pane"] .dl-md code').first()).toBeVisible({ timeout: 20_000 });
+
+    // P1-3: продуктовое дерево проектов/сессий — скроллируемая область
+    const treeOverflow = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { overflowY: string };
+      };
+      const el = w.document.querySelector('.dl-tree');
+      return el ? w.getComputedStyle(el).overflowY : 'missing';
+    });
+    expect(treeOverflow).toBe('auto');
+
+    // P1-2: узкое окно — развёрнутая левая панель ложится overlay-ом
+    // поверх центральной колонки, а не сжимается в 71px-треке
+    await page.setViewportSize({ width: 760, height: 800 });
+    const sidePos = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { position: string };
+      };
+      const el =
+        w.document.querySelector('.dl-side .dl-sidebar') ??
+        w.document.querySelector('aside.left-sidebar');
+      return el ? w.getComputedStyle(el).position : 'missing';
+    });
+    expect(sidePos).toBe('absolute');
+
+    // P1-5: низкое окно — док не съедает чат (max-height: 100% - 220px)
+    await page.setViewportSize({ width: 1280, height: 440 });
+    const dock = page.getByTestId('terminal-dock');
+    await expect(dock).toBeVisible();
+    const sizes = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+      };
+      const parent = w.document.querySelector('.center-workspace') as unknown as { clientHeight: number };
+      const dockEl = w.document.querySelector('[data-testid="terminal-dock"]') as unknown as {
+        getBoundingClientRect: () => { height: number };
+      };
+      return { parentH: parent.clientHeight, dockH: dockEl.getBoundingClientRect().height };
+    });
+    expect(sizes.dockH).toBeLessThanOrEqual(sizes.parentH - 200);
+
+    // P1-nav: в коротком окне навигация остаётся достижимой (fallback-скролл
+    // сайдбара), а не срезается за обрезом flex-none блоков.
+    await page.setViewportSize({ width: 1024, height: 600 });
+    const settingsNav = page.getByTestId('nav-settings');
+    await settingsNav.scrollIntoViewIfNeeded();
+    await expect(settingsNav).toBeVisible();
+
+    // P1-code: шрифт области кода управляется code-токеном настроек,
+    // а не унаследованной константой response-зоны.
+    // R07: сохранённая история теперь в общей ленте (chat-pane), не во вкладке.
+    const code = page.locator('[data-testid="chat-pane"] .dl-md code').first();
+    await expect(code).toBeVisible();
+    const family = await code.evaluate((el) => {
+      const w = window as unknown as { getComputedStyle: (e: unknown) => { fontFamily: string } };
+      return w.getComputedStyle(el).fontFamily;
+    });
+    const token = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { getPropertyValue: (n: string) => string };
+      };
+      const root = w.getComputedStyle(w.document.querySelector('html'));
+      return root.getPropertyValue('--pw-font-code-family').trim();
+    });
+    expect(token.length).toBeGreaterThan(0);
+    // вычисленный шрифт кода совпадает с токеном настроек, а не с унаследованным
+    const firstFace = token.split(',')[0].replace(/["']/g, '').trim();
+    expect(family).toContain(firstFace);
+
+    // Полный code-контракт §9.3 (round-3 P2): размер и интерлиньяж inline- и
+    // fenced-кода берутся из токенов настроек, а не наследуют ответ/историю.
+    const codeZone = await page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => {
+          getPropertyValue: (n: string) => string;
+          fontSize: string;
+          lineHeight: string;
+        };
+      };
+      const rootStyle = w.getComputedStyle(w.document.querySelector('html'));
+      return {
+        size: rootStyle.getPropertyValue('--pw-font-code-size').trim(),
+        lineHeight: rootStyle.getPropertyValue('--pw-font-code-line-height').trim(),
+        elFontSize: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md code')).fontSize,
+        elLineHeight: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md code')).lineHeight,
+        fencFontSize: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md pre code')).fontSize,
+        fencLineHeight: w.getComputedStyle(w.document.querySelector('[data-testid="chat-pane"] .dl-md pre code')).lineHeight,
+      };
+    });
+    expect(codeZone.size).toMatch(/px$/);
+    expect(codeZone.elFontSize).toBe(codeZone.size);
+    // line-height токен безразмерный (например 1.6) → used value в px
+    const expectedLh = parseFloat(codeZone.lineHeight) * parseFloat(codeZone.elFontSize);
+    expect(Math.abs(parseFloat(codeZone.elLineHeight) - expectedLh)).toBeLessThan(0.6);
+    expect(codeZone.fencFontSize).toBe(codeZone.size);
+    const fencLh = parseFloat(codeZone.fencLineHeight);
+    expect(Math.abs(fencLh - expectedLh)).toBeLessThan(0.6);
+  } finally {
+    await app.close();
+  }
 });

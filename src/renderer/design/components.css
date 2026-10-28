@@ -873,8 +873,32 @@
 .dl-composer-row2 {
   display: flex;
   align-items: center;
+  /* F4 P2: два самостоятельных контрола не должны слипаться в один
+   * double-border; 8px — тот же шаг, что в утверждённом Lab-композере. */
+  gap: 8px;
   margin-left: 41px;
   margin-top: 20px;
+  /* F4 P2 (первопричина, не маскировка): .dl-send — absolute по эталону ref1
+   * (54×52, right 16, bottom 13) и лежит ВНУТРИ композера. Ряд чипов обязан
+   * резервировать её след, иначе длинная реальная подпись модели
+   * (cliproxyapi/KENARI/mimo-v2-6-flash:free = 438px) уводит thinking-чип под
+   * кнопку: измерено на 1280×800 (панель деталей открыта) и на 1024×768.
+   * Ровно то же значение (78px) использует утверждённый Lab-композер
+   * .dl-board-composer-box .dl-composer-row2. */
+  padding-right: calc(54px + 16px + 8px);
+  min-width: 0;
+}
+
+/* F4 P2: длину неизвестной подписи модели поглощает её собственный чип
+ * (flex-shrink + ellipsis по .dl-chip-label), а thinking-чип — короткий и
+ * фиксированный, поэтому он не усекается: «Thinking: off» читается всегда. */
+.dl-composer-row2 .dl-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.dl-composer-row2 .dl-chip-thinking {
+  flex: 0 0 auto;
 }
 
 .dl-chip {

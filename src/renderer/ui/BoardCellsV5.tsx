@@ -9,7 +9,8 @@
  *
  * id в v5: dialog → 'modal' (id 'dialog' уже занят ячейкой 04 «Диалог»).
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { edgeIndex, nextIndex, useOverlayDismiss } from './overlayA11y';
 import {
   IconBookDoc,
   IconChatBubble,
@@ -271,15 +272,82 @@ function SelectCell() {
   const options = ['Ubuntu 24.04', 'Debian 12', 'Alpine 3.20'];
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(options[0]);
+  const [active, setActive] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listId = 'v5-select-listbox';
+
+  useOverlayDismiss({
+    open,
+    rootRef: wrapRef,
+    onDismiss: () => setOpen(false),
+    returnFocusRef: triggerRef,
+  });
+
+  /* Фокус живёт на настоящей опции, а не на триггере: aria-activedescendant
+   * на нативной кнопке не поддерживается и не озвучивался скринридером. */
+  useEffect(() => {
+    if (!open) return;
+    optionRefs.current[active]?.focus();
+  }, [open, active]);
+
+  const openList = () => {
+    setActive(Math.max(0, options.indexOf(value)));
+    setOpen(true);
+  };
+  const commit = (index: number) => {
+    setValue(options[index]);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openList();
+    }
+  };
+
+  // Стрелки/Home/End приходят от самих опций (фокус внутри listbox).
+  const onListKeyDown = (event: ReactKeyboardEvent<HTMLUListElement>) => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        setActive((i) => nextIndex(i, options.length, 1));
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        setActive((i) => nextIndex(i, options.length, -1));
+        break;
+      case 'Home':
+        event.preventDefault();
+        setActive(edgeIndex(options.length, 'first'));
+        break;
+      case 'End':
+        event.preventDefault();
+        setActive(edgeIndex(options.length, 'last'));
+        break;
+      case 'Tab':
+        setOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
-    <div className="v5-select-wrap">
+    <div className="v5-select-wrap" ref={wrapRef}>
       <span className="v5-lbl">Дистрибутив</span>
       <button
         type="button"
+        ref={triggerRef}
         className="v5-select"
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        aria-controls={open ? listId : undefined}
+        onClick={() => (open ? setOpen(false) : openList())}
+        onKeyDown={onTriggerKeyDown}
       >
         <span>{value}</span>
         <span className={open ? 'v5-chev rot' : 'v5-chev'}>
@@ -287,17 +355,23 @@ function SelectCell() {
         </span>
       </button>
       {open && (
-        <ul className="v5-listbox" role="listbox" aria-label="Дистрибутив">
-          {options.map((o) => (
+        <ul className="v5-listbox" id={listId} role="listbox" aria-label="Дистрибутив" onKeyDown={onListKeyDown}>
+          {options.map((o, index) => (
             <li key={o}>
               <button
                 type="button"
+                ref={(el) => { optionRefs.current[index] = el; }}
                 role="option"
                 aria-selected={o === value}
-                className={o === value ? 'is-active' : ''}
-                onClick={() => {
-                  setValue(o);
-                  setOpen(false);
+                tabIndex={-1}
+                className={`${o === value ? 'is-active' : ''}${index === active ? ' is-focus' : ''}`}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => commit(index)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    commit(index);
+                  }
                 }}
               >
                 <span>{o}</span>
@@ -457,32 +531,136 @@ function SliderCell() {
 function MenuCell() {
   const [open, setOpen] = useState(false);
   const [last, setLast] = useState<string | null>(null);
+  const [active, setActive] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuId = 'v5-menu-box';
+
+  const ITEMS = ['Копировать ссылку', 'Переименовать', 'Архивировать', 'Удалить'];
+
+  useOverlayDismiss({
+    open,
+    rootRef: wrapRef,
+    onDismiss: () => setOpen(false),
+    returnFocusRef: triggerRef,
+  });
+
+  // Открытое меню уводит фокус внутрь — иначе стрелки/Escape попадают в пустоту.
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[active]?.focus();
+  }, [open, active]);
+
   const run = (name: string) => {
     setLast(name);
     setOpen(false);
+    triggerRef.current?.focus();
   };
+
+  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setActive(0);
+      setOpen(true);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActive(ITEMS.length - 1);
+      setOpen(true);
+    }
+  };
+
+  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        setActive((i) => nextIndex(i, ITEMS.length, 1));
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        setActive((i) => nextIndex(i, ITEMS.length, -1));
+        break;
+      case 'Home':
+        event.preventDefault();
+        setActive(edgeIndex(ITEMS.length, 'first'));
+        break;
+      case 'End':
+        event.preventDefault();
+        setActive(edgeIndex(ITEMS.length, 'last'));
+        break;
+      case 'Tab':
+        setOpen(false);
+        break;
+      case 'Escape':
+        // Escape обрабатывает useOverlayDismiss (закрытие + возврат фокуса).
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
     <div className="v5-stack">
-      <div className="v5-menu-wrap">
-        <button type="button" className="v5-menu-trigger" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <div className="v5-menu-wrap" ref={wrapRef}>
+        <button
+          type="button"
+          ref={triggerRef}
+          className="v5-menu-trigger"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          onClick={() => setOpen((o) => !o)}
+          onKeyDown={onTriggerKeyDown}
+        >
           <IconDots size={16} />
           Ещё
         </button>
         {open && (
-          <div className="v5-listbox v5-menu-box" role="menu" aria-label="Действия">
-            <button type="button" role="menuitem" onClick={() => run('Копировать ссылку')}>
+          <div
+            className="v5-listbox v5-menu-box"
+            id={menuId}
+            role="menu"
+            aria-label="Действия"
+            onKeyDown={onMenuKeyDown}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              ref={(el) => { itemRefs.current[0] = el; }}
+              tabIndex={-1}
+              onClick={() => run('Копировать ссылку')}
+            >
               <span>Копировать ссылку</span>
               <kbd>Ctrl+C</kbd>
             </button>
-            <button type="button" role="menuitem" onClick={() => run('Переименовать')}>
+            <button
+              type="button"
+              role="menuitem"
+              ref={(el) => { itemRefs.current[1] = el; }}
+              tabIndex={-1}
+              onClick={() => run('Переименовать')}
+            >
               <span>Переименовать</span>
               <kbd>F2</kbd>
             </button>
             <div className="v5-listbox-sep" />
-            <button type="button" role="menuitem" onClick={() => run('Архивировать')}>
+            <button
+              type="button"
+              role="menuitem"
+              ref={(el) => { itemRefs.current[2] = el; }}
+              tabIndex={-1}
+              onClick={() => run('Архивировать')}
+            >
               <span>Архивировать</span>
             </button>
-            <button type="button" role="menuitem" className="is-danger" onClick={() => run('Удалить')}>
+            <button
+              type="button"
+              role="menuitem"
+              ref={(el) => { itemRefs.current[3] = el; }}
+              tabIndex={-1}
+              className="is-danger"
+              onClick={() => run('Удалить')}
+            >
               <span>Удалить</span>
             </button>
           </div>
@@ -1327,30 +1505,94 @@ function ToastCell() {
 }
 
 function ModalCell() {
+  // Ячейка показывает диалог всегда (fixture = утверждённый вид), но модальным
+  // он становится только после явного открытия: иначе один только переход на
+  // board забирал бы фокус в нижнюю ячейку и запирал Tab.
   const [closed, setClosed] = useState(false);
+  const [activated, setActivated] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const reopenRef = useRef<HTMLButtonElement>(null);
+  const firstActionRef = useRef<HTMLButtonElement>(null);
+  const modal = activated && !closed;
+
+  useEffect(() => {
+    if (!modal) return;
+    firstActionRef.current?.focus();
+  }, [modal]);
+
+  /* Закрытие всегда возвращает фокус на кнопку повторного открытия: иначе
+   * подпись «фокус вернулся» была бы ложью для закрытия из превью. */
+  const close = () => {
+    setClosed(true);
+    window.setTimeout(() => reopenRef.current?.focus(), 0);
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!modal) return;
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusables = dialogRef.current?.querySelectorAll<HTMLElement>('button');
+    if (!focusables || focusables.length === 0) return;
+    const list = [...focusables];
+    const first = list[0];
+    const last = list[list.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div className="v5-modal-frame">
       {closed ? (
         <div className="v5-modal-closed">
-          <span className="v5-cap">Диалог закрыт, фокус вернулся на триггер (fixture)</span>
-          <button type="button" className="v5-btn" onClick={() => setClosed(false)}>
+          <span className="v5-cap">Диалог закрыт, фокус на кнопке открытия (fixture)</span>
+          <button
+            type="button"
+            ref={reopenRef}
+            className="v5-btn"
+            onClick={() => {
+              setActivated(true);
+              setClosed(false);
+            }}
+          >
             Открыть снова
           </button>
         </div>
       ) : (
-        <div className="v5-modal" role="dialog" aria-label="Удалить сессию?">
+        <div
+          className="v5-modal"
+          role="dialog"
+          aria-label="Удалить сессию?"
+          {...(modal ? { 'aria-modal': true } : {})}
+          ref={dialogRef}
+          onKeyDown={onKeyDown}
+          onClick={(event) => {
+            // Клик по действиям/крестику не должен «активировать» модальность:
+            // иначе закрытие из превью молча включало модальный режим.
+            if ((event.target as Element).closest('.v5-modal-actions, .v5-att-x')) return;
+            setActivated(true);
+          }}
+        >
           <div className="v5-modal-h">
             <b>Удалить сессию?</b>
-            <button type="button" className="v5-att-x" aria-label="Закрыть диалог" onClick={() => setClosed(true)}>
+            <button type="button" className="v5-att-x" aria-label="Закрыть диалог" onClick={close}>
               <IconClose size={13} />
             </button>
           </div>
           <p className="v5-modal-body">Сессия «логи от 12 октября» будет удалена без возможности восстановления.</p>
           <div className="v5-modal-actions">
-            <button type="button" className="v5-btn ghost" onClick={() => setClosed(true)}>
+            <button type="button" ref={firstActionRef} className="v5-btn ghost" onClick={close}>
               Отмена
             </button>
-            <button type="button" className="v5-btn danger" onClick={() => setClosed(true)}>
+            <button type="button" className="v5-btn danger" onClick={close}>
               Удалить
             </button>
           </div>

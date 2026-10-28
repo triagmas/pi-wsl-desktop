@@ -8,7 +8,7 @@
  * (applyTypography, зона ui). Только fixture/представление: без Electron, Pi,
  * WSL, IPC и user ~/.pi.
  */
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import {
   defaultTypography,
   TYPOGRAPHY_AREAS,
@@ -19,6 +19,7 @@ import { applyTheme } from '../design/applyTheme';
 import { applyTypography } from '../design/applyTypography';
 import { hexColor, meetsAA } from '../../shared/design/contrast';
 import { ChatView, type ChatTurn } from './ChatView';
+import { edgeIndex, nextIndex, useOverlayDismiss } from './overlayA11y';
 import { DetailsPanel } from './DetailsPanel';
 import { Rail } from './Rail';
 import { StatusBar } from './StatusBar';
@@ -457,21 +458,41 @@ function ButtonsCell() {
 function TabsCell() {
   const [tab, setTab] = useState<'overview' | 'files' | 'mcp'>('overview');
   const [q, setQ] = useState('');
+  const TABS = [
+    ['overview', 'Обзор'],
+    ['files', 'Файлы'],
+    ['mcp', 'MCP'],
+  ] as const;
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const activeIndex = Math.max(0, TABS.findIndex(([id]) => id === tab));
+
+  // Roving tabindex + стрелки: вкладки управляются как единый tablist.
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next;
+    if (event.key === 'ArrowRight') next = nextIndex(index, TABS.length, 1);
+    else if (event.key === 'ArrowLeft') next = nextIndex(index, TABS.length, -1);
+    else if (event.key === 'Home') next = edgeIndex(TABS.length, 'first');
+    else if (event.key === 'End') next = edgeIndex(TABS.length, 'last');
+    else return;
+    event.preventDefault();
+    setTab(TABS[next][0]);
+    tabRefs.current[next]?.focus();
+  };
+
   return (
     <div className="dl-board-tabs">
-      <div className="dl-details-tabs" role="tablist">
-        {([
-          ['overview', 'Обзор'],
-          ['files', 'Файлы'],
-          ['mcp', 'MCP'],
-        ] as const).map(([id, label]) => (
+      <div className="dl-details-tabs" role="tablist" aria-label="Разделы деталей действия">
+        {TABS.map(([id, label], index) => (
           <button
             key={id}
             type="button"
             role="tab"
+            ref={(el) => { tabRefs.current[index] = el; }}
             aria-selected={tab === id}
+            tabIndex={index === activeIndex ? 0 : -1}
             className={`dl-tab${tab === id ? ' dl-tab-active' : ''}`}
             onClick={() => setTab(id)}
+            onKeyDown={(event) => onTabKeyDown(event, index)}
           >
             {label}
           </button>
@@ -490,7 +511,12 @@ function TabsCell() {
           onChange={(e) => setQ(e.target.value)}
           aria-label="Поиск по истории"
         />
-        <button type="button" className="dl-board-search-go" aria-label="Найти" disabled={!q.trim()}>
+        <button
+          type="button"
+          className="dl-board-search-go"
+          aria-label={q.trim() ? `Найти: ${q.trim()}` : 'Найти'}
+          disabled={!q.trim()}
+        >
           <IconChevronRight size={18} />
         </button>
       </div>
@@ -607,6 +633,54 @@ function ComposerCell() {
   const [model, setModel] = useState(MODEL_OPTIONS[0]);
   const [modelOpen, setModelOpen] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const chipWrapRef = useRef<HTMLDivElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const chipOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useOverlayDismiss({
+    open: modelOpen,
+    rootRef: chipWrapRef,
+    onDismiss: () => setModelOpen(false),
+    returnFocusRef: chipRef,
+  });
+
+  const openChip = () => {
+    setModelOpen(true);
+    const index = Math.max(0, MODEL_OPTIONS.indexOf(model));
+    window.setTimeout(() => chipOptionRefs.current[index]?.focus(), 0);
+  };
+
+  /* Навигация живёт на общей обёртке: после открытия фокус уже в опции, и
+   * обработчик на одном триггере стрелки не получал (соседние узлы не
+   * всплывают через него). */
+  const onChipKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const onTrigger = event.target === chipRef.current;
+    if (!modelOpen) {
+      if (onTrigger && ['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault();
+        openChip();
+      }
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setModelOpen(false);
+      chipRef.current?.focus();
+      return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return;
+    const focused = chipOptionRefs.current.findIndex((el) => el === document.activeElement);
+    const current = focused >= 0 ? focused : Math.max(0, MODEL_OPTIONS.indexOf(model));
+    const next =
+      event.key === 'Home'
+        ? edgeIndex(MODEL_OPTIONS.length, 'first')
+        : event.key === 'End'
+          ? edgeIndex(MODEL_OPTIONS.length, 'last')
+          : nextIndex(current, MODEL_OPTIONS.length, event.key === 'ArrowDown' ? 1 : -1);
+    event.preventDefault();
+    setModel(MODEL_OPTIONS[next]);
+    chipOptionRefs.current[next]?.focus();
+  };
   return (
     <div className="dl-board-composer">
       <div className="dl-board-composer-box">
@@ -623,25 +697,37 @@ function ComposerCell() {
           />
         </div>
         <div className="dl-composer-row2">
-          <div className="dl-board-model">
-            <button type="button" className="dl-chip" aria-expanded={modelOpen} onClick={() => setModelOpen((v) => !v)}>
+          <div className="dl-board-model" ref={chipWrapRef} onKeyDown={onChipKeyDown}>
+            <button
+              type="button"
+              ref={chipRef}
+              className="dl-chip"
+              aria-haspopup="listbox"
+              aria-expanded={modelOpen}
+              aria-controls={modelOpen ? 'dl-board-model-menu' : undefined}
+              aria-label={`Модель: ${model}`}
+              onClick={() => (modelOpen ? setModelOpen(false) : openChip())}
+            >
               {model}
               <span className="dl-chip-chevron">
                 <IconChevronDown size={16} />
               </span>
             </button>
             {modelOpen ? (
-              <div className="dl-board-model-menu" role="listbox">
-                {MODEL_OPTIONS.map((m) => (
+              <div className="dl-board-model-menu" id="dl-board-model-menu" role="listbox" aria-label="Модель">
+                {MODEL_OPTIONS.map((m, index) => (
                   <button
                     key={m}
                     type="button"
                     role="option"
+                    ref={(el) => { chipOptionRefs.current[index] = el; }}
                     aria-selected={m === model}
+                    tabIndex={-1}
                     className={m === model ? 'is-active' : ''}
                     onClick={() => {
                       setModel(m);
                       setModelOpen(false);
+                      chipRef.current?.focus();
                     }}
                   >
                     {m}

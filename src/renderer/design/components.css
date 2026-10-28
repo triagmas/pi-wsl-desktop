@@ -563,10 +563,16 @@
   padding-top: 33px;
 }
 
-/* ref5 (terminal-on): макет смещает колонку контента до x=442 (rail + 371px). */
+/* ref5 (terminal-on): макет смещает колонку контента до x=442 (rail + 371px).
+ * R02: 371px — измерение эталона 1586×992, а не константа для любой ширины.
+ * Фиксированный отступ сжимал колонку до 355px при 1280 и ломал подписи
+ * действий/шагов на две строки. min(371px, 35.23%) даёт ровно 371px на
+ * эталоне (35.23% × 1053 ≈ 371) и пропорционально освобождает место уже. */
 .dl-frame[data-terminal="on"] .dl-msgs {
   padding-top: 8px;
-  --dl-msgs-left: 371px;
+  /* R02: 371px при 1586 (эталон), но не уже 471px полезной ширины колонки
+   * в запас под ряд действий (196+33+221 = 450px). */
+  --dl-msgs-left: clamp(0px, calc(100% - 521px), 371px);
 }
 
 .dl-frame[data-terminal="on"] .dl-turn-user {
@@ -697,12 +703,16 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* UI21 Corrective R02: шаг — потомок flex-колонки чата; без min-width:0
+   * nowrap-текст шага выталкивал «Подробнее» за границу строки (ref5 @1280). */
+  min-width: 0;
 }
 
 .dl-step {
   display: flex;
   align-items: center;
   gap: 20px;
+  min-width: 0;
   /* эталон 01-chat: pitch шагов 51.5 (height46+gap4 = 50) */
   height: 47.5px;
   border-radius: var(--pw-radius-medium);
@@ -732,7 +742,13 @@
 
 .dl-step-text {
   font-size: var(--dl-fs-step);
+  /* Метка шага не переносится, но и не выпихивает affordance: усечение с
+   * ellipsis вместо переполнения строки (первопричина ref5 @1280). */
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .dl-step-chevron {
@@ -745,6 +761,7 @@
   align-items: center;
   gap: 12px;
   margin-left: auto;
+  flex: none;
   font-size: var(--dl-fs-step);
   color: var(--pw-link-color);
 }
@@ -795,6 +812,8 @@
   display: flex;
   align-items: center;
   gap: 20px;
+  /* R02: подпись действия — одна строка (перенос ломал ref5 при 1280). */
+  white-space: nowrap;
   font-size: var(--dl-fs-ui);
   font-weight: 500;
   color: var(--pw-muted-text-color);
@@ -864,6 +883,14 @@
   gap: 12px;
   height: 44px;
   padding: 0 16px;
+  /* R02: чип модели — одна строка; длинный provider/id усекается по метке,
+   * шеврон не сжимается (ellipsis на контейнере не усекает anonymous flex
+   * item, поэтому метка обёрнута в .dl-chip-label). */
+  max-width: 100%;
+  min-width: 0;
+  /* nowrap на контейнере обязателен: анонимный текстовый flex-item иначе
+   * переносится и вылезает по высоте (board-чип 43px при clientH 32). */
+  white-space: nowrap;
   font-weight: 500;
   border: 1px solid var(--pw-input-border-color);
   border-radius: var(--pw-radius-medium);
@@ -875,8 +902,16 @@
   background: var(--pw-hover-background-color);
 }
 
+.dl-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dl-chip-chevron {
   display: flex;
+  flex: none;
   color: var(--pw-muted-text-color);
 }
 
@@ -2365,10 +2400,23 @@ button.dl-theme-card:hover {
   max-height: calc(100% - 220px);
 }
 
-/* Review r2: короткие окна — сайдбар сам по себе скроллится как fallback,
- * чтобы навигация была достижима, когда flex-none блоков не хватает высоты. */
-.dl-frame[data-layout="app"] .dl-sidebar {
+/* R02: в inline/split-состояниях дерево сессий сжимается (но не растёт) при
+ * нехватке высоты — нижняя навигация остаётся на месте. Утверждённые эталоны
+ * не меняются: пока места хватает, flex-basis:auto сохраняет исходную высоту. */
+.dl-frame:not([data-layout="app"]) .dl-tree {
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
+}
+
+/* Review r2: короткие окна — сайдбар сам по себе скроллится как fallback,
+ * чтобы навигация была достижима, когда flex-none блоков не хватает высоты.
+ * R02: правило не должно зависеть от layout — в inline/split-состояниях
+ * (Design Lab ?state=settings) нижняя навигация обрезалась при высоте ≤800. */
+.dl-frame .dl-sidebar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 /* Review r2 P1-nav: декоративный 129px-разделитель — только визуал лабы;

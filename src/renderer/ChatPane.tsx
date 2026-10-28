@@ -13,6 +13,7 @@ import type { DesktopApi } from './api';
 import { m1 } from './m1api';
 import { mergeTranscript, toChatEntries, type SavedEntry } from './transcript';
 import { ChatView, type ChatTurn, type ChatTurnAssistant } from './ui/ChatView';
+import { useOverlayDismiss } from './ui/overlayA11y';
 
 const HISTORY_PAGE = 100;
 const HISTORY_GAP_KEY = '__history-gap__';
@@ -33,6 +34,35 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   // UI21-F2: selector UI state is presentation-only; the truth lives in Pi.
   const [menu, setMenu] = useState<'model' | 'thinking' | null>(null);
   const [filter, setFilter] = useState('');
+  /* R02: меню модели/thinking — Escape, клик вне, стрелки и возврат фокуса.
+   * Триггеры исключены из outside-click: их toggle обрабатывается самим чипом. */
+  const menuRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  useOverlayDismiss({
+    open: menu !== null,
+    rootRef: menuRef,
+    onDismiss: () => setMenu(null),
+    returnFocusRef,
+    ignoreSelector: '[data-testid="model-selector"],[data-testid="thinking-selector"]',
+  });
+
+  // Открытый список забирает фокус (поиск/первый пункт), чтобы стрелки работали.
+  useEffect(() => {
+    if (menu === null) return;
+    const first = menuRef.current?.querySelector<HTMLElement>('.dl-chip-menu-search, .dl-chip-menu-item');
+    first?.focus();
+  }, [menu]);
+
+  const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const items = [...(menuRef.current?.querySelectorAll<HTMLElement>('.dl-chip-menu-item') ?? [])];
+    if (items.length === 0) return;
+    event.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const delta = event.key === 'ArrowDown' ? 1 : -1;
+    const next = current < 0 ? (delta > 0 ? 0 : items.length - 1) : (current + delta + items.length) % items.length;
+    items[next].focus();
+  };
   const switchLocked = state.status === 'sending' || state.status === 'opening';
 
   /* ------------------------------------------------------------------ *
@@ -216,7 +246,14 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   /* UI21-F2: выпадающие списки — данные из Pi (никогда не хардкод). */
   const modelMenu: ReactNode =
     menu === 'model' ? (
-      <div className="dl-chip-menu" data-testid="model-menu" role="dialog" aria-label="Выбор модели">
+      <div
+        className="dl-chip-menu"
+        id="dl-chip-model-menu"
+        data-testid="model-menu"
+        role="dialog"
+        aria-label="Выбор модели"
+        aria-modal="false"
+      >
         <input
           className="dl-chip-menu-search"
           placeholder="Поиск модели"
@@ -224,15 +261,18 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
           onChange={(e) => setFilter(e.target.value)}
           aria-label="Поиск модели"
         />
-        <div className="dl-chip-menu-list">
+        <div className="dl-chip-menu-list" role="listbox" aria-label="Модели Pi">
           {filteredModels.map((m) => (
             <button
               key={`${m.provider}:${m.id}`}
               type="button"
+              role="option"
+              aria-selected={m.provider === activeModel?.provider && m.id === activeModel?.id}
               className="dl-chip-menu-item"
               data-testid={`model-option-${m.provider}:${m.id}`}
               onClick={() => {
                 setMenu(null);
+                returnFocusRef.current?.focus();
                 void selectModel(m.provider, m.id);
               }}
             >
@@ -269,8 +309,16 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
 
   const thinkingMenu: ReactNode =
     menu === 'thinking' ? (
-      <div className="dl-chip-menu" data-testid="thinking-menu" role="dialog" aria-label="Уровень thinking">
-        <div className="dl-chip-menu-list">
+      <div
+        className="dl-chip-menu"
+        id="dl-chip-thinking-menu"
+        data-testid="thinking-menu"
+        role="dialog"
+        aria-label="Уровень thinking"
+        aria-modal="false"
+      >
+        <div className="dl-chip-menu-list" role="listbox" aria-label="Уровни thinking">
+
           {thinkingLevels.length === 0 && state.thinkingError && (
             <div className="dl-chip-menu-empty" data-testid="thinking-menu-error">
               Уровни thinking недоступны: {state.thinkingError.code} — {state.thinkingError.message}
@@ -280,10 +328,13 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
             <button
               key={level}
               type="button"
+              role="option"
+              aria-selected={level === thinkingLabel}
               className="dl-chip-menu-item"
               data-testid={`thinking-option-${level}`}
               onClick={() => {
                 setMenu(null);
+                returnFocusRef.current?.focus();
                 void selectThinkingLevel(level);
               }}
             >
@@ -412,6 +463,7 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
                       model: modelLabel,
                       modelDisabled: switchLocked,
                       onModelClick: () => {
+                        returnFocusRef.current = document.activeElement as HTMLElement | null;
                         setFilter('');
                         setMenu((m) => (m === 'model' ? null : 'model'));
                       },
@@ -423,10 +475,25 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
                       // A levels failure keeps the selector open so the honest
                       // error is reachable; it is not a fabricated single level.
                       thinkingDisabled: switchLocked || (thinkingLevels.length <= 1 && state.thinkingError === null),
-                      onThinkingClick: () => setMenu((m) => (m === 'thinking' ? null : 'thinking')),
+                      onThinkingClick: () => {
+                        returnFocusRef.current = document.activeElement as HTMLElement | null;
+                        setMenu((m) => (m === 'thinking' ? null : 'thinking'));
+                      },
                     }
                   : {}),
-                menu: menu === 'model' ? modelMenu : menu === 'thinking' ? thinkingMenu : null,
+                menu:
+                  menu === 'model' || menu === 'thinking' ? (
+                    <div
+                      className="dl-chip-menu-anchor"
+                      ref={menuRef}
+                      onKeyDown={onMenuKeyDown}
+                      data-testid="chip-menu-anchor"
+                    >
+                      {menu === 'model' ? modelMenu : thinkingMenu}
+                    </div>
+                  ) : null,
+                modelMenuOpen: menu === 'model',
+                thinkingMenuOpen: menu === 'thinking',
               }
             : null
         }

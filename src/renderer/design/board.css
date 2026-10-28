@@ -69,11 +69,17 @@
 .dl-board-seg {
   display: inline-flex;
   gap: 6px;
+  /* R02: сегмент — неделимая группа: при нехватке ширины переносится целиком,
+   * а не ломает подписи внутри кнопок. */
+  flex: none;
+  flex-wrap: nowrap;
 }
 
 .dl-board-seg-btn {
   height: 30px;
   padding: 0 12px;
+  white-space: nowrap;
+  flex: none;
   font-family: inherit;
   font-size: 0.93em;
   color: var(--pw-muted-text-color);
@@ -369,6 +375,14 @@
 }
 
 /* ── 03 Вкладки и поиск ─────────────────────────────────────── */
+
+/* R02: вкладки ячейки 09 переносятся, а не срезаются правым краем карточки
+ * (при 1280 вкладка «Расширения» обрезалась на 49px). На 1586 строка
+ * помещается целиком — вид ячейки не меняется. */
+.dl-board-tabs .dl-details-tabs {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
 
 .dl-board-ext-tab {
   display: inline-flex;
@@ -831,6 +845,18 @@
 
 /* ── Адаптив (сетка board) ──────────────────────────────────── */
 
+/* R02: шапка не помещается в одну строку ниже 1560 (подпись и значок
+ * «акцент AA» уезжали за правый край); переносим строки шапки, сетку — нет.
+ * На 1586 (эталон) правило не действует: шапка та же. */
+@media (max-width: 1560px) {
+  .dl-board-head {
+    flex-wrap: wrap;
+  }
+  .dl-board-head-note {
+    margin-left: 0;
+  }
+}
+
 @media (max-width: 1180px) {
   .dl-board-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1087,6 +1113,7 @@
 .v5-listbox li button,
 .v5-listbox > button {
   width: 100%;
+  white-space: nowrap;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1307,6 +1334,10 @@
 }
 .v5-menu-box {
   min-width: 190px;
+  /* R02: пункт меню — одна строка; коробка растёт по содержимому, а не ломает
+   * подпись «Копировать ссылку» на две строки (kbd справа). */
+  width: max-content;
+  max-width: 260px;
 }
 .v5-menu-box kbd {
   font-size: 0.79em;

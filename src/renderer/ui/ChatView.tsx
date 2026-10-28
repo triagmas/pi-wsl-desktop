@@ -73,6 +73,9 @@ export interface ComposerProps {
   thinkingDisabled?: boolean;
   /** UI21-F2: выпадающий список (модели/уровни) — рендерится над композером. */
   menu?: ReactNode;
+  /** R02: ARIA-связь чипа с открытым списком (aria-expanded/aria-controls). */
+  modelMenuOpen?: boolean;
+  thinkingMenuOpen?: boolean;
 }
 
 export interface ChatViewProps {
@@ -180,6 +183,8 @@ function Composer({
   onThinkingClick,
   thinkingDisabled = false,
   menu,
+  modelMenuOpen = false,
+  thinkingMenuOpen = false,
 }: ComposerProps) {
   const controlled = value !== undefined && onValueChange !== undefined;
   return (
@@ -217,11 +222,15 @@ function Composer({
             type="button"
             className="dl-chip"
             data-testid="model-selector"
+            aria-haspopup="dialog"
+            aria-expanded={modelMenuOpen}
+            aria-controls={modelMenuOpen ? 'dl-chip-model-menu' : undefined}
+            aria-label={`Модель: ${model}`}
             onClick={onModelClick}
             disabled={modelDisabled || !onModelClick}
             title={model}
           >
-            {model}
+            <span className="dl-chip-label">{model}</span>
             <span className="dl-chip-chevron" aria-hidden="true">
               <IconChevronDown size={16} />
             </span>
@@ -232,11 +241,15 @@ function Composer({
             type="button"
             className="dl-chip dl-chip-thinking"
             data-testid="thinking-selector"
+            aria-haspopup="dialog"
+            aria-expanded={thinkingMenuOpen}
+            aria-controls={thinkingMenuOpen ? 'dl-chip-thinking-menu' : undefined}
+            aria-label={`Thinking: ${thinking}`}
             onClick={onThinkingClick}
             disabled={thinkingDisabled || !onThinkingClick}
             title={`Thinking: ${thinking}`}
           >
-            {thinking}
+            <span className="dl-chip-label">{thinking}</span>
             <span className="dl-chip-chevron" aria-hidden="true">
               <IconChevronDown size={16} />
             </span>

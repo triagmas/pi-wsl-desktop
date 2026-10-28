@@ -3,7 +3,7 @@
  * text, interrupt, error/recovery states from real bridge policies.
  */
 import { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatPane } from '../../src/renderer/ChatPane';
@@ -591,5 +591,82 @@ describe('UI21 R02: redaction boundary and tool-entry presentation', () => {
     });
     await screen.findByText('final answer');
     expect(screen.queryAllByTestId('chat-tool-entry')).toHaveLength(1);
+  });
+});
+
+/**
+ * UI21 Interactive Corrective R02: чип модели — не только клик. Открытие
+ * списка обязано забирать фокус, закрываться по Escape (с возвратом фокуса на
+ * чип), клику вне списка и отражать состояние в aria-expanded/aria-controls.
+ * RED до фикса: меню оставалось открытым, фокус оставался на чипе, стрелки
+ * не работали, aria-expanded отсутствовал.
+ */
+describe('R02: model menu keyboard, Escape and outside click', () => {
+  async function openChat() {
+    const api = makeApi();
+    render(<ChatHarness api={api.api} file={FILE} />);
+    await userEvent.click(await screen.findByRole('button', { name: /открыть чат/i }));
+    await waitFor(() => expect(api.request.mock.calls.some((c) => c[0] === 'openSession')).toBe(true));
+    return api;
+  }
+
+  it('exposes aria-expanded/aria-controls on the chip and focuses the menu on open', async () => {
+    await openChat();
+    const chip = await screen.findByTestId('model-selector');
+    // Попап — role=dialog (внутри listbox), поэтому haspopup описывает dialog.
+    expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(chip).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(chip);
+    await screen.findByTestId('model-menu');
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+    expect(chip).toHaveAttribute('aria-controls', 'dl-chip-model-menu');
+    await waitFor(() => expect(screen.getByTestId('model-menu').contains(document.activeElement)).toBe(true));
+  });
+
+  it('closes on Escape and returns focus to the chip', async () => {
+    await openChat();
+    const chip = await screen.findByTestId('model-selector');
+    await userEvent.click(chip);
+    await screen.findByTestId('model-menu');
+
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('model-menu')).not.toBeInTheDocument());
+    expect(chip).toHaveAttribute('aria-expanded', 'false');
+    await waitFor(() => expect(document.activeElement).toBe(chip));
+  });
+
+  it('moves focus between options with ArrowDown/ArrowUp', async () => {
+    await openChat();
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    await screen.findByTestId('model-menu');
+    const first = screen.getByTestId('model-option-prov-a:model-one');
+    const second = screen.getByTestId('model-option-prov-b:model-two');
+
+    // Открытие ставит фокус в поиск каталога; первая стрелка уходит в список.
+    expect(document.activeElement?.tagName).toBe('INPUT');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(first);
+    await userEvent.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(second);
+    await userEvent.keyboard('{ArrowUp}');
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('returns focus to the chip after a selection commits', async () => {
+    await openChat();
+    const chip = await screen.findByTestId('model-selector');
+    await userEvent.click(chip);
+    await userEvent.click(await screen.findByTestId('model-option-prov-b:model-two'));
+    await waitFor(() => expect(screen.queryByTestId('model-menu')).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(chip));
+  });
+
+  it('closes when the pointer goes down outside the list', async () => {
+    await openChat();
+    await userEvent.click(await screen.findByTestId('model-selector'));
+    await screen.findByTestId('model-menu');
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(screen.queryByTestId('model-menu')).not.toBeInTheDocument());
   });
 });

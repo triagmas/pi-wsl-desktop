@@ -241,3 +241,11 @@
 - **За рамками пакета:** event-driven automation и визуальный dashboard — следующие обсуждённые этапы, ещё не реализованы.
 - **Без ложного зачёта:** реальные prompts/model calls и user `~/.pi` writes не запускались; эффективность в токенах `NOT MEASURED`.
 
+---
+
+## 🪝 Локальный `prek` pre-commit gate (предложение, ещё не принято)
+
+- **Issue [#28](https://github.com/triagmas/pi-wsl-desktop/issues/28)** · ветка `chore/prek-offline-precommit-r01` · [инструкция](docs/PREK.md) · [конфигурация](prek.toml).
+- [ ] После отдельного PR review и разрешённого merge принять конфигурацию шести встроенных `prek` hooks (только offline/read-only); `main`/действующие UI21 ветки не изменять до принятия.
+- [ ] В каноническом checkout F: активировать локальный Git hook **только после** проверки `core.hooksPath` и существующего pre-commit hook; выполнить проверку из Git среды, реально используемой Pi (Windows или WSL); результат **NOT RUN**.
+- [ ] Контрольные локальные и негативные smoke-тесты, реальные замеры длительности и независимый review — **NOT RUN / NOT MEASURED**. Product CI (lint/typecheck/Vitest/Playwright/build) остаётся обязательным и не дублируется на каждом коммите.

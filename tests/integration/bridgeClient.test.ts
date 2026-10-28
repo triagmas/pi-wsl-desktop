@@ -7,7 +7,7 @@ import { BridgeClient } from '../../src/main/bridgeClient';
 
 const FAKE_BRIDGE = path.join(__dirname, '..', 'fixtures', 'fake-bridge.cjs');
 
-function makeClient(mode: string, logFile?: string): BridgeClient {
+function makeClient(mode: string, logFile?: string, extraEnv: Record<string, string> = {}): BridgeClient {
   return new BridgeClient({
     spawn: () =>
       spawn(process.execPath, [FAKE_BRIDGE], {
@@ -15,6 +15,7 @@ function makeClient(mode: string, logFile?: string): BridgeClient {
           PATH: '/usr/bin:/bin',
           FAKE_BRIDGE_MODE: mode,
           ...(logFile ? { FAKE_BRIDGE_LOG: logFile } : {}),
+          ...extraEnv,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       }),
@@ -116,5 +117,44 @@ describe('BridgeClient (real subprocess, fake bridge)', () => {
     // orphan prevention: the child must actually terminate (Review Focus 4)
     await expect(exited).resolves.not.toBeNull();
     await expect(client.request('health')).rejects.toMatchObject({ code: 'DISCONNECTED' });
+  });
+
+  // UI21 F1-B R02 (P1): без бюджета в кадре bridge применял свой дефолт 10 000 мс
+  // и превращал успешный медленный ACK в BRIDGE_TIMEOUT.
+  it('передаёт бюджет обработчика в кадре запроса и переживает ответ дольше 10 c', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'f1br02-'));
+    const logFile = path.join(dir, 'frames.log');
+    const client = makeClient('slow', logFile, { FAKE_BRIDGE_DELAY_MS: '11000' });
+    const ready = new Promise<void>((resolve) => client.on('ready', () => resolve()));
+    client.connect();
+    await ready;
+    // внешний тайм-аут 20 c: bridge получает 15 c и обязан успеть ответить
+    const result = (await client.request('sendPrompt', undefined, { timeoutMs: 20_000 })) as {
+      sawBudget: number | null;
+    };
+    expect(result.sawBudget).toBe(15_000);
+    const frames = readFileSync(logFile, 'utf8')
+      .split('\n')
+      .filter((l) => l.startsWith('frame:'))
+      .map((l) => JSON.parse(l.slice(6)) as { method: string; timeoutMs?: number });
+    const sent = frames.find((f) => f.method === 'sendPrompt');
+    expect(sent?.timeoutMs).toBe(15_000);
+    client.close();
+  }, 40_000);
+
+  it('читающий запрос уходит в bridge с прежним бюджетом 10 000 мс', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'f1br02-read-'));
+    const logFile = path.join(dir, 'frames.log');
+    const client = makeClient('ok', logFile);
+    const ready = new Promise<void>((resolve) => client.on('ready', () => resolve()));
+    client.connect();
+    await ready;
+    await client.request('health');
+    const frames = readFileSync(logFile, 'utf8')
+      .split('\n')
+      .filter((l) => l.startsWith('frame:'))
+      .map((l) => JSON.parse(l.slice(6)) as { method: string; timeoutMs?: number });
+    expect(frames.find((f) => f.method === 'health')?.timeoutMs).toBe(10_000);
+    client.close();
   });
 });

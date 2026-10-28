@@ -31,19 +31,41 @@ export const m1 = {
     call(api, 'searchSessions', { query, ...(includeContent ? { includeContent: true } : {}) }),
 };
 
+/**
+ * UI21 F1-B R02 (P1): Electron оборачивает ошибку IPC-обработчика в
+ * `Error invoking remote method '<channel>': Error: …`, поэтому стабильный код
+ * из main (`{CODE}: message`) оказывался НЕ в начале строки и терялся —
+ * пользователь видел «UNKNOWN» вместо `BRIDGE_TIMEOUT`. Обёртку снимаем
+ * послойно (Electron может обернуть повторно), не трогая остальной текст.
+ */
+const IPC_WRAPPER = /^(?:Error invoking remote method '[^']*':\s*)?(?:Error:\s*)?/;
+
+function stripIpcWrapper(raw: string): string {
+  let text = raw.trim();
+  for (let i = 0; i < 4; i += 1) {
+    const m = IPC_WRAPPER.exec(text);
+    if (!m || m[0].length === 0) break;
+    text = text.slice(m[0].length).trim();
+  }
+  return text;
+}
+
 /** Parse an IPC-rethrown error `{CODE}: message` into a structured value. */
 export function parseBridgeError(err: unknown): { code: string; message: string } {
   // Production path: ipc.ts prefixes `{CODE}: message` (Error props do not
   // survive Electron serialization). Structured callers may attach `.code`.
+  const raw = err instanceof Error ? err.message : String(err);
+  const text = stripIpcWrapper(raw);
   const attached = (err as { code?: unknown } | null)?.code;
   if (typeof attached === 'string' && attached.length > 0) {
-    const raw = err instanceof Error ? err.message : String(err);
-    return { code: attached, message: raw.replace(new RegExp(`^${attached}:\\s*`), '') };
+    // Текст мог быть помечен ДРУГИМ кодом (например `UNKNOWN:` из bridge) —
+    // структурный `.code` всё равно главнее, но его префикс в тексте лишний.
+    const stripped = text.replace(new RegExp(`^([A-Z][A-Z0-9_]{2,}):\\s*`), '');
+    return { code: attached, message: stripped || text };
   }
-  const raw = err instanceof Error ? err.message : String(err);
-  const m = /^([A-Z][A-Z0-9_]{2,}):(?:\s|$)/.exec(raw);
-  if (m) return { code: m[1], message: raw.slice(m[0].length) || raw };
-  return { code: 'UNKNOWN', message: raw };
+  const m = /^([A-Z][A-Z0-9_]{2,}):(?:\s|$)/.exec(text);
+  if (m) return { code: m[1], message: text.slice(m[0].length) || text };
+  return { code: 'UNKNOWN', message: text };
 }
 
 export type { ChatEventT };

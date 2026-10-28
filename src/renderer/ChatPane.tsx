@@ -30,7 +30,13 @@ export interface ChatPaneProps {
 }
 
 export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: ChatPaneProps) {
-  const { state, open, send, interrupt, closeChat, selectModel, selectThinkingLevel } = chat;
+  const { state, open, send, resend, interrupt, closeChat, selectModel, selectThinkingLevel } = chat;
+  // Актуальный черновик для отложенных колбэков (поздний ACK не должен стирать
+  // текст, набранный после отправки).
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
   // UI21-F2: selector UI state is presentation-only; the truth lives in Pi.
   const [menu, setMenu] = useState<'model' | 'thinking' | null>(null);
   const [filter, setFilter] = useState('');
@@ -158,8 +164,15 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   const submit = (e?: FormEvent): void => {
     e?.preventDefault();
     if (draft.trim() === '' || state.status !== 'open') return;
-    void send(draft);
-    onDraftChange('');
+    // UI21 F1-B R02 (P1): черновик очищается ТОЛЬКО когда Pi подтвердил приём.
+    // При тайм-ауте ACK текст остаётся у пользователя, повтора нет.
+    void (async () => {
+      const submitted = draft;
+      const r = await send(submitted);
+      // Стираем только тот черновик, который отправляли: пока ждали ACK,
+      // пользователь мог начать печатать новое сообщение.
+      if (r.ok && draftRef.current === submitted) onDraftChange('');
+    })();
   };
 
   const isOpenLike = state.status === 'open' || state.status === 'sending';
@@ -196,9 +209,26 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
         <div className="error-box" role="alert" data-testid="chat-error">
           <strong>{state.error.code}</strong> — {state.error.message}
           <div>
-            <button type="button" onClick={() => void open()}>
-              Повторить подключение
-            </button>
+            {state.pendingSend ? (
+              // Исход отправки неизвестен: только явный повтор, текст сохранён.
+              <button
+                type="button"
+                data-testid="chat-resend"
+                onClick={() => {
+                  const pendingText = state.pendingSend?.text ?? '';
+                  void (async () => {
+                    const r = await resend();
+                    if (r.ok && draftRef.current === pendingText) onDraftChange('');
+                  })();
+                }}
+              >
+                Повторить отправку
+              </button>
+            ) : (
+              <button type="button" onClick={() => void open()}>
+                Повторить подключение
+              </button>
+            )}
           </div>
         </div>
       )}

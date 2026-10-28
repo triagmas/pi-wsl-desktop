@@ -1,6 +1,7 @@
 /* Fake bridge process for integration tests. Speaks the M0 protocol on
  * stdio; behavior selected via FAKE_BRIDGE_MODE:
  *   ok (default)        ready + real answers
+ *   slow                ready, answers requests after FAKE_BRIDGE_DELAY_MS (default 1200)
  *   silent              ready, never answers requests
  *   die-after-ready     ready, exit(3) after 150ms
  *   die-on-request      ready, exit(3) on first request
@@ -17,6 +18,8 @@
 const fs = require('node:fs');
 
 const mode = process.env.FAKE_BRIDGE_MODE || 'ok';
+const t0 = Date.now();
+const DEFAULT_TIMEOUT_MS = 10_000;
 const log = process.env.FAKE_BRIDGE_LOG;
 const piOverride = process.env.PI_WS_DESKTOP_PI;
 
@@ -73,6 +76,26 @@ process.stdin.on('data', (chunk) => {
     if (f.type !== 'request') continue;
     if (mode === 'silent') continue;
     if (mode === 'die-on-request') process.exit(3);
+    if (mode === 'slow') {
+      // UI21 F1-B R02: ведём себя как настоящий bridge — уважаем бюджет из кадра,
+      // а без него применяем прежний дефолт 10 000 мс. Ответ приходит позже
+      // дефолта, поэтому тест проходит ТОЛЬКО если бюджет реально приехал.
+      const delay = Number(process.env.FAKE_BRIDGE_DELAY_MS || 1200);
+      const budget = typeof f.timeoutMs === 'number' ? f.timeoutMs : DEFAULT_TIMEOUT_MS;
+      const startedAt = Date.now();
+      if (Date.now() - startedAt >= budget) {
+        send({ v: 1, type: 'response', requestId: f.requestId, status: 'error', error: { code: 'BRIDGE_TIMEOUT', message: `method ${f.method} exceeded ${budget}ms` } });
+        continue;
+      }
+      setTimeout(() => {
+        if (Date.now() - startedAt >= budget) {
+          send({ v: 1, type: 'response', requestId: f.requestId, status: 'error', error: { code: 'BRIDGE_TIMEOUT', message: `method ${f.method} exceeded ${budget}ms` } });
+          return;
+        }
+        send({ v: 1, type: 'response', requestId: f.requestId, status: 'ok', result: { status: 'ok', fixture: true, tag: 'slow', sawBudget: typeof f.timeoutMs === 'number' ? f.timeoutMs : null } });
+      }, delay);
+      continue;
+    }
     if (f.method === 'health') {
       send({
         v: 1,

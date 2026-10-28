@@ -79,7 +79,9 @@ describe('IPC surface (main-side whitelist)', () => {
     const bridgeRequest = handlers.get('bridge:request')!;
     const result = (await bridgeRequest({}, 'health', { verbose: true })) as { method: string };
     expect(result.method).toBe('health');
-    expect(conn.request).toHaveBeenCalledWith('health', { verbose: true });
+    // UI21 F1-B R02: main передаёт вычисленный внешний тайм-аут метода
+    // (для читающих методов — прежние 10 000 мс).
+    expect(conn.request).toHaveBeenCalledWith('health', { verbose: true }, { timeoutMs: 10_000 });
   });
 
   it('exposes status, retry and distro listing', async () => {

@@ -4,6 +4,7 @@
  * teardown, and pending-request rejection on any disconnect.
  */
 import { randomUUID } from 'node:crypto';
+import { BRIDGE_HANDLER_MARGIN_MS, BRIDGE_REQUEST_TIMEOUT_MS } from '../shared/timeouts';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { LineAssembler } from '../shared/framing';
 import { BridgeError } from '../shared/errors';
@@ -147,11 +148,24 @@ export class BridgeClient {
         reject(new BridgeError('BRIDGE_TIMEOUT', `request ${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.set(requestId, { resolve, reject, timer });
+      // UI21 F1-B R02 (P1): бюджет ОБЯЗАН уехать в bridge. Без него bridge
+      // применял свой дефолт 10 000 мс, помечал обработчик просроченным и
+      // превращал успешный медленный ACK в BRIDGE_TIMEOUT (наш обработчик
+      // отмену игнорирует, поэтому генерация шла, а пользователь видел отказ).
+      // Передаём бюджет меньше собственного — ошибку формирует bridge.
+      // Бюджет bridge = внешний минус запас, но не ниже прежних 10 000 мс
+      // (читающие запросы остаются ровно такими, какими были). Значение берём
+      // из общего helper'а, чтобы он точно описывал поведение на проводе.
+      const handlerTimeoutMs = Math.max(
+        BRIDGE_REQUEST_TIMEOUT_MS,
+        timeoutMs - BRIDGE_HANDLER_MARGIN_MS,
+      );
       const frame: FrameT = {
         v: PROTOCOL_VERSION,
         type: 'request',
         requestId,
         method,
+        timeoutMs: handlerTimeoutMs,
         ...(params ? { params } : {}),
       };
       this.writeFrame(frame).catch((err: unknown) => {

@@ -4,6 +4,7 @@
  * connection. Snapshots are pushed to renderers on `bridge:state`.
  */
 import { isAllowedRendererMethod } from '../shared/whitelist';
+import { methodTimeoutMs } from '../shared/timeouts';
 import { loadAppearance, resetAppearance, saveAppearance } from './appearanceStore';
 import { migrateAppearance } from '../shared/appearance';
 
@@ -12,7 +13,12 @@ export interface IpcLike {
 }
 
 export interface ConnectionLike {
-  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * UI21 F1-B R02: тайм-аут задаёт вызывающая сторона. Main должен передавать
+   * внешний бюджет метода (он больше внутреннего бюджета Pi) — иначе медленный,
+   * но успешный ACK превращается в ложный BRIDGE_TIMEOUT.
+   */
+  request(method: string, params?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown>;
   snapshot(): unknown;
   retry(): unknown;
   listDistros(): Promise<string[]>;
@@ -44,7 +50,11 @@ export function registerIpc(
       throw new Error(`method not allowed: ${String(method)}`);
     }
     try {
-      return await conn.request(method, typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : undefined);
+      return await conn.request(
+        method,
+        typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : undefined,
+        { timeoutMs: methodTimeoutMs(method) },
+      );
     } catch (err) {
       // Electron serializes Errors by message only — prefix the stable code
       // so the renderer can show SESSION_CONFLICT / RESOURCE_BUSY / …

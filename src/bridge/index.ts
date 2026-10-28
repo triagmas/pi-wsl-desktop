@@ -7,6 +7,7 @@
  * allowlist is read-only for M0. No listeners, no network, no writes.
  */
 import { LineAssembler } from '../shared/framing';
+import { BRIDGE_MAX_REQUEST_TIMEOUT_MS, BRIDGE_REQUEST_TIMEOUT_MS } from '../shared/timeouts';
 import {
   MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
@@ -19,8 +20,10 @@ import {
 } from '../shared/protocol';
 import { BridgeError, makeHandlers } from './handlers';
 
-const DEFAULT_TIMEOUT_MS = 10_000;
-const MAX_TIMEOUT_MS = 60_000;
+// UI21 F1-B R02: оба предела — из общего модуля, чтобы bridge не обрывал
+// запрос раньше main (иначе медленный успешный ACK снова станет отказом).
+const DEFAULT_TIMEOUT_MS = BRIDGE_REQUEST_TIMEOUT_MS;
+const MAX_TIMEOUT_MS = BRIDGE_MAX_REQUEST_TIMEOUT_MS;
 
 export function startBridge(env: NodeJS.ProcessEnv = process.env): void {
   const stdout = process.stdout;

@@ -52,6 +52,22 @@ export interface ChatUiState {
   modelsLoading: boolean;
   /** Thinking-levels failure — INDEPENDENT of the catalog (it must not wipe it). */
   thinkingError: { code: string; message: string } | null;
+  /**
+   * UI21 F1-B R02 (P1): отправка, судьба которой НЕ подтверждена (тайм-аут ACK).
+   * Текст хранится здесь, чтобы его нельзя было потерять, и чтобы явный повтор
+   * не отправил второе сообщение, если Pi уже принял первое.
+   */
+  pendingSend: {
+    text: string;
+    at: number;
+    /**
+     * Сколько записей было в ленте ПЕРЕД отправкой. Доказательством доставки
+     * считается пользовательская запись с тем же текстом, появившаяся после
+     * этой отметки: так исключается более раннее такое же сообщение, но
+     * засчитывается доставка, пришедшая ещё до тайм-аута ACK.
+     */
+    entryCountBeforeSend: number;
+  } | null;
 }
 
 export const initialChatState: ChatUiState = {
@@ -67,6 +83,7 @@ export const initialChatState: ChatUiState = {
   modelsError: null,
   modelsLoading: false,
   thinkingError: null,
+  pendingSend: null,
 };
 
 /**
@@ -169,7 +186,9 @@ export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState 
 export interface ChatController {
   state: ChatUiState;
   open: () => Promise<void>;
-  send: (text: string) => Promise<void>;
+  send: (text: string) => Promise<{ ok: boolean }>;
+  /** UI21 F1-B R02: явный повтор неподтверждённой отправки (без дублей). */
+  resend: () => Promise<{ ok: boolean; skipped: boolean }>;
   interrupt: () => Promise<void>;
   closeChat: () => Promise<boolean>;
   /** Re-read Pi's catalog + thinking levels (explicit refresh or after open). */
@@ -221,20 +240,79 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     }
   }, [api, file]);
 
+  /**
+   * UI21 F1-B R02 (P1, review): одно решение о восстановлении на ВСЕ пути
+   * отправки. Совпадение текста — консервативная эвристика (доказуемого eventId
+   * у промпта нет), поэтому она используется только чтобы НЕ отправить второй
+   * раз уже принятое сообщение, и только для записей, появившихся после НАЧАЛА
+   * отправки. Транскрипт она никогда не удаляет и exactly-once не гарантирует.
+   */
+  const deliveredSince = useCallback((pending: NonNullable<ChatUiState['pendingSend']>): boolean => {
+    const text = pending.text.trim();
+    return stateRef.current.entries
+      .slice(pending.entryCountBeforeSend)
+      .some((e) => e.kind === 'user' && e.text.trim() === text);
+  }, []);
+
   const send = useCallback(
-    async (text: string) => {
-      if (!api || text.trim() === '') return;
-      setState((s) => ({ ...s, status: 'sending', error: null }));
+    async (text: string): Promise<{ ok: boolean }> => {
+      if (!api || text.trim() === '') return { ok: false };
+      // Обычный Send после неподтверждённой отправки не должен дублировать
+      // уже принятое сообщение: сначала то же решение, что и у «Повторить».
+      const unresolved = stateRef.current.pendingSend;
+      if (unresolved && unresolved.text.trim() === text.trim() && deliveredSince(unresolved)) {
+        setState((s) => ({
+          ...s,
+          pendingSend: null,
+          error: null,
+          banner: { code: 'DELIVERED', message: 'Pi уже принял это сообщение — повтор не отправлен' },
+        }));
+        return { ok: true };
+      }
+      const entryCountBeforeSend = stateRef.current.entries.length;
+      setState((s) => ({ ...s, status: 'sending', error: null, pendingSend: null }));
       try {
         await m1.sendPrompt(api, text);
         // stays 'sending' until agent_settled arrives via events
+        return { ok: true };
       } catch (err) {
-        if (!mounted.current) return;
-        setState((s) => ({ ...s, status: 'open', error: toUiError(err) }));
+        if (!mounted.current) return { ok: false };
+        // Приём НЕ подтверждён: текст остаётся у пользователя (композер его не
+        // очищает), автоповтора нет, причина показывается кодом bridge.
+        setState((s) => ({
+          ...s,
+          status: 'open',
+          error: toUiError(err),
+          pendingSend: { text, at: Date.now(), entryCountBeforeSend },
+        }));
+        return { ok: false };
       }
     },
-    [api],
+    [api, deliveredSince],
   );
+
+  /**
+   * UI21 F1-B R02 (P1): явный повтор после неподтверждённой отправки.
+   * Отправляет второй раз ТОЛЬКО если Pi не предъявил уже принятое сообщение;
+   * иначе фиксирует факт доставки баннером и снимает ожидание (без дубля).
+   */
+  const resend = useCallback(async (): Promise<{ ok: boolean; skipped: boolean }> => {
+    const pending = stateRef.current.pendingSend;
+    if (!pending) return { ok: false, skipped: false };
+    if (deliveredSince(pending)) {
+      if (mounted.current) {
+        setState((s) => ({
+          ...s,
+          pendingSend: null,
+          error: null,
+          banner: { code: 'DELIVERED', message: 'Pi уже принял это сообщение — повтор не отправлен' },
+        }));
+      }
+      return { ok: true, skipped: true };
+    }
+    const r = await send(pending.text);
+    return { ok: r.ok, skipped: false };
+  }, [send, deliveredSince]);
 
   const interrupt = useCallback(async () => {
     if (!api) return;
@@ -321,5 +399,5 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     return true;
   }, [api]);
 
-  return { state, open, send, interrupt, closeChat, refreshModels, selectModel, selectThinkingLevel };
+  return { state, open, send, resend, interrupt, closeChat, refreshModels, selectModel, selectThinkingLevel };
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BRIDGE_MAX_REQUEST_TIMEOUT_MS } from './timeouts';
 
 // Transport constants live in the node-free module so renderer bundles stay
 // Buffer-free; everything below is re-exported for existing imports.
@@ -23,7 +24,9 @@ const RequestFrameSchema = z.strictObject({
   requestId: RequestIdSchema,
   method: z.string().min(1),
   params: z.record(z.string(), z.unknown()).optional(),
-  timeoutMs: z.number().int().positive().max(60_000).optional(),
+  // UI21 F1-B R02: бюджет обработчика bridge. Потолок — общий предел запроса,
+  // иначе медленный (но успешный) ACK отвергался бы схемой.
+  timeoutMs: z.number().int().positive().max(BRIDGE_MAX_REQUEST_TIMEOUT_MS).optional(),
 });
 
 const ResponseOkFrameSchema = z.object({

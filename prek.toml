@@ -1,0 +1,26 @@
+# Pi WSL Desktop: intentionally fast, offline, non-mutating Git pre-commit checks.
+# Product CI (typecheck, lint, Vitest, E2E and packaging) remains authoritative.
+# 'repo = "builtin"' requires prek; upstream Python pre-commit cannot run it.
+[[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "check-added-large-files"
+args = ["--maxkb=4096"]
+
+[[repos.hooks]]
+id = "check-case-conflict"
+
+[[repos.hooks]]
+id = "check-illegal-windows-names"
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+args = ["--assume-in-merge"]
+
+[[repos.hooks]]
+id = "detect-private-key"
+
+[[repos.hooks]]
+id = "no-commit-to-branch"
+args = ["--branch=main", "--branch=master"]

@@ -90,3 +90,38 @@ describe('transcript: history + live merge', () => {
     expect(mergeTranscript([], [])).toEqual([]);
   });
 });
+
+/**
+ * UI21 R07 r02 (owner review #6446392236): совпадение роли и текста — НЕ
+ * тождество события. Пользователь может дважды задать один вопрос и дважды
+ * получить один ответ; старую пару удалять нельзя.
+ */
+describe('transcript: text equality is never an identity', () => {
+  const pair = (role: 'user' | 'assistant', text: string, eventId?: string): ChatEntry => ({
+    key: `${role}-${text}`,
+    kind: role,
+    text,
+    ...(eventId ? { eventId } : {}),
+  });
+
+  it('keeps two legitimate but textually identical question/answer pairs', () => {
+    const history = [pair('user', 'Привет'), pair('assistant', 'Готово')];
+    const live = [pair('user', 'Привет'), pair('assistant', 'Готово')];
+    const out = mergeTranscript(history, live);
+    expect(out).toHaveLength(4);
+    expect(out.map((e) => e.kind)).toEqual(['user', 'assistant', 'user', 'assistant']);
+  });
+
+  it('drops a persisted row only when the SAME event id arrives live', () => {
+    const history = [pair('user', 'Привет', 'm7'), pair('assistant', 'Готово', 'm8')];
+    const live = [pair('assistant', 'Готово', 'm8')];
+    const out = mergeTranscript(history, live);
+    expect(out.map((e) => e.text)).toEqual(['Привет', 'Готово']);
+  });
+
+  it('preserves identical text when the identity is missing on either side', () => {
+    const history = [pair('user', 'Привет', 'm7')];
+    const live = [pair('user', 'Привет')];
+    expect(mergeTranscript(history, live)).toHaveLength(2);
+  });
+});

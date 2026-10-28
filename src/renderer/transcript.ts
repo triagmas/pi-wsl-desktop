@@ -39,7 +39,15 @@ export function toChatEntries(entries: SavedEntry[], page = 0): ChatEntry[] {
     if (view.text === '' && !error) continue;
     // R07 r01 (P1-B): id-less entries fall back to a per-page index, so the
     // page number is part of the key — two pages can never collide.
-    out.push({ key: `p${page}:${view.key}`, kind: view.kind, text: view.text, ...(error ? { error } : {}) });
+    // R07 r02: идентичность берём только из реального id записи JSONL.
+    const eventId = typeof saved.id === 'string' && saved.id !== '' ? saved.id : undefined;
+    out.push({
+      key: `p${page}:${view.key}`,
+      kind: view.kind,
+      text: view.text,
+      ...(error ? { error } : {}),
+      ...(eventId ? { eventId } : {}),
+    });
   }
   return out;
 }
@@ -50,23 +58,21 @@ export function toChatEntries(entries: SavedEntry[], page = 0): ChatEntry[] {
  * Ключи получают префикс источника, поэтому идентификаторы JSONL и живые
  * индексы (`e0`, `e1`, …) не могут столкнуться.
  *
- * R07 r01 (P1-B): если Pi уже дописал показанные живые ходы в JSONL и более
- * поздняя страница вернула их же, они не дублируются — перекрывающийся хвост
- * сохранённого отбрасывается в пользу живых записей (они уже в ленте).
+ * R07 r02 (#6446392236): совпадение роли и текста НЕ является тождеством —
+ * пользователь вправе дважды задать один вопрос и получить один ответ, и такая
+ * пара обязана остаться. Удаляется только запись, для которой доказано
+ * тождество события: один и тот же непустой `eventId` пришёл и из JSONL, и
+ * живым событием. Нет идентификатора — нет удаления.
  */
 export function mergeTranscript(history: ChatEntry[], live: ChatEntry[]): ChatEntry[] {
-  let cut = history.length;
-  const max = Math.min(history.length, live.length);
-  for (let k = max; k >= 1; k -= 1) {
-    const tail = history.slice(history.length - k);
-    const head = live.slice(0, k);
-    if (tail.every((e, i) => e.kind === head[i].kind && e.text === head[i].text)) {
-      cut = history.length - k;
-      break;
-    }
+  const liveEventIds = new Set<string>();
+  for (const entry of live) {
+    if (entry.eventId) liveEventIds.add(entry.eventId);
   }
+  const keptHistory =
+    liveEventIds.size === 0 ? history : history.filter((e) => !(e.eventId && liveEventIds.has(e.eventId)));
   return [
-    ...history.slice(0, cut).map((e, i) => ({ ...e, key: `h:${e.key || i}` })),
+    ...keptHistory.map((e, i) => ({ ...e, key: `h:${e.key || i}` })),
     ...live.map((e, i) => ({ ...e, key: `l:${e.key || i}` })),
   ];
 }

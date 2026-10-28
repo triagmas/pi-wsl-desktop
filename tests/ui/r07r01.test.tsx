@@ -228,22 +228,53 @@ describe('R07 r01 P1-B — persisted/live chronology and forward pagination', ()
     expect(dupes).toEqual([]);
   });
 
-  it('does not repeat a persisted record that already arrived as a live turn', async () => {
+  it('keeps a second, genuinely new pair even when its text equals the stored one', async () => {
+    // UI21 R07 r02 (#6446392236): a user may ask the same thing twice.
+    const { api, emit } = makeApi({
+      pages: { [FILE_A]: [{ entries: [msg('h1', 'user', 'Привет'), msg('h2', 'assistant', 'Готово')], nextCursor: null, truncated: false }] },
+    });
+    render(<Harness api={api} file={FILE_A} />);
+    await waitFor(() => expect(screen.getByText('Готово')).toBeInTheDocument());
+
+    // Two distinct live events with identical text — both must stay visible.
+    emit({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'Привет' } } });
+    emit({
+      kind: 'pi',
+      name: 'message_end',
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'Готово' }] } },
+    });
+    await waitFor(() => expect(screen.getAllByText('Готово')).toHaveLength(2));
+    expect(screen.getAllByText('Привет')).toHaveLength(2);
+  });
+
+  it('deduplicates only a provably identical event (same persisted message id)', async () => {
     const { api, emit } = makeApi({
       pages: { [FILE_A]: [{ entries: [msg('h1', 'user', 'вопрос'), msg('h2', 'assistant', 'ответ')], nextCursor: null, truncated: false }] },
     });
     render(<Harness api={api} file={FILE_A} />);
     await waitFor(() => expect(screen.getByText('ответ')).toBeInTheDocument());
 
-    // Pi appended these to the JSONL, but they were also rendered live.
-    emit({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'вопрос' } } });
-    emit({
-      kind: 'pi',
-      name: 'message_end',
-      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'ответ' }] } },
-    });
+    // The live copy carries the same persisted message id → same event, not a new turn.
+    emit({ kind: 'pi', name: 'message_end', data: { message: { id: 'h1', role: 'user', content: 'вопрос' } } });
+    emit({ kind: 'pi', name: 'message_end', data: { message: { id: 'h2', role: 'assistant', content: [{ type: 'text', text: 'ответ' }] } } });
     await waitFor(() => expect(screen.getAllByText('ответ')).toHaveLength(1));
     expect(screen.getAllByText('вопрос')).toHaveLength(1);
+  });
+
+  it('does not show file A read error after switching to file B', async () => {
+    const { api } = makeApi({
+      errors: { readSession: Object.assign(new Error('boom'), { code: 'SESSION_UNREADABLE' }) },
+    });
+    const { rerender } = render(<Harness api={api} file={FILE_A} />);
+    await screen.findByTestId('chat-history-error');
+
+    // A clean read for B: the old file's error must not survive the switch.
+    const { api: api2 } = makeApi({ pages: { [FILE_B]: [{ entries: [msg('b1', 'user', 'файл Б')], nextCursor: null, truncated: false }] } });
+    rerender(<Harness api={api2} file={FILE_B} />);
+    // First frame of file B: the old file's error must already be gone.
+    expect(screen.queryByTestId('chat-history-error')).not.toBeInTheDocument();
+    await screen.findByText('файл Б');
+    expect(screen.queryByTestId('chat-history-error')).not.toBeInTheDocument();
   });
 });
 

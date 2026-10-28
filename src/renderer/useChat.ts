@@ -19,6 +19,12 @@ export interface ChatEntry {
   key: string;
   kind: 'user' | 'assistant' | 'system' | 'tool' | 'other';
   text: string;
+  /**
+   * UI21 R07 r02: доказуемое тождество события (id сообщения/записи), если Pi
+   * его предоставил. Только по нему разрешена дедупликация — совпадение роли и
+   * текста идентичностью не является.
+   */
+  eventId?: string;
   /** UI21-F1-C: set when stopReason==='error' — the bounded, redacted model
    *  error the pane must show instead of a blank assistant bubble. */
   error?: string;
@@ -80,25 +86,34 @@ export function toUiError(err: unknown): { code: string; message: string } {
 }
 
 function entryFromMessage(
-  message: { role?: unknown; content?: unknown; toolName?: unknown; stopReason?: unknown; errorMessage?: unknown },
+  message: {
+    id?: unknown;
+    role?: unknown;
+    content?: unknown;
+    toolName?: unknown;
+    stopReason?: unknown;
+    errorMessage?: unknown;
+  },
   index: number,
 ): ChatEntry {
   const role = message.role;
   const text = messageText(message.content);
+  // Only a real id becomes an identity; absent/empty means "not provable".
+  const eventId = typeof message.id === 'string' && message.id !== '' ? message.id : undefined;
   if (role === 'assistant') {
     // UI21-F1-C: a failed run must surface its real error — never a blank bubble.
     if (message.stopReason === 'error') {
-      return { key: `e${index}`, kind: 'assistant', text, error: redactSecrets(message.errorMessage) };
+      return { key: `e${index}`, kind: 'assistant', text, error: redactSecrets(message.errorMessage), ...(eventId ? { eventId } : {}) };
     }
-    return { key: `e${index}`, kind: 'assistant', text };
+    return { key: `e${index}`, kind: 'assistant', text, ...(eventId ? { eventId } : {}) };
   }
-  if (role === 'user') return { key: `e${index}`, kind: 'user', text };
-  if (role === 'system') return { key: `e${index}`, kind: 'system', text };
+  if (role === 'user') return { key: `e${index}`, kind: 'user', text, ...(eventId ? { eventId } : {}) };
+  if (role === 'system') return { key: `e${index}`, kind: 'system', text, ...(eventId ? { eventId } : {}) };
   if (role === 'toolResult') {
     const name = typeof message.toolName === 'string' ? message.toolName : 'tool';
-    return { key: `e${index}`, kind: 'tool', text: `${name}: ${text}` };
+    return { key: `e${index}`, kind: 'tool', text: `${name}: ${text}`, ...(eventId ? { eventId } : {}) };
   }
-  return { key: `e${index}`, kind: 'other', text };
+  return { key: `e${index}`, kind: 'other', text, ...(eventId ? { eventId } : {}) };
 }
 
 export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState {

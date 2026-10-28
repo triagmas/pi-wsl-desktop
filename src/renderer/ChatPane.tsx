@@ -49,7 +49,8 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
     cursor: string | null;
     truncated: boolean;
   }>({ file: null, entries: [], cursor: null, truncated: false });
-  const [historyError, setHistoryError] = useState<{ code: string; message: string } | null>(null);
+  // R07 r02: ошибка принадлежит файлу — при переключении не «протекает».
+  const [historyError, setHistoryError] = useState<{ file: string; code: string; message: string } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const historySeq = useRef(0);
   const pageCountRef = useRef(0);
@@ -78,7 +79,7 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
       } catch (err) {
         if (seq !== historySeq.current) return;
         // P1-A: та же централизованная редактирующая граница, что у остальных ошибок.
-        setHistoryError(toUiError(err));
+        setHistoryError({ file, ...toUiError(err) });
       } finally {
         if (seq === historySeq.current) setHistoryLoading(false);
       }
@@ -102,6 +103,7 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   }, [loadHistory, file]);
   // Only entries read for THIS file are ever displayed (never the previous one).
   const savedEntries = saved.file === file ? saved.entries : [];
+  const visibleHistoryError = historyError && historyError.file === file ? historyError : null;
   const activeModel = state.state?.model ?? null;
   // Defensive defaults: an older/partial state object must never crash the pane.
   const models = useMemo(() => state.models ?? [], [state.models]);
@@ -139,9 +141,9 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
    * ------------------------------------------------------------------ */
   const notice: ReactNode = (
     <>
-      {historyError && (
+      {visibleHistoryError && (
         <div className="error-box" role="alert" data-testid="chat-history-error">
-          <strong>{historyError.code}</strong> — {historyError.message}
+          <strong>{visibleHistoryError.code}</strong> — {visibleHistoryError.message}
           <div>
             <button type="button" onClick={() => void loadHistory()}>
               Повторить чтение истории

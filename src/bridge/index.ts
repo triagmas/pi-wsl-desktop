@@ -11,7 +11,7 @@ import { BRIDGE_MAX_REQUEST_TIMEOUT_MS, BRIDGE_REQUEST_TIMEOUT_MS } from '../sha
 import {
   MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
-  encodeFrame,
+  encodeFrameOrError,
   mapUnknownMethod,
   parseFrameLine,
   type ErrorCode,
@@ -34,7 +34,8 @@ export function startBridge(env: NodeJS.ProcessEnv = process.env): void {
   let writeChain: Promise<void> = Promise.resolve();
   const emit = (frame: FrameT): void => {
     writeChain = writeChain.then(() => {
-      stdout.write(encodeFrame(frame) + '\n');
+      // R03: кадр сверх лимита НЕ должен ронять bridge — ошибка уходит клиенту.
+      stdout.write(encodeFrameOrError(frame) + '\n');
     });
   };
   const handlers = makeHandlers({

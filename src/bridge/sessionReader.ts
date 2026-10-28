@@ -17,7 +17,7 @@
  * - pagination: `sinceEntryId` (strictly-after cursor) + bounded `limit`;
  * - `branch: 'active'` walks leaf→root (parentId chain, cycle-guarded).
  */
-import { MAX_READ_DIAGNOSTICS } from '../shared/m1Protocol';
+import { MAX_READ_DIAGNOSTICS, MAX_READ_RESULT_BYTES, READ_ENTRY_OVERHEAD_BYTES } from '../shared/m1Protocol';
 import type { ReadSessionResultT, SessionEntryT, SessionHeaderT } from '../shared/m1Protocol';
 import type { FsLike } from './sessions';
 
@@ -29,6 +29,10 @@ export interface ReadSessionFileOptions {
   fs: Pick<FsLike, 'stat' | 'readRange'>;
   file: string;
   sinceEntryId?: string;
+  /** UI21 F1-B R03: entries strictly BEFORE this cursor (backward paging). */
+  beforeEntryId?: string;
+  /** UI21 F1-B R03: page direction (default forward = earliest first). */
+  direction?: 'forward' | 'backward';
   /** Bounded page size (contract caps it at 500). */
   limit?: number;
   branch?: 'active' | 'all';
@@ -304,25 +308,124 @@ export async function readSessionFile(opts: ReadSessionFileOptions): Promise<Rea
     }
   }
 
-  const eligible = pool.filter((r) => (sinceLine >= 0 ? r.lineNo > sinceLine : r.seq > startSeq));
-  const page = eligible.slice(0, limit);
-  const pageTruncated = eligible.length > limit;
+  const eligibleForward = pool.filter((r) => (sinceLine >= 0 ? r.lineNo > sinceLine : r.seq > startSeq));
+  const backward = opts.direction === 'backward';
+
+  // UI21 F1-B R03: обратный курсор — записи СТРОГО РАНЬШЕ указанной.
+  let beforeSeq = Number.POSITIVE_INFINITY;
+  let beforeLine = Number.POSITIVE_INFINITY;
+  if (opts.beforeEntryId !== undefined) {
+    const lineCursor = /^L(\d+)$/.exec(opts.beforeEntryId);
+    if (lineCursor) {
+      beforeLine = Number(lineCursor[1]);
+    } else {
+      const idx = rows.findIndex((r) => r.id === opts.beforeEntryId);
+      if (idx === -1) {
+        pushDiag(Math.max(lineNo, 1), `cursor not found: ${opts.beforeEntryId}`);
+        return {
+          header,
+          entries: [],
+          leafId,
+          nextCursor: null,
+          prevCursor: null,
+          atStart: false,
+          truncated,
+          partialTrailing,
+          diagnostics,
+          availability,
+        };
+      }
+      beforeSeq = rows[idx].seq;
+    }
+  }
+  const eligible = backward
+    ? pool.filter((r) => r.seq < beforeSeq && r.lineNo < beforeLine)
+    : eligibleForward;
+
+  // UI21 F1-B R03 (P1): пагинация ОБРАТНО и БЮДЖЕТ БАЙТ.
+  //
+  // Причина: лимит страницы считался в записях, а запись тянет за собой raw
+  // (вывод инструмента, длинный ответ). 100 записей ≈ 1.1 МиБ > MAX_FRAME_BYTES,
+  // кодировщик кадра бросал исключение и bridge выходил с кодом 1 — длинную
+  // сессию нельзя было открыть вообще.
+  // Оценка размера записи на проводе (сознательно консервативная).
+  //
+  // `raw` — исходная строка JSONL целиком, поэтому её JSON уже включает
+  // id/parentId/timestamp. Обёртка `SessionEntryT` ПОВТОРЯЕТ эти три поля, то
+  // есть добавляет их длину второй раз: считаем её явно (`dupe`) и прибавляем
+  // READ_ENTRY_OVERHEAD_BYTES на фиксированные ключи, кавычки, запятые и
+  // экранирование. Итог: сериализованная страница не больше ΣsizeOf, а бюджет
+  // 768 КиБ оставляет ≥256 КиБ запаса до MAX_FRAME_BYTES=1 МиБ на обвязку
+  // ответа (header/leafId/prevCursor/diagnostics).
+  const sizeOf = (row: LightRow): number => {
+    const raw = rawBySeq[row.seq];
+    if (!raw) return 0;
+    const dupe = (raw.id?.length ?? 0) + (raw.parentId?.length ?? 0) + (raw.timestamp?.length ?? 0);
+    return Buffer.byteLength(JSON.stringify(raw), 'utf8') + READ_ENTRY_OVERHEAD_BYTES + dupe;
+  };
+
+  const picked: LightRow[] = [];
+  const skipped: LightRow[] = [];
+  let used = 0;
+  const order = backward ? [...eligible].reverse() : eligible;
+  // Заполняем страницу от курсора (вперёд — самые старые eligible, обратно —
+  // самые новые), пока хватает бюджета. Запись, которая одна не влезает в
+  // бюджет, пропускается с диагностикой: иначе страница встала бы навсегда.
+  for (const row of order) {
+    if (picked.length >= limit) break;
+    const size = sizeOf(row);
+    if (used + size > MAX_READ_RESULT_BYTES) {
+      if (picked.length === 0) {
+        skipped.push(row);
+        pushDiag(row.lineNo, `entry exceeds MAX_READ_RESULT_BYTES=${MAX_READ_RESULT_BYTES}`);
+        continue;
+      }
+      break;
+    }
+    used += size;
+    picked.push(row);
+  }
+  if (backward) picked.reverse(); // хронологический порядок внутри страницы
+
+  const page = picked;
+  const consumed = picked.length + skipped.length;
+  const pageTruncated = backward ? false : eligible.length > consumed;
   const entries: SessionEntryT[] = [];
   for (const r of page) {
     const raw = rawBySeq[r.seq];
     if (raw) entries.push(raw);
   }
   const lastRow = page.length > 0 ? page[page.length - 1] : null;
+  const firstRow = page.length > 0 ? page[0] : null;
   // Id cursor for normal rows; positional `L<lineNo>` fallback for id-less
   // rows so "load earlier" never dead-ends (review round 3, #3). Cursor is
   // offered whenever a page was returned — same parity as entry-id cursors.
   const lastId = lastRow ? (lastRow.id ?? (lastRow.lineNo > 0 ? `L${lastRow.lineNo}` : null)) : null;
+  // Если все записи страницы не влезли в бюджет, курсор всё равно обязан
+  // сдвинуться — на последнюю ПРОПУЩЕННУЮ запись, иначе вызывающий застрянет.
+  const forwardFallback = skipped.length > 0 ? skipped[skipped.length - 1] : null;
+  const prevCursor =
+    firstRow !== null
+      ? (firstRow.id ?? (firstRow.lineNo > 0 ? `L${firstRow.lineNo}` : null))
+      : backward && skipped.length > 0
+        ? // Все записи окна пропущены по бюджету: уходим ЗА самое старое из них,
+          // иначе следующая страница перечитает тот же батч (работа впустую).
+          (skipped[skipped.length - 1].id ?? `L${skipped[skipped.length - 1].lineNo}`)
+        : null;
+  // atStart: у окна нет более старых записей → «загрузить предыдущие» скрыта.
+  const atStart = backward
+    ? page.length > 0
+      ? !eligible.some((r) => r.seq < (page[0] as LightRow).seq)
+      : eligible.length === 0
+    : false;
 
   return {
     header,
     entries,
     leafId,
-    nextCursor: lastId,
+    nextCursor: lastId ?? (forwardFallback ? (forwardFallback.id ?? `L${forwardFallback.lineNo}`) : null),
+    prevCursor: prevCursor ?? null,
+    atStart,
     truncated: truncated || pageTruncated,
     partialTrailing,
     diagnostics,

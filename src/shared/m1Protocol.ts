@@ -78,6 +78,13 @@ export const ReadSessionParamsSchema = z.object({
    * pages; real Pi entry ids are UUIDs, so the forms cannot collide in
    * practice (review round 4: documented shadowing rule). */
   sinceEntryId: z.string().min(1).optional(),
+  /** UI21 F1-B R03: cursor for BACKWARD paging — entries strictly BEFORE it.
+   * Omitted together with `direction:'backward'` → the file tail (newest). */
+  beforeEntryId: z.string().min(1).optional(),
+  /** UI21 F1-B R03: page direction. `forward` (default) keeps the historic
+   * earliest-first cursor; `backward` serves the newest entries first so a
+   * reopened session shows what the user just wrote. */
+  direction: z.enum(['forward', 'backward']).optional(),
   limit: z.number().int().min(1).max(500).optional(),
   branch: z.enum(['active', 'all']).optional(),
 });
@@ -103,11 +110,29 @@ export type ReadDiagnosticT = z.infer<typeof ReadDiagnosticSchema>;
  * diagnostics accumulated across pagination pages (renderer mergeHistoryPage). */
 export const MAX_READ_DIAGNOSTICS = 100;
 
+/**
+ * UI21 F1-B R03 (P1): hard budget for ONE readSession result.
+ *
+ * The page limit is counted in ENTRIES, but a session entry carries the raw Pi
+ * record (tool output, long answer). 100 such entries encoded to ~1.1 MiB and
+ * exceeded `MAX_FRAME_BYTES` (1 MiB) — the bridge's frame encoder threw and the
+ * process EXITED, so a long session could not be opened at all. The reader now
+ * trims the page to this budget, the same fail-closed shape `listModules` uses.
+ */
+export const MAX_READ_RESULT_BYTES = 786_432; // 768 KiB
+
+/** Per-entry framing overhead reserved while packing a page (type/id/raw keys). */
+export const READ_ENTRY_OVERHEAD_BYTES = 96;
+
 export const ReadSessionResultSchema = z.object({
   header: SessionHeaderSchema.nullable(),
   entries: z.array(SessionEntrySchema),
   leafId: z.string().nullable(),
   nextCursor: z.string().nullable(),
+  /** UI21 F1-B R03: cursor for the OLDER page of this window (backward paging). */
+  prevCursor: z.string().nullable().optional(),
+  /** UI21 F1-B R03: true when nothing older than the page exists (no dead end). */
+  atStart: z.boolean().optional(),
   truncated: z.boolean(),
   /** True when the file ended mid-record (concurrent append in progress). */
   partialTrailing: z.boolean(),

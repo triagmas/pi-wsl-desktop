@@ -124,6 +124,40 @@ export function encodeFrame(frame: FrameT): string {
   return json;
 }
 
+/**
+ * UI21 F1-B R03 (P1): encode a frame, but NEVER let an oversized response kill
+ * the bridge. `encodeFrame` throws `FrameTooLargeError`; an uncaught throw in
+ * the bridge's write chain terminated the whole process (exit code 1), so ONE
+ * long session made the app look completely dead after a restart.
+ *
+ * Fail closed, keep serving: an oversized RESPONSE becomes a bounded
+ * PROTOCOL_ERROR for that requestId; an oversized EVENT becomes a protocol
+ * event. The caller still gets an answer instead of a disconnect.
+ */
+export function encodeFrameOrError(frame: FrameT): string {
+  try {
+    return encodeFrame(frame);
+  } catch (err) {
+    if (!(err instanceof FrameTooLargeError)) throw err;
+    const requestId = 'requestId' in frame && typeof frame.requestId === 'string' ? frame.requestId : null;
+    const fallback: FrameT = requestId
+      ? {
+          v: PROTOCOL_VERSION,
+          type: 'response',
+          requestId,
+          status: 'error',
+          error: { code: 'PROTOCOL_ERROR', message: `response exceeds MAX_FRAME_BYTES=${MAX_FRAME_BYTES} and was not delivered` },
+        }
+      : {
+          v: PROTOCOL_VERSION,
+          type: 'event',
+          event: 'protocol_error',
+          payload: { reason: `response exceeds MAX_FRAME_BYTES=${MAX_FRAME_BYTES}` },
+        };
+    return JSON.stringify(fallback);
+  }
+}
+
 /** Return a METHOD_NOT_ALLOWED error body for methods outside the M0∪M1 allowlist. */
 export function mapUnknownMethod(method: string): { code: 'METHOD_NOT_ALLOWED'; message: string } | null {
   if ((ALL_METHODS as readonly string[]).includes(method)) {

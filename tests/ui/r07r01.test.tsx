@@ -26,7 +26,16 @@ const READY: RendererSnapshot = { phase: 'ready', attempt: 0, distro: 'Ubuntu', 
 const FILE_A = '/root/--p--/a.jsonl';
 const FILE_B = '/root/--p--/b.jsonl';
 
-type Page = { entries: unknown[]; nextCursor: string | null; truncated: boolean; partialTrailing?: boolean; diagnostics?: string[] };
+type Page = {
+  entries: unknown[];
+  nextCursor: string | null;
+  truncated: boolean;
+  /** UI21 F1-B R03: обратная пагинация. */
+  prevCursor?: string | null;
+  atStart?: boolean;
+  partialTrailing?: boolean;
+  diagnostics?: string[];
+};
 
 interface Routes {
   /** file → pages; a page may be a promise to model a slow read. */
@@ -171,54 +180,61 @@ describe('R07 r01 P1-A — JSONL read errors are redacted before the DOM', () =>
 });
 
 /* ------------------------------------------------------------------ */
-/* P1-B — chronology with forward pagination                          */
+/* P1-B — chronology with tail-first (backward) pagination             */
 /* ------------------------------------------------------------------ */
-describe('R07 r01 P1-B — persisted/live chronology and forward pagination', () => {
-  it('marks the gap while later persisted records are unloaded and names the action forward', async () => {
+/* UI21 F1-B R03 (#6438910729 owner report): the pane now opens the FILE TAIL
+ * (`direction:'backward'`) — after a restart the user must see the messages
+ * they just wrote, not the first page of an old session. Older pages load by
+ * `beforeEntryId` and are PREPENDED, so the chronology stays truthful and the
+ * gap notice sits ABOVE the shown records. */
+describe('R07 r01 P1-B — persisted/live chronology and backward pagination', () => {
+  it('marks the gap above unloaded EARLIER records and names the action as previous', async () => {
     const user = userEvent.setup();
-    const first = pageOf('p1-', 100, 'cursor-1', true);
-    const second = pageOf('p2-', 3, null, false);
-    const { api, readCalls, emit } = makeApi({ pages: { [FILE_A]: [first, second] } });
+    const tail = pageOf('p2-', 3, null, false);
+    const older = pageOf('p1-', 100, null, false);
+    const { api, readCalls, emit } = makeApi({ pages: { [FILE_A]: [{ ...tail, atStart: false, prevCursor: 'p2-0' }, { ...older, atStart: true }] } });
     render(<Harness api={api} file={FILE_A} />);
 
-    await waitFor(() => expect(screen.getByText('p1- сообщение 1')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('p2- сообщение 1')).toBeInTheDocument());
     const gap = await screen.findByTestId('chat-history-gap');
-    expect(gap).toBeInTheDocument();
-    // forward direction, never "earlier"
-    expect(gap.textContent ?? '').toMatch(/следующ/i);
-    expect(gap.textContent ?? '').not.toMatch(/более ранн/i);
+    expect(gap.textContent ?? '').toMatch(/предыдущ/i);
+    expect(gap.textContent ?? '').not.toMatch(/следующ/i);
+    // The gap sits BEFORE the shown records.
+    const firstShown = screen.getByText('p2- сообщение 1');
+    expect(gap.compareDocumentPosition(firstShown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     emit({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'живой вопрос' } } });
     await screen.findByText('живой вопрос');
 
-    // The live turn must not be presented as directly continuing page 1.
-    const gapEl = screen.getByTestId('chat-history-gap');
-    const live = screen.getByText('живой вопрос');
-    expect(gapEl.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
     await user.click(within(gap).getByTestId('chat-history-more'));
-    expect(readCalls.at(-1)).toMatchObject({ file: FILE_A, sinceEntryId: 'cursor-1' });
-    await waitFor(() => expect(screen.getByText('p2- сообщение 2')).toBeInTheDocument());
-    // page 2 sits between page 1 and the live turn, and the gap is gone
+    expect(readCalls.at(-1)).toMatchObject({ file: FILE_A, direction: 'backward', beforeEntryId: 'p2-0' });
+    await waitFor(() => expect(screen.getByText('p1- сообщение 2')).toBeInTheDocument());
+    // Older page is prepended, gap is gone, live turn stays last.
     expect(screen.queryByTestId('chat-history-gap')).not.toBeInTheDocument();
-    const p2 = screen.getByText('p2- сообщение 2');
-    expect(p2.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const p1 = screen.getByText('p1- сообщение 2');
+    const p2 = screen.getByText('p2- сообщение 1');
+    expect(p1.compareDocumentPosition(p2) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(p2.compareDocumentPosition(screen.getByText('живой вопрос')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('keeps React keys unique when paged entries carry no id', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const user = userEvent.setup();
-    const p1: Page = {
+    const tail: Page = {
       entries: Array.from({ length: 2 }, (_, i) => msg(null, i ? 'assistant' : 'user', `без-id ${i}`)),
-      nextCursor: 'c1',
-      truncated: true,
-    };
-    const p2: Page = {
-      entries: Array.from({ length: 2 }, (_, i) => msg(null, i ? 'assistant' : 'user', `страница2 ${i}`)),
       nextCursor: null,
+      prevCursor: 'c1',
+      atStart: false,
       truncated: false,
     };
-    const { api } = makeApi({ pages: { [FILE_A]: [p1, p2] } });
+    const older: Page = {
+      entries: Array.from({ length: 2 }, (_, i) => msg(null, i ? 'assistant' : 'user', `страница2 ${i}`)),
+      nextCursor: null,
+      prevCursor: null,
+      atStart: true,
+      truncated: false,
+    };
+    const { api } = makeApi({ pages: { [FILE_A]: [tail, older] } });
     render(<Harness api={api} file={FILE_A} />);
 
     await waitFor(() => expect(screen.getByText('без-id 1')).toBeInTheDocument());

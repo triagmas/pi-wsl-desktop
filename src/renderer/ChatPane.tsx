@@ -14,8 +14,20 @@ import { m1 } from './m1api';
 import { mergeTranscript, toChatEntries, type SavedEntry } from './transcript';
 import { ChatView, type ChatTurn, type ChatTurnAssistant } from './ui/ChatView';
 import { useOverlayDismiss } from './ui/overlayA11y';
+import { anchorScrollTop, isAtBottom, stickScrollTop } from './feedScroll';
 
 const HISTORY_PAGE = 100;
+
+/** Позиция прокрутки ленты — модульная функция, чтобы мутация DOM не считалась
+ *  изменением значения, переданного в хук (react-compiler/immutability). */
+function scrollFeedTo(feed: HTMLElement | null, top: number): void {
+  if (feed) feed.scrollTop = top;
+}
+
+/** Сброс/установка значения ref вне тела компонента (то же ограничение правила). */
+function setRefValue<T>(ref: { current: T }, value: T): void {
+  ref.current = value;
+}
 const HISTORY_GAP_KEY = '__history-gap__';
 
 export interface ChatPaneProps {
@@ -82,9 +94,11 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
      *  никогда не рендерится, даже одним кадром до окончания чтения. */
     file: string | null;
     entries: ChatEntry[];
-    cursor: string | null;
-    truncated: boolean;
-  }>({ file: null, entries: [], cursor: null, truncated: false });
+    /** R03: курсор на БОЛЕЕ РАННЮЮ страницу (обратная пагинация). */
+    prevCursor: string | null;
+    /** R03: true → старше этой страницы записей нет. */
+    atStart: boolean;
+  }>({ file: null, entries: [], prevCursor: null, atStart: true });
   // R07 r02: ошибка принадлежит файлу — при переключении не «протекает».
   const [historyError, setHistoryError] = useState<{ file: string; code: string; message: string } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -92,25 +106,40 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   const pageCountRef = useRef(0);
 
   const loadHistory = useCallback(
-    async (since?: string) => {
+    async (before?: string) => {
       if (!api || file === '') return;
       const seq = ++historySeq.current;
       setHistoryLoading(true);
       try {
+        // R03 (P1): читаем С КОНЦА файла. Раньше первая страница была самой
+        // старой, и после перезапуска пользователь видел начало давнего
+        // диалога — «история пропала». Более ранние страницы подгружаются
+        // обратным курсором и вставляются СВЕРХУ.
         const page = await m1.readSession(api, {
           file,
           limit: HISTORY_PAGE,
-          ...(since ? { sinceEntryId: since } : {}),
+          direction: 'backward',
+          ...(before ? { beforeEntryId: before } : {}),
         });
         if (seq !== historySeq.current) return; // a newer session/file won
-        const nextPage = since ? pageCountRef.current : 0;
+        const nextPage = before ? pageCountRef.current : 0;
+        // Якорь фиксируем ПЕРЕД коммитом вставки старых записей (и только для
+        // них): смена текста кнопки «Загрузка…» не должна его расходовать.
+        if (before) {
+          const feed = feedRef.current;
+          if (feed) pendingAnchorRef.current = { height: feed.scrollHeight, top: feed.scrollTop };
+        }
         const next = toChatEntries(page.entries as SavedEntry[], nextPage);
         pageCountRef.current = nextPage + 1;
-        setSaved((prev) =>
-          since
-            ? { file, entries: [...(prev.file === file ? prev.entries : []), ...next], cursor: page.nextCursor ?? null, truncated: page.truncated }
-            : { file, entries: next, cursor: page.nextCursor ?? null, truncated: page.truncated },
-        );
+        setSaved((prev) => {
+          const prevEntries = prev.file === file ? prev.entries : [];
+          return {
+            file,
+            entries: before ? [...next, ...prevEntries] : next,
+            prevCursor: page.prevCursor ?? null,
+            atStart: page.atStart === true,
+          };
+        });
         setHistoryError(null);
       } catch (err) {
         if (seq !== historySeq.current) return;
@@ -123,6 +152,10 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
     [api, file],
   );
 
+  const loadOlder = useCallback(() => {
+    void loadHistory(saved.prevCursor ?? undefined);
+  }, [loadHistory, saved.prevCursor]);
+
   // Session switch: drop the previous session's transcript immediately — a
   // saved message from another file must never leak into this one.
   useEffect(() => {
@@ -130,7 +163,7 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
     // Deferred: the strict set-state-in-effect rule forbids sync chains here.
     pageCountRef.current = 0;
     const t = window.setTimeout(() => {
-      setSaved({ file, entries: [], cursor: null, truncated: false });
+      setSaved({ file, entries: [], prevCursor: null, atStart: true });
       setHistoryError(null);
       setHistoryLoading(false);
       void loadHistory();
@@ -376,34 +409,97 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
     ) : null;
 
   // R07 §2: единая лента — сначала сохранённое (read-only), затем живые ходы.
-  // R07 r01 (P1-B): пока есть непрочитанные более поздние записи, между ними
-  // вставляется явный разрыв — живые ходы не выдаются за прямое продолжение.
-  const hasGap = saved.file === file && saved.truncated && saved.cursor !== null;
+  // R03 (P1): лента открывается ПОСЛЕДНИМИ сообщениями; пока на диске есть
+  // более ранние записи, разрыв стоит СВЕРХУ — живые ходы никогда не выдаются
+  // за прямое продолжение скрытого куска.
+  // R03: лента открывается на ПОСЛЕДНЕМ сообщении. Прокручиваем вниз только
+  // когда меняется ХВОСТ ленты (первая загрузка, новый живой ход, смена файла):
+  // подгрузка более ранних страниц вставляет записи сверху и позицию не рвёт.
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const tailKeyRef = useRef<string | null>(null);
+  /** Держаться последнего сообщения, пока пользователь не отлистал вверх. */
+  const stickRef = useRef(true);
+  /** Якорь видимой позиции при подгрузке более ранних записей. */
+  const pendingAnchorRef = useRef<{ height: number; top: number } | null>(null);
+
+  const hasOlder = saved.file === file && !saved.atStart && saved.prevCursor !== null;
   const transcript = mergeTranscript(savedEntries, state.entries);
-  if (hasGap) {
-    // Разрыв встаёт ровно на стык: после показанных сохранённых записей,
-    // перед первым живым ходом (или в конец, если живых ещё нет).
-    const firstLive = transcript.findIndex((e) => e.key.startsWith('l:'));
-    transcript.splice(firstLive === -1 ? transcript.length : firstLive, 0, {
-      key: HISTORY_GAP_KEY,
-      kind: 'other',
-      text: '',
-    });
+  if (hasOlder) {
+    transcript.splice(0, 0, { key: HISTORY_GAP_KEY, kind: 'other', text: '' });
   }
 
-  const gapBlock: ReactNode = hasGap ? (
+  const tailKey = transcript.length > 0 ? transcript[transcript.length - 1]?.key ?? null : null;
+  // «Держимся низа» — пока пользователь сам не отлистал вверх. Наблюдатели
+  // перекрывают и поздний reflow markdown, и промежуточные commit'ы с пустой
+  // лентой (они сбрасывают scrollTop в 0 — раньше именно это и оставляло
+  // пользователя в начале файла).
+  useEffect(() => {
+    // Новая сессия (файл) → снова держимся последнего сообщения.
+    setRefValue(stickRef, true);
+    setRefValue(pendingAnchorRef, null);
+    setRefValue(tailKeyRef, null);
+    const feed = feedRef.current;
+    if (!feed) return;
+    const apply = (structural: boolean): void => {
+      const anchor = pendingAnchorRef.current;
+      // Якорь расходуется ТОЛЬКО структурной вставкой (подгрузка старых
+      // записей). Изменение текста («Загрузка…») или дозапись стрима его не
+      // трогают, иначе позиция считается по устаревшей высоте.
+      if (structural && anchor !== null) {
+        pendingAnchorRef.current = null;
+        scrollFeedTo(
+          feed,
+          anchorScrollTop(
+            { scrollTop: anchor.top, scrollHeight: anchor.height, clientHeight: feed.clientHeight },
+            { scrollHeight: feed.scrollHeight },
+          ),
+        );
+        return;
+      }
+      if (stickRef.current) scrollFeedTo(feed, stickScrollTop({ scrollHeight: feed.scrollHeight }));
+    };
+    apply(true);
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            apply(false);
+          });
+    observer?.observe(feed);
+    const mutations =
+      typeof MutationObserver === 'undefined'
+        ? null
+        : new MutationObserver((records) => {
+            apply(records.some((r) => r.type === 'childList'));
+          });
+    mutations?.observe(feed, { childList: true, subtree: true, characterData: true });
+    return () => {
+      observer?.disconnect();
+      mutations?.disconnect();
+    };
+  }, [file]);
+
+  useEffect(() => {
+    if (tailKey === null || tailKey === tailKeyRef.current) return;
+    tailKeyRef.current = tailKey;
+    // Хвост вырос (живой ход/перезагрузка). Догоняем ТОЛЬКО если пользователь
+    // не отлистал вверх — иначе `message_end` вырывал бы его из чтения.
+    if (stickRef.current) scrollFeedTo(feedRef.current, feedRef.current?.scrollHeight ?? 0);
+  }, [tailKey]);
+
+  const gapBlock: ReactNode = hasOlder ? (
     <div className="chat-history-gap" data-testid="chat-history-gap">
       <p className="muted">
-        Показаны первые сохранённые записи. Дальше по файлу есть ещё записи — загрузите следующие по
-        порядку, чтобы увидеть, что было до текущего чата.
+        Показаны последние сохранённые записи. Выше в файле есть ещё записи — загрузите предыдущие, чтобы
+        увидеть, что было раньше.
       </p>
       <button
         type="button"
         data-testid="chat-history-more"
-        onClick={() => void loadHistory(saved.cursor ?? undefined)}
+        onClick={loadOlder}
         disabled={historyLoading}
       >
-        {historyLoading ? 'Загрузка…' : 'Загрузить следующие сохранённые записи'}
+        {historyLoading ? 'Загрузка…' : 'Загрузить предыдущие сохранённые записи'}
       </button>
     </div>
   ) : null;
@@ -473,6 +569,16 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
   return (
     <div className="dl-chatpane" data-testid="chat-pane">
       <ChatView
+        feedRef={feedRef}
+        onFeedScroll={() => {
+          const feed = feedRef.current;
+          if (!feed) return;
+          stickRef.current = isAtBottom({
+            scrollTop: feed.scrollTop,
+            scrollHeight: feed.scrollHeight,
+            clientHeight: feed.clientHeight,
+          });
+        }}
         notice={notice}
         turns={turns}
         showIdentity={false}

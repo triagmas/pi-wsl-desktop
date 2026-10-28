@@ -12,7 +12,14 @@ export const m1 = {
     call(api, 'listSessions', projectId === undefined ? {} : { projectId }),
   readSession: (
     api: DesktopApi,
-    params: { file: string; sinceEntryId?: string; limit?: number },
+    params: {
+      file: string;
+      sinceEntryId?: string;
+      /** UI21 F1-B R03: обратная пагинация (последние записи первыми). */
+      beforeEntryId?: string;
+      direction?: 'forward' | 'backward';
+      limit?: number;
+    },
   ): Promise<ReadSessionResultT> => call(api, 'readSession', params),
   openSession: (api: DesktopApi, file: string): Promise<{ state: RpcStateT | null }> => call(api, 'openSession', { file }),
   sendPrompt: (api: DesktopApi, message: string): Promise<{ disposition: string }> => call(api, 'sendPrompt', { message }),

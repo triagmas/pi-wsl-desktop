@@ -4,7 +4,7 @@
  * композер, hint, опциональный терминал. Markdown-тело — ReactNode из фикстур
  * ( SafeMarkdown из src/renderer/SafeMarkdown.tsx — инертный рендерер, без API ).
  */
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { IconArrowUp, IconCheckCircle, IconChevronDown, IconChevronRight, IconInfo, IconPaperclip } from './icons';
 
 export interface ChatStep {
@@ -92,6 +92,11 @@ export interface ChatViewProps {
   /** false → ответы без аватара и имени (эталон 05: контент от x442). */
   showIdentity?: boolean;
   terminal?: ReactNode;
+  /** UI21 F1-B R03: ссылка на прокручиваемую ленту — панель чата сама решает,
+   *  когда показать последние сообщения (scrollTop = scrollHeight). */
+  feedRef?: RefObject<HTMLDivElement | null>;
+  /** UI21 F1-B R03: прокрутка ленты — панель решает, держаться ли низа. */
+  onFeedScroll?: () => void;
   /** Диаметр кружка шага, измеренный по состоянию: ref1/ref5 ≈ 32, ref2/4 ≈ 24. */
   stepCircle?: number;
 }
@@ -283,12 +288,14 @@ export function ChatView({
   hint,
   showIdentity = true,
   terminal,
+  feedRef,
+  onFeedScroll,
   stepCircle = 26,
 }: ChatViewProps) {
   return (
     <>
       {header ? <div className="dl-chat-head">{header}</div> : null}
-      <div className="dl-msgs">
+      <div className="dl-msgs" ref={feedRef} onScroll={onFeedScroll} data-testid="chat-feed">
         {notice ? <div className="dl-notice">{notice}</div> : null}
         {turns.map((turn) =>
           turn.kind === 'user' ? (

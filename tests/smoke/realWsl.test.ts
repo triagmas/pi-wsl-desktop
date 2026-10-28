@@ -14,6 +14,7 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BridgeClient } from '../../src/main/bridgeClient';
+import { GATE_REQUEST_MS } from '../../src/shared/timeouts';
 import { WslConnection } from '../../src/main/connection';
 import { listDistros, probeNode, startBridgeProcess } from '../../src/main/wsl';
 
@@ -92,7 +93,9 @@ describe.runIf(REAL)('REAL WSL smoke (REAL_WSL=1)', () => {
     const health = (await client.request('health')) as { status: string; protocolVersion: number };
     expect(health.status).toBe('ok');
 
-    const runtime = (await client.request('getRuntimeInfo')) as {
+    // UI21 F1-B R01: getRuntimeInfo может запустить пробу Pi (version + режим +
+    // резервный help) — бюджет обязан покрывать её целиком.
+    const runtime = (await client.request('getRuntimeInfo', {}, { timeoutMs: GATE_REQUEST_MS })) as {
       node: { version: string };
       pi: { version: string; rpcSupported: boolean };
     };

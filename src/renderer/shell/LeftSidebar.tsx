@@ -75,6 +75,10 @@ export function LeftSidebar({
 
   useEffect(() => {
     if (!api) return undefined;
+    // UI21 F1-B R01: до READY мост законно отвергает запросы
+    // (DISCONNECTED: connection is not ready) — не превращаем это в ошибку
+    // пользователю, а честно показываем ожидание подключения.
+    if (!connectionReady) return undefined;
     let cancelled = false;
     void (async () => {
       try {
@@ -201,9 +205,15 @@ export function LeftSidebar({
     </button>
   );
 
-  const notice = error ? (
+  // Ошибка транспорта относится только к готовому соединению: во время
+  // подключения показываем ожидание, а не DISCONNECTED (UI21 F1-B R01).
+  const notice = connectionReady && error ? (
     <p className="request-error" role="alert" data-testid="sidebar-error">
       {error}
+    </p>
+  ) : !connectionReady ? (
+    <p className="notice" data-testid="sidebar-connecting" aria-live="polite">
+      Подключение…
     </p>
   ) : null;
 

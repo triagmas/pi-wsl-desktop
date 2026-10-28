@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { BridgeClient } from '../../src/main/bridgeClient';
 import { listDistros, probeNode, startBridgeProcess } from '../../src/main/wsl';
 import { ListModulesResultSchema } from '../../src/shared/m3Ipc';
+import { GATE_REQUEST_MS } from '../../src/shared/timeouts';
 
 const REAL = process.env.REAL_WSL === '1';
 const repoRoot = path.join(__dirname, '..', '..');
@@ -54,7 +55,10 @@ describe.runIf(REAL)('REAL WSL M3 R04 smoke (REAL_WSL=1)', () => {
     client.connect();
     await ready;
 
-    const caps = (await client.request('getCapabilities')) as { methods: string[] };
+    // UI21 F1-B R01: бюджет гейта покрывает пробу Pi целиком.
+    const caps = (await client.request('getCapabilities', {}, { timeoutMs: GATE_REQUEST_MS })) as {
+      methods: string[];
+    };
     expect(caps.methods).toContain('listModules');
     expect(caps.methods).toContain('setModuleState');
 

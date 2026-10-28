@@ -20,6 +20,7 @@ export type ConnEvent =
   | { type: 'SPAWNED' }
   | { type: 'READY' }
   | { type: 'PI_GATE_FAIL'; error: ConnError }
+  | { type: 'PI_GATE_RETRY'; error: ConnError }
   | { type: 'LOST'; retryable?: boolean }
   | { type: 'CONNECT_TIMEOUT' }
   | { type: 'BACKOFF_DONE' }
@@ -83,6 +84,12 @@ export function reduce(s: ConnSnapshot, e: ConnEvent, cfg: StateConfig): ConnSna
       // code; RETRY_MANUAL below re-runs the whole cycle on user demand.
       if (s.phase !== 'connecting') return s;
       return { phase: 'error', attempt: s.attempt, lastError: e.error };
+    case 'PI_GATE_RETRY':
+      // UI21 F1-B R01: недоказанная проба (тайм-аут/сбой) — транзиентно.
+      // Ограниченный автоповтор: рабочий Pi не должен требовать ручного
+      // «Повторить» из-за медленного старта WSL.
+      if (s.phase !== 'connecting') return s;
+      return failed(s, e, e.error, cfg);
     case 'RETRY_MANUAL':
       return { phase: 'discovering', attempt: 0 };
     case 'FATAL':

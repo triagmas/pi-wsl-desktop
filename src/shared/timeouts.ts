@@ -39,6 +39,21 @@ export const BRIDGE_REQUEST_TIMEOUT_MS = 10_000;
  */
 export const BRIDGE_MAX_REQUEST_TIMEOUT_MS = 90_000;
 
+/**
+ * UI21 F1-B R01 — бюджеты пробы Pi на готовом гейте (единственный источник истины).
+ *
+ * Проба последовательна: `--version`, затем дешёвая проверка режима и, если она
+ * ничего не доказала, резервный `--help` (холодный DrvFs-старт доходит до ~18 с).
+ * Внешний бюджет гейта обязан покрыть СУММУ этих шагов плюс запас обработчика,
+ * иначе совместимый медленный Pi получит ложный BRIDGE_TIMEOUT.
+ */
+export const PI_VERSION_PROBE_TIMEOUT_MS = 8_000;
+export const PI_MODE_PROBE_TIMEOUT_MS = 5_000;
+export const PI_HELP_FALLBACK_TIMEOUT_MS = 20_000;
+/** Худший случай одной пробы: version + режим + резервный help. */
+export const PI_RPC_PROBE_BUDGET_MS =
+  PI_VERSION_PROBE_TIMEOUT_MS + PI_MODE_PROBE_TIMEOUT_MS + PI_HELP_FALLBACK_TIMEOUT_MS;
+
 const MUTATION_MARGIN_MS = 15_000;
 
 /**
@@ -52,7 +67,16 @@ export const BRIDGE_HANDLER_MARGIN_MS = 5_000;
  * Внешние тайм-ауты методов записи: внутренний бюджет + запас на транспорт и
  * сериализацию. Значения — единственный источник истины для `registerIpc`.
  */
+/**
+ * Внешний бюджет готового гейта и тех же двух методов из UI: оба могут запустить
+ * пробу Pi (если она ещё не доказана), поэтому им нужен полный бюджет пробы,
+ * иначе медленный, но совместимый Pi снова получит ложный BRIDGE_TIMEOUT.
+ */
+export const GATE_REQUEST_MS = PI_RPC_PROBE_BUDGET_MS + BRIDGE_HANDLER_MARGIN_MS + 2_000;
+
 export const BRIDGE_METHOD_TIMEOUTS: Readonly<Record<string, number>> = {
+  getRuntimeInfo: GATE_REQUEST_MS,
+  getCapabilities: GATE_REQUEST_MS,
   /**
    * Холодный старт `pi --mode rpc` + до трёх команд `get_state`/`switch_session`
    * (по 15 000 мс каждая) на реальном профиле.

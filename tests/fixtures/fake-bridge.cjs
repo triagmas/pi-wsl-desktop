@@ -8,6 +8,9 @@
  *   never-ready         no ready event
  *   garbage             ready + three non-JSON stdout lines
  *   oversize            ready + one >2MiB stdout line
+ *   (env) FAKE_BRIDGE_GATE_TRANSIENT_FILE=<path> — первый getCapabilities
+ *   отвечает BRIDGE_TIMEOUT (транзиентная проба Pi) и создаёт файл; дальше
+ *   обычное поведение. Моделирует медленный/сорванный probe, НЕ несовместимость.
  * Received frames are appended to $FAKE_BRIDGE_LOG as `frame:…`/`cancel:…`.
  *
  * Pi discovery mirrors src/bridge/probe.ts semantics (review P1#1 ready-gate):
@@ -37,7 +40,14 @@ const logLine = (s) => {
   if (log) fs.appendFileSync(log, s + '\n');
 };
 
-const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
+const send = (obj) => {
+  if (obj && obj.type === 'response' && obj.requestId) {
+    const method = requestMethods.get(obj.requestId);
+    if (method) logLine('responded:' + method);
+  }
+  process.stdout.write(JSON.stringify(obj) + '\n');
+};
+const requestMethods = new Map();
 
 if (mode !== 'never-ready') {
   send({ v: 1, type: 'event', event: 'ready', payload: { fixture: true } });
@@ -57,6 +67,79 @@ if (mode === 'oversize') {
 let buf = '';
 process.stdin.on('data', (chunk) => {
   buf += chunk.toString('utf8');
+  const sendCapabilities = (f) => {
+    const gateFile = process.env.FAKE_BRIDGE_GATE_TRANSIENT_FILE;
+    const always = process.env.FAKE_BRIDGE_GATE_TRANSIENT_ALWAYS === '1';
+    if (always || (gateFile && !fs.existsSync(gateFile))) {
+      if (gateFile) fs.writeFileSync(gateFile, '1');
+      send({
+        v: 1,
+        type: 'response',
+        requestId: f.requestId,
+        status: 'error',
+        error: { code: 'BRIDGE_TIMEOUT', message: 'Pi capability probe timed out (fixture, transient)' },
+      });
+      return;
+    }
+    const p = probeFixture();
+    if (!p) {
+      send({
+        v: 1,
+        type: 'response',
+        requestId: f.requestId,
+        status: 'error',
+        error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found (fixture)' },
+      });
+    } else if (!p.rpcSupported) {
+      send({
+        v: 1,
+        type: 'response',
+        requestId: f.requestId,
+        status: 'error',
+        error: { code: 'PI_INCOMPATIBLE', message: 'Pi 9.9.9 does not advertise RPC mode (fixture)' },
+      });
+    } else {
+      send({
+        v: 1,
+        type: 'response',
+        requestId: f.requestId,
+        status: 'ok',
+        result: {
+          protocolVersion: 1,
+          methods: ['health', 'getRuntimeInfo', 'getCapabilities', 'ping'],
+          pi: { version: p.version, rpcSupported: p.rpcSupported },
+        },
+      });
+    }
+  };
+
+  const sendRuntimeInfo = (f) => {
+    const p = probeFixture();
+    if (!p) {
+      // mirrors pi() throwing PI_NOT_FOUND in src/bridge/handlers.ts
+      send({
+        v: 1,
+        type: 'response',
+        requestId: f.requestId,
+        status: 'error',
+        error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found (fixture)' },
+      });
+      return;
+    }
+    send({
+      v: 1,
+      type: 'response',
+      requestId: f.requestId,
+      status: 'ok',
+      result: {
+        distro: 'FakeDistro',
+        node: { path: '/fake/node', version: 'v22.1.0' },
+        pi: p,
+        agentDir: '/home/fake/.pi/agent',
+      },
+    });
+  };
+
   let idx;
   while ((idx = buf.indexOf('\n')) >= 0) {
     const line = buf.slice(0, idx);
@@ -74,6 +157,7 @@ process.stdin.on('data', (chunk) => {
       continue;
     }
     if (f.type !== 'request') continue;
+    requestMethods.set(f.requestId, f.method);
     if (mode === 'silent') continue;
     if (mode === 'die-on-request') process.exit(3);
     if (mode === 'slow') {
@@ -105,61 +189,23 @@ process.stdin.on('data', (chunk) => {
         result: { status: 'ok', fixture: true, tag: (f.params || {}).tag || null },
       });
     } else if (f.method === 'getRuntimeInfo') {
-      const p = probeFixture();
-      if (!p) {
-        // mirrors pi() throwing PI_NOT_FOUND in src/bridge/handlers.ts
-        send({
-          v: 1,
-          type: 'response',
-          requestId: f.requestId,
-          status: 'error',
-          error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found (fixture)' },
-        });
+      // UI21 F1-B R01 (review P2): задержка позволяет доказать, что гейт
+      // спрашивает оба метода ПАРАЛЛЕЛЬНО — getCapabilities отвечает раньше.
+      const runtimeDelay = Number(process.env.FAKE_BRIDGE_RUNTIME_DELAY_MS || 0);
+      if (runtimeDelay > 0) {
+        setTimeout(() => sendRuntimeInfo(f), runtimeDelay);
         continue;
       }
-      send({
-        v: 1,
-        type: 'response',
-        requestId: f.requestId,
-        status: 'ok',
-        result: {
-          distro: 'FakeDistro',
-          node: { path: '/fake/node', version: 'v22.1.0' },
-          pi: p,
-          agentDir: '/home/fake/.pi/agent',
-        },
-      });
+      sendRuntimeInfo(f);
     } else if (f.method === 'getCapabilities') {
-      const p = probeFixture();
-      if (!p) {
-        send({
-          v: 1,
-          type: 'response',
-          requestId: f.requestId,
-          status: 'error',
-          error: { code: 'PI_NOT_FOUND', message: 'Pi executable not found (fixture)' },
-        });
-      } else if (!p.rpcSupported) {
-        send({
-          v: 1,
-          type: 'response',
-          requestId: f.requestId,
-          status: 'error',
-          error: { code: 'PI_INCOMPATIBLE', message: 'Pi 9.9.9 does not advertise RPC mode (fixture)' },
-        });
-      } else {
-        send({
-          v: 1,
-          type: 'response',
-          requestId: f.requestId,
-          status: 'ok',
-          result: {
-            protocolVersion: 1,
-            methods: ['health', 'getRuntimeInfo', 'getCapabilities', 'ping'],
-            pi: { version: p.version, rpcSupported: p.rpcSupported },
-          },
-        });
+      // Медленная проба (например, резервный `pi --help`): ответ приходит
+      // позже дефолтного requestMs — доказательство, что гейт ждёт свой бюджет.
+      const gateDelay = Number(process.env.FAKE_BRIDGE_GATE_DELAY_MS || 0);
+      if (gateDelay > 0) {
+        setTimeout(() => sendCapabilities(f), gateDelay);
+        continue;
       }
+      sendCapabilities(f);
     } else {
       send({
         v: 1,

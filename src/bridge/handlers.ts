@@ -108,18 +108,37 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
   const now = ctx.now ?? Date.now;
   const startedAt = now();
   let piCache: PiProbe | null | undefined;
+  // Один probe на все запросы: getRuntimeInfo и getCapabilities приходят
+  // параллельно на гейте READY — без общего промиса каждый делал бы свою
+  // пару `pi --version` + `pi --mode …`, удваивая старт.
+  let piInFlight: Promise<PiProbe | null> | undefined;
+
+  const probeOnce = (): Promise<PiProbe | null> => {
+    if (piCache !== undefined) return Promise.resolve(piCache);
+    if (!piInFlight) {
+      piInFlight = probePi({ env: ctx.env, home: ctx.home, spawnFn: ctx.spawnFn })
+        .then((p) => {
+          // `unknown` не кэшируем навсегда: проба могла быть сорвана (медленный
+          // DrvFs/тайм-аут) — следующий вызов перепробует, но не отвергнет Pi.
+          piCache = p && p.rpcStatus !== 'unknown' ? p : undefined;
+          return p;
+        })
+        .finally(() => {
+          piInFlight = undefined;
+        });
+    }
+    return piInFlight;
+  };
 
   const pi = async (): Promise<PiProbe> => {
-    if (piCache === undefined) {
-      piCache = await probePi({ env: ctx.env, home: ctx.home, spawnFn: ctx.spawnFn });
-    }
-    if (!piCache) {
+    const found = await probeOnce();
+    if (!found) {
       throw new BridgeError(
         'PI_NOT_FOUND',
         'Pi executable not found (checked PI_WS_DESKTOP_PI, ~/.local/bin/pi and PATH)',
       );
     }
-    return piCache;
+    return found;
   };
 
   const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
@@ -263,10 +282,19 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
     },
     getCapabilities: async () => {
       const p = await pi();
-      if (!p.rpcSupported) {
+      if (p.rpcStatus === 'unsupported') {
         throw new BridgeError(
           'PI_INCOMPATIBLE',
           `Pi ${p.version} does not advertise RPC mode (--mode rpc); bridge capability check failed`,
+        );
+      }
+      if (p.rpcStatus !== 'supported') {
+        // Транзиентно: пробу сорвало (тайм-аут/сбой спавна). Это НЕ вердикт о
+        // совместимости — отдаём ограниченную ошибку, которую вызывающая
+        // сторона вправе повторить (UI21 F1-B R01).
+        throw new BridgeError(
+          'BRIDGE_TIMEOUT',
+          `Pi ${p.version}: RPC capability probe did not complete (transient, not a compatibility verdict)`,
         );
       }
       return {

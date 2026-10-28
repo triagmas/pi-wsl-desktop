@@ -1,14 +1,14 @@
-# Pre-commit checks with `prek` (optional, offline)
+# prek — локальные проверки перед Git-коммитом
 
-Issue [#28](https://github.com/triagmas/pi-wsl-desktop/issues/28). Configuration: [`prek.toml`](../prek.toml).
+Задача [#28](https://github.com/triagmas/pi-wsl-desktop/issues/28). Конфигурация: [`prek.toml`](../prek.toml).
 
-This adds a **fast local pre-commit guard**, not a new CI/test framework. All hooks are built into `prek`, require no Python/Node environments or Git downloads to run, and are **non-mutating**. They check: accidental large new files (>4 MiB), case-colliding and Windows-invalid names, merge conflict markers (even outside a merge), recognized private-key headers, and commits directly to `main`/`master`. Private-key detection is heuristic; it **does not detect all API tokens or credentials**. Existing [Repository Contract](../.github/workflows/repository-contract.yml) and [Product CI](../.github/workflows/product-ci.yml) remain mandatory.
+Это **не новая тестовая система** и не замена CI. Встроенные Rust-хуки `prek` выполняются офлайн, без установки дополнительных Python/Node-зависимостей, **ничего не исправляют и не переписывают**. Они обнаруживают: вновь добавленные файлы больше 4 МиБ, конфликтующие по регистру или недопустимые в Windows имена, маркеры Git merge, известные заголовки приватных ключей и прямые коммиты в `main`/`master`. Обнаружение ключей эвристическое: другие токены и секреты могут не выявляться. [Repository Contract](../.github/workflows/repository-contract.yml) и [Product CI](../.github/workflows/product-ci.yml) остаются обязательными.
 
-## Activate in the one canonical checkout
+## Активация в единственном рабочем checkout
 
-Use `F:\\_hermes\\CODE\\pi-wsl-desktop` (WSL: `/mnt/f/_hermes/CODE/pi-wsl-desktop`); do not clone the project or change the current UI21 working tree to install a tool. Activate only after this PR is merged or the config is present on the chosen feature branch. Check the repo's working state and existing Git hooks **before installing**.
+Путь: Windows `F:\_hermes\CODE\pi-wsl-desktop`, WSL `/mnt/f/_hermes/CODE/pi-wsl-desktop`. Не клонировать репозиторий повторно и не переключать активную UI21-ветку ради установки. Включать только **после merge PR**, либо когда этот конфиг уже присутствует в выбранной рабочей feature-ветке.
 
-In **WSL**, if `uv` is already installed, install the official `prek` tool with `uv tool install prek` (alternatively use another method from [upstream installation docs](https://prek.j178.dev/installation/)). This installs `prek` as a tool, not as a Pi Skill/extension and not into `~/.pi`.
+В WSL при уже установленном `uv` используйте `uv tool install prek` (альтернативы в [официальной инструкции](https://prek.j178.dev/installation/)). Это отдельный инструмент, не Pi Skill, не расширение Pi и не установка в `~/.pi`.
 
 ```bash
 cd /mnt/f/_hermes/CODE/pi-wsl-desktop
@@ -17,17 +17,17 @@ git status --short --branch
 git config --show-origin --get core.hooksPath || true
 git rev-parse --git-path hooks/pre-commit
 prek --version
-prek run --all-files   # review any failures; no automatic code changes
-prek install           # only if there is no conflicting existing hook
+prek run --all-files   # из feature-ветки; ничего не изменяет
+prek install           # только после проверки, что существующие хуки не затрагиваются
 ```
 
-Do **not** run `prek install -f` or change `core.hooksPath` just to make installation succeed. If `hooks/pre-commit` or a custom hooks path already exists, **inspect and reconcile** before installing; installing this hook must not silently discard other checks. The `no-commit-to-branch` guard deliberately fails on `main`/`master`, including manual `prek run --all-files` there; run the smoke from a feature branch. `prek run` checks staged changes before a commit.
+**Важно:** сначала проверить реальное содержимое пути `git rev-parse --git-path hooks/pre-commit` и возможный `core.hooksPath`. Не использовать `prek install -f`, не сбрасывать чужой `core.hooksPath` и не перезаписывать существующие хуки без отдельного решения. Проверка `no-commit-to-branch` ожидаемо падает в `main`/`master`, в том числе при ручном `prek run --all-files`; тестировать её из feature-ветки. `prek run` проверяет staged-файлы перед коммитом.
 
-If committing from **Git for Windows / PowerShell** instead of WSL Git, also ensure the Windows `prek.exe` is available on that Git process's `PATH` and verify the installed hook works from that shell. Do not assume a WSL-installed executable is available in Windows Git; both environments can share one checkout but not necessarily one hook executable. Prefer selecting one Git environment for a given commit to avoid hook conflicts.
+Если Git-коммиты делаются через **Git for Windows / PowerShell**, необходимо отдельно обеспечить доступность Windows-версии `prek.exe` в PATH соответствующего процесса и проверить запуск хука именно из этой оболочки. Нельзя считать WSL-бинарник доступным для Windows Git автоматически. Предпочтительно закрепить одну среду Git для конкретного коммита.
 
-## Acceptance and rollback
+## Приёмка и откат
 
-- On a feature branch, `prek run --all-files` succeeds (or reports clearly scoped pre-existing failures); `prek run` exercises staged files. Confirm a synthetic merge marker or dummy oversized newly staged file is rejected in an **isolated temporary fixture**, never by inserting secrets or intentionally broken files into this checkout.
-- Verify commit execution in the actual Git shell used by Pi; do not claim this from a remote GitHub PR alone. No existing hook may be overwritten.
-- Disabling local integration: `prek uninstall` in the same Git environment; keep the repo config for optional manual checks. If activation has not occurred yet, there is nothing to uninstall.
-- No automatic tests, model calls, modifications to real `~/.pi` resources, or real Windows+WSL smoke are authorized by this PR. Record those as **NOT RUN** until observed.
+- `prek run --all-files` на feature-ветке: PASS либо документированный список конкретных старых проблем. `prek run` для staged-файлов. Негативный тест с синтетическим конфликтом или большим файлом — **только в изолированном временном тестовом каталоге**, без внесения таких данных в продуктовый checkout.
+- Подтвердить, что реальный Git-хук запускается из оболочки, которой пользуется Pi. Отдельный PR на GitHub сам по себе **не устанавливает локальные хуки**.
+- Откат локального подключения: `prek uninstall` из той же Git-среды. Пока `prek install` не выполнен, удалять нечего.
+- Реальные `~/.pi`, prompt/model call, Windows+WSL smoke и полные локальные тесты этой задачей не запускались: `NOT RUN`. Расход токенов: `NOT MEASURED`.

@@ -4,7 +4,7 @@
  * The defect was not cosmetic: `.dl-send` is absolutely positioned at the
  * etalon coordinates (right 16px, bottom 13px, 54×52) *inside* the composer,
  * while `.dl-composer-row2` (model + thinking chips) used the full composer
- * width. With a long real label — `cliproxyapi/KENARI/mimo-v2-6-flash:free`
+ * width. With a long real label — a provider/model signature
  * (438 px chip) — the thinking chip slid under the send button and became
  * partly unclickable at 1280/1024 with the details panel open.
  *

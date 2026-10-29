@@ -267,7 +267,9 @@ describe('ChatSessionManager — prompt policies', () => {
     await h.manager.open(FILE);
     respondToPrompt(h.pi, 'started');
     const res = await h.manager.sendPrompt('hello');
-    expect(res).toEqual({ disposition: 'started' });
+    // UI26 R01: the result now also tells the renderer WHICH session Pi is
+    // writing to (and whether its JSONL exists yet) — still no path guessing.
+    expect(res).toMatchObject({ disposition: 'started', sessionFile: FILE, materialized: true });
     // let the run promise settle (settled already emitted synchronously above)
     await new Promise((r) => setTimeout(r, 20));
     expect(h.events.some((e) => e.kind === 'pi' && e.name === 'agent_settled')).toBe(true);
@@ -374,8 +376,15 @@ describe('ChatSessionManager — lifecycle events', () => {
     expect(h.pi.commands().filter((c) => c.type === 'prompt')).toHaveLength(1); // no auto replay
   });
 
-  it('getState returns {state:null} when closed', async () => {
+  it('getState returns {state:null, sessionFileExists:false} when closed', async () => {
     const h = makeHarness();
-    expect(await h.manager.getState()).toEqual({ state: null });
+    expect(await h.manager.getState()).toEqual({ state: null, sessionFileExists: false });
+  });
+
+  it('getState сообщает о существовании файла (P1-3: отложенная материализация)', async () => {
+    // Реальный факт с диска, а не предположение: файл есть/нет.
+    const h = makeHarness();
+    const g = h.manager as unknown as { fileExists: (f: string) => Promise<boolean> };
+    expect(await g.fileExists('/nowhere.jsonl')).toBe(false);
   });
 });

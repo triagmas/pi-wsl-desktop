@@ -70,7 +70,13 @@ function makeApi(opts: { sendPrompt: () => Promise<unknown> }) {
     saveAppearance: async () => undefined,
     resetAppearance: async () => undefined,
   };
-  return { api, request, emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb(p)) };
+  // UI26 R03: bridge штампует КАЖДОЕ событие ключом своего RPC-соединения;
+  // тест повторяет этот контракт (keyless-события намеренно отбрасываются).
+  return {
+    api,
+    request,
+    emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb({ key: `file:${FILE}`, ...p } as ChatEventT)),
+  };
 }
 
 function Harness({ api }: { api: DesktopApi }) {

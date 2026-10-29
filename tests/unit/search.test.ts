@@ -42,6 +42,9 @@ const SESSION = (over: Partial<SessionIndex['sessions'][number]> = {}): SessionI
   projectId: '/home/u/alpha-repo',
   projectPath: '/home/u/alpha-repo',
   name: 'Fix auth bug',
+  // UI26 R01: derived title fields are part of the indexed session contract.
+  displayName: 'Fix auth bug',
+  displayNameSource: 'pi',
   createdAt: '2026-10-19T00:00:00.000Z',
   updatedAt: '2026-10-19T01:00:00.000Z',
   sizeBytes: 10,

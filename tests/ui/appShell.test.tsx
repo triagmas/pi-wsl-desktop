@@ -333,25 +333,69 @@ describe('D2 layout integration', () => {
     );
   });
 
-  it('«Новый диалог» is honestly labeled — it opens the most recent session, no fake creation', async () => {
-    render(<App api={makeApi()} moduleDefinitions={[]} />);
-    expect(
-      screen.getAllByRole('button', { name: /открыть последний диалог/i }).length,
-    ).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByRole('button', { name: /^Новый диалог$/ })).not.toBeInTheDocument();
-    expect(screen.getByTestId('chat-empty')).toHaveTextContent(/самую свежую сессию/i);
+  it('«Новый диалог» — реальный новый диалог через new_session, без фиктивного файла', async () => {
+    // UI26 R01 (#26): прежний «Открыть последний диалог» больше не существует:
+    // кнопка создаёт ЧЕРНОВИК и просит Pi о новом сеансе официальным RPC.
+    const api = makeApi();
+    const request = api._request;
+    request.mockImplementation(async (method: string) => {
+      if (method === 'listProjects') {
+        return { projects: [{ id: '/p/alpha', name: 'alpha', path: '/p/alpha', sessionCount: 1, updatedAt: null }], diagnostics: [] };
+      }
+      if (method === 'listSessions') return { sessions: [], diagnostics: [] };
+      if (method === 'newSession') {
+        return {
+          state: {
+            sessionId: 's-new',
+            sessionFile: '/roots/--p-alpha--/new.jsonl',
+            isStreaming: false,
+            isCompacting: false,
+            messageCount: 0,
+            model: null,
+            thinkingLevel: 'off',
+          },
+          sessionFile: '/roots/--p-alpha--/new.jsonl',
+          materialized: false,
+        };
+      }
+      if (method === 'getAvailableModels') return { models: [] };
+      if (method === 'getThinkingLevels') return { levels: [], current: null };
+      if (method === 'listSkills') return { skills: [], diagnostics: [] };
+      if (method === 'listPackages') return { packages: [], builtins: [], settingsExtensions: [], diagnostics: [] };
+      if (method === 'listMcpServers') return { servers: [], builtinEnabled: false, logDiagnostics: [], diagnostics: [] };
+      return { ok: true };
+    });
+    const user = userEvent.setup();
+    render(<App api={api} moduleDefinitions={[]} />);
+    // Старой честной подписи-обманки больше нет.
+    expect(screen.queryByRole('button', { name: /открыть последний диалог/i })).toBeNull();
+    const newChat = screen.getAllByRole('button', { name: /новый диалог/i })[0];
+    await user.click(newChat);
+
+    // Именно new_session с реальным cwd проекта — не openSession и не выдумка.
+    await waitFor(() => expect(request.mock.calls.some((c: unknown[]) => c[0] === 'newSession')).toBe(true));
+    const call = request.mock.calls.find((c: unknown[]) => c[0] === 'newSession')! as [string, unknown];
+    expect(call[1]).toEqual({ cwd: '/p/alpha' });
+    expect(request.mock.calls.some((c: unknown[]) => c[0] === 'openSession')).toBe(false);
+
+    // Черновик честно подписан и показывает cwd, где появится сессия Pi.
+    expect(await screen.findByTestId('draft-title')).toHaveTextContent('Новый диалог');
+    expect(screen.getByTestId('draft-cwd')).toHaveAttribute('title', '/p/alpha');
+    expect(screen.getByTestId('draft-notice')).toHaveTextContent('/p/alpha');
+    // Никакого файла сессии на этом шаге: Pi ещё не писал JSONL.
+    expect(request.mock.calls.some((c: unknown[]) => c[0] === 'sendPrompt')).toBe(false);
   });
 
-  it('C1: sidebar head carries the approved «Открыть проект» label and the long new-chat label is a non-wrapping span', () => {
+  it('C1: sidebar head carries the approved «Открыть проект» label and the new-chat label is a non-wrapping span', () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     // P3: эталонная шапка 01-chat-review-terminal (паритет design-lab;
     // статичный span — действия открытия проекта в мосту нет, честно).
     expect(screen.getByText('Открыть проект')).toBeInTheDocument();
-    // P5: подпись длинной кнопки в отдельном span — CSS не даёт переносу
-    // на две строки при любом ширины панели/кегле.
+    // P5: подпись кнопки в отдельном span — CSS не даёт переносу на две строки.
     const label = document.querySelector('.dl-newchat-text');
     expect(label).not.toBeNull();
-    expect(label?.textContent).toBe('Открыть последний диалог');
+    // UI26 R01: кнопка теперь означает настоящий новый диалог.
+    expect(label?.textContent).toBe('Новый диалог');
   });
 
   it('wires the frameless titlebar buttons to the window controls', async () => {

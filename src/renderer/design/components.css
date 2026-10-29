@@ -415,6 +415,46 @@
   margin-top: 6px;
 }
 
+/* UI26 R02: строка проекта и `+` — СОСЕДНИЕ кнопки в одном слоте.
+   Геометрия строки и общий шаг проектов сохранены (композиция не меняется):
+   слот забирает внешние отступы строки, `+` занимает только свою ширину. */
+.dl-row-slot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dl-row-slot + .dl-row-slot {
+  margin-top: 6px;
+}
+
+.dl-row-slot > .dl-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dl-project-new {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 8px;
+  border-radius: var(--pw-radius-medium);
+  color: var(--pw-muted-text-color);
+}
+
+.dl-project-new:hover {
+  background: var(--pw-hover-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.dl-project-new:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: -2px;
+  color: var(--pw-body-text-color);
+}
+
 .dl-row {
   display: flex;
   align-items: center;

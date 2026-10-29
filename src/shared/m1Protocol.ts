@@ -55,6 +55,13 @@ export const SessionInfoSchema = z.object({
   projectPath: z.string().min(1),
   /** Display name from `session_info` when present. */
   name: z.string().nullable(),
+  /**
+   * UI26 R01: what the sidebar shows. Pi's explicit name wins; otherwise the
+   * first user message; otherwise a short id. `name` above stays truthful about
+   * what Pi itself has stored.
+   */
+  displayName: z.string().min(1),
+  displayNameSource: z.enum(['pi', 'firstUser', 'id']),
   createdAt: z.string().nullable(),
   updatedAt: z.string(),
   sizeBytes: z.number().int().min(0),
@@ -208,6 +215,26 @@ export const OpenSessionParamsSchema = z.object({
 export const OpenSessionResultSchema = z.object({
   state: RpcStateSchema.nullable(),
 });
+
+/**
+ * UI26 R01 — новый диалог.
+ *
+ * `cwd` must be a project path Pi itself already reported (validated in the
+ * bridge). The result carries the session Pi assigned; `materialized` is false
+ * until the first write, because Pi 1.4.0 creates the JSONL lazily.
+ */
+export const NewSessionParamsSchema = z.object({
+  cwd: z.string().min(1).max(4096),
+});
+export type NewSessionParamsT = z.infer<typeof NewSessionParamsSchema>;
+
+export const NewSessionResultSchema = z.object({
+  state: RpcStateSchema,
+  sessionFile: z.string().min(1),
+  /** True when the JSONL already exists on disk (usually false right away). */
+  materialized: z.boolean(),
+});
+export type NewSessionResultT = z.infer<typeof NewSessionResultSchema>;
 export type OpenSessionResultT = z.infer<typeof OpenSessionResultSchema>;
 
 /**
@@ -272,10 +299,17 @@ export type SendPromptParamsT = z.infer<typeof SendPromptParamsSchema>;
 
 export const SendPromptResultSchema = z.object({
   disposition: z.enum(['started', 'queued', 'handled']),
+  /** UI26 R01: the session Pi is writing to — the renderer binds its draft. */
+  sessionFile: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  /** False while Pi has not materialized the JSONL yet (new draft session). */
+  materialized: z.boolean(),
 });
 
 export const GetStateResultSchema = z.object({
   state: RpcStateSchema.nullable(),
+  /** UI26 R03: does the session JSONL exist on disk right now? */
+  sessionFileExists: z.boolean().optional(),
 });
 
 export const SubscribeParamsSchema = z.object({
@@ -293,13 +327,23 @@ export const InterruptResultSchema = z.object({
  *   verified json.md event table; consumers must tolerate unknown names).
  * - `opened`/`closed` are bridge lifecycle markers.
  */
+/**
+ * UI26 R01: `key` scopes an event to ONE conversation (`file:<sessionFile>`).
+ * The renderer must never render a late event of chat A inside chat B, so the
+ * bridge stamps every event with the session it belongs to. It stays optional
+ * for wire compatibility with a bridge that predates the field (such an event
+ * is applied to the active conversation).
+ */
+const ChatEventKeySchema = z.string().min(1).optional();
+
 export const ChatEventSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('pi'), name: z.string().min(1), data: z.unknown() }),
-  z.object({ kind: z.literal('opened'), state: RpcStateSchema.nullable() }),
+  z.object({ kind: z.literal('pi'), name: z.string().min(1), data: z.unknown(), key: ChatEventKeySchema }),
+  z.object({ kind: z.literal('opened'), state: RpcStateSchema.nullable(), key: ChatEventKeySchema }),
   z.object({
     kind: z.literal('closed'),
     code: z.enum(ALL_ERROR_CODES),
     message: z.string(),
+    key: ChatEventKeySchema,
   }),
 ]);
 export type ChatEventT = z.infer<typeof ChatEventSchema>;

@@ -100,7 +100,13 @@ function makeApi(routes: Routes = {}) {
     saveAppearance: async () => undefined,
     resetAppearance: async () => undefined,
   };
-  return { api, request, readCalls, emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb(p)) };
+  // UI26 R03: bridge штампует события ключом RPC-соединения (FILE_A — сессия харнесса).
+  return {
+    api,
+    request,
+    readCalls,
+    emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb({ key: `file:${FILE_A}`, ...p } as ChatEventT)),
+  };
 }
 
 function Harness({ api, file }: { api: DesktopApi; file: string }) {
@@ -203,6 +209,9 @@ describe('R07 r01 P1-B — persisted/live chronology and backward pagination', (
     const firstShown = screen.getByText('p2- сообщение 1');
     expect(gap.compareDocumentPosition(firstShown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
+    // UI26 R02: событие без ключа принимается только когда диалог доказанно
+    // живой (единственный, кто держит RPC). Помечаем чат открытым.
+    emit({ kind: 'opened', state: null, key: `file:${FILE_A}` });
     emit({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'живой вопрос' } } });
     await screen.findByText('живой вопрос');
 
@@ -253,6 +262,7 @@ describe('R07 r01 P1-B — persisted/live chronology and backward pagination', (
     await waitFor(() => expect(screen.getByText('Готово')).toBeInTheDocument());
 
     // Two distinct live events with identical text — both must stay visible.
+    emit({ kind: 'opened', state: null, key: `file:${FILE_A}` });
     emit({ kind: 'pi', name: 'message_end', data: { message: { role: 'user', content: 'Привет' } } });
     emit({
       kind: 'pi',

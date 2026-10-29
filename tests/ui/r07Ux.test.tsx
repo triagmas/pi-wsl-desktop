@@ -80,7 +80,8 @@ function makeSessionApi() {
   return {
     api: { ...api, request, onChatEvent } as typeof api,
     request,
-    emit: (payload: unknown) => chatSubs.forEach((cb) => cb(payload)),
+    // UI26 R03: bridge штампует КАЖДОЕ событие ключом своего RPC-соединения.
+    emit: (payload: unknown) => chatSubs.forEach((cb) => cb({ key: `file:${FILE}`, ...(payload as object) })),
   };
 }
 

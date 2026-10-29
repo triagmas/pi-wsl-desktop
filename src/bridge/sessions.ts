@@ -23,6 +23,7 @@ import { constants as fsConstants, promises as fsp } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import type { ProjectInfoT, SessionInfoT } from '../shared/m1Protocol';
+import { deriveDisplayName } from '../shared/sessionTitle';
 
 export interface DirEntry {
   name: string;
@@ -177,6 +178,8 @@ export interface BuildIndexInput {
   activeWindowMs?: number;
   /** Test/production override; skips root resolution but keeps diagnostics. */
   rootsOverride?: string[];
+  /** Head read size for header + first-user-message naming (default 64 KiB). */
+  headerMaxBytes?: number;
 }
 
 export interface SessionIndex {
@@ -219,6 +222,48 @@ function parseHeader(head: string): { header: HeaderInfo | null; error: string |
   };
 }
 
+/** Text of a Pi `message` content value (string or typed blocks). */
+function messageContentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (block && typeof block === 'object') {
+        const b = block as { type?: unknown; text?: unknown };
+        if (b.type === 'text' && typeof b.text === 'string') parts.push(b.text);
+      }
+    }
+    return parts.join('\n');
+  }
+  return '';
+}
+
+/**
+ * UI26 R01: first USER message, used only as a title fallback when Pi has no
+ * explicit session name. Read from the head like the header itself — never a
+ * full-file scan, and never a write.
+ */
+async function readFirstUserText(fs: FsLike, file: string, maxBytes: number): Promise<string | null> {
+  let head: string;
+  try {
+    head = await fs.readHead(file, maxBytes);
+  } catch {
+    return null;
+  }
+  for (const line of head.split('\n')) {
+    if (!line.includes('"user"')) continue;
+    try {
+      const entry = JSON.parse(line) as { type?: unknown; message?: { role?: unknown; content?: unknown } };
+      if (entry.type !== 'message' || !entry.message || entry.message.role !== 'user') continue;
+      const text = messageContentText(entry.message.content).trim();
+      if (text !== '') return text;
+    } catch {
+      /* partial trail line at the head boundary or corrupt entry — keep scanning */
+    }
+  }
+  return null;
+}
+
 /** Best-effort display name: scan the file TAIL for the last session_info entry. */
 async function readDisplayName(fs: FsLike, file: string): Promise<string | null> {
   try {
@@ -229,8 +274,10 @@ async function readDisplayName(fs: FsLike, file: string): Promise<string | null>
       if (!line.includes('"session_info"')) continue;
       try {
         const entry = JSON.parse(line) as { type?: string; name?: unknown };
-        if (entry.type === 'session_info' && typeof entry.name === 'string' && entry.name.length > 0) {
-          return entry.name;
+        // UI26 R01: whitespace is not a name — Pi stores the raw string, the
+        // bridge must not surface a blank title as if it were explicit.
+        if (entry.type === 'session_info' && typeof entry.name === 'string' && entry.name.trim() !== '') {
+          return entry.name.trim();
         }
       } catch {
         /* partial/corrupt tail line — keep scanning upward */
@@ -281,6 +328,7 @@ export async function buildSessionIndex(input: BuildIndexInput): Promise<Session
         projectId: bucketDir,
         projectPath: bucketDir,
         name: null,
+        ...deriveDisplayName({ piName: null, firstUserText: null, id: projectName }),
         createdAt: null,
         updatedAt: new Date(meta?.mtimeMs ?? 0).toISOString(),
         sizeBytes: meta?.size ?? 0,
@@ -305,6 +353,7 @@ export async function buildSessionIndex(input: BuildIndexInput): Promise<Session
         projectId: bucketDir,
         projectPath: bucketDir,
         name: null,
+        ...deriveDisplayName({ piName: null, firstUserText: null, id: projectName }),
         createdAt: null,
         updatedAt: new Date(mtimeMs).toISOString(),
         sizeBytes: 0,
@@ -325,6 +374,7 @@ export async function buildSessionIndex(input: BuildIndexInput): Promise<Session
         projectId: bucketDir,
         projectPath: bucketDir,
         name: null,
+        ...deriveDisplayName({ piName: null, firstUserText: null, id: projectName }),
         createdAt: null,
         updatedAt: new Date(mtimeMs).toISOString(),
         sizeBytes: size,
@@ -338,13 +388,16 @@ export async function buildSessionIndex(input: BuildIndexInput): Promise<Session
     }
 
     const name = await readDisplayName(fs, file);
+    const firstUserText = await readFirstUserText(fs, file, input.headerMaxBytes ?? 64 * 1024);
+    const id = header.id ?? projectName;
     sessions.push({
-      id: header.id ?? projectName,
+      id,
       file,
       root,
       projectId: header.cwd,
       projectPath: header.cwd,
       name,
+      ...deriveDisplayName({ piName: name, firstUserText, id }),
       createdAt: header.timestamp,
       updatedAt: new Date(mtimeMs).toISOString(),
       sizeBytes: size,

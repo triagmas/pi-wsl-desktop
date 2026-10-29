@@ -21,6 +21,8 @@ export interface SidebarProject {
   dot?: boolean;
   /** app: подпись под именем (например ветка «main»). */
   sub?: string;
+  /** UI26 R02: data-testid кнопки `+` рядом с проектом. */
+  newChatTestId?: string;
   sessions?: SidebarSession[];
   testid?: string;
 }
@@ -65,6 +67,11 @@ export interface SidebarProps {
   /** D3: testid списка проектов/сессий (m1 discovery-контракт). */
   projectsTestId?: string;
   onNewChat?: () => void;
+  /**
+   * UI26 R02: `+` у конкретного проекта. Отдельная кнопка-СОСЕД строки проекта
+   * (вкладывать button в button нельзя: невалидный HTML и сломанный фокус).
+   */
+  onNewChatInProject?: (projectId: string) => void;
   onToggleProject?: (id: string) => void;
   onSelectSession?: (id: string) => void;
   onNavigate?: (id: string) => void;
@@ -88,6 +95,7 @@ export function Sidebar({
   connection,
   notice,
   onNewChat,
+  onNewChatInProject,
   onToggleProject,
   onSelectSession,
   onNavigate,
@@ -145,6 +153,7 @@ export function Sidebar({
       <div className="dl-tree" data-testid={projectsTestId}>
         {projects.map((project) => (
           <div key={project.id}>
+            <div className="dl-row-slot">
             <button
               type="button"
               className="dl-row dl-row-project project-row"
@@ -162,6 +171,19 @@ export function Sidebar({
                 {project.expanded ? <IconChevronDown size={18} /> : <IconChevronRight size={18} />}
               </span>
             </button>
+            {onNewChatInProject ? (
+              <button
+                type="button"
+                className="dl-btn-ghost dl-project-new"
+                data-testid={project.newChatTestId ?? `project-new-${project.id}`}
+                aria-label={`Новый диалог в проекте ${project.name}`}
+                title={`Новый диалог в проекте ${project.name}`}
+                onClick={() => onNewChatInProject(project.id)}
+              >
+                <IconPlus size={16} strokeWidth={2} />
+              </button>
+            ) : null}
+            </div>
             {project.expanded && project.sessions?.length ? (
               <div className="dl-tree-rows">
                 {project.sessions.map((session) => (

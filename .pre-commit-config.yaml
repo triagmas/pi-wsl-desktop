@@ -42,8 +42,12 @@ repos:
         pass_filenames: false
         files: ^package(-lock)?\.json$
 
+      # R07: `types: [file]`, а не `[text]`: иначе бинарные контейнеры ключей
+      # (.p12/.pfx/.pem) вообще не доходят до хука, и проверка ИМЕНИ файла не
+      # выполняется. Скрипт проверяет имя ДО чтения содержимого, а бинарное
+      # содержимое не разбирает (лимит размера и fail-closed сохранены).
       - id: private-content
         name: нет приватных путей, ключей и дампов сессий
         entry: node scripts/check-private-content.mjs
         language: system
-        types: [text]
+        types: [file]

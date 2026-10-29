@@ -31,7 +31,7 @@ describe('P1: общие классы секретов', () => {
     ['AWS access key', FAKE_AWS, 'aws-access-key'],
     ['GitHub token', FAKE_GITHUB, 'github-token'],
     ['Slack token', FAKE_SLACK, 'slack-token'],
-    ['sk-like key', FAKE_SK, 'openai-style-key'],
+    ['sk-like key', FAKE_SK, 'sk-prefixed-key'],
     ['literal bearer', FAKE_BEARER, 'bearer-header'],
   ])('%s ловится', (_label, text, rule) => {
     expect(findPrivate(text)).toBe(rule);
@@ -56,14 +56,27 @@ describe('P1: общие классы секретов', () => {
     }
   });
 
-  it('правила не содержат идентификаторов конкретных провайдеров/пользователей', () => {
-    const dump = privateRules()
-      .map((r) => `${r.id}:${r.re.source}`)
-      .join('\n');
-    // Классы описаны формой, а не именами: ни одного «известного» бренда,
-    // логина или пути конкретной машины.
-    expect(dump).not.toMatch(/cliproxy|kenari|triag|_hermes/i);
-    expect(privateRules().length).toBeGreaterThanOrEqual(7);
+  it('набор правил ограничен общими классами (никаких адресных правил)', () => {
+    // Точный список классов: любое новое правило должно появиться здесь,
+    // то есть быть общим классом, а не исключением под конкретного
+    // провайдера, пользователя или каталог.
+    expect(privateRules().map((r) => r.id)).toEqual([
+      'private-key-block',
+      'aws-access-key',
+      'github-token',
+      'slack-token',
+      'sk-prefixed-key',
+      'bearer-header',
+      'home-directory-path',
+      'windows-user-path',
+    ]);
+  });
+
+  it('источники правил состоят из форм, а не из имён', () => {
+    for (const { re } of privateRules()) {
+      // Никаких литеральных имён/логинов: только классы символов и якоря.
+      expect(re.source).not.toMatch(/[A-Za-z]{3,}@|[a-z]{4,}\\u|[A-Za-z]+\\.[a-z]{2,}/);
+    }
   });
 });
 

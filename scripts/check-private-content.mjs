@@ -99,7 +99,7 @@ const SECRET_CLASSES = [
     re: new RegExp(`\\bxo${'x[abprs]-'}[A-Za-z0-9-]{10,}\\b`),
   },
   {
-    id: 'openai-style-key',
+    id: 'sk-prefixed-key',
     title: 'API key with sk- prefix',
     re: new RegExp(`\\bsk${'-'}[A-Za-z0-9_-]{20,}\\b`),
   },
@@ -214,14 +214,15 @@ function main() {
   if (files.length === 0) return;
   const { ok, findings } = inspectFiles(files);
   if (ok) return;
-  console.error('Приватное содержимое или непроверяемые файлы в staged-наборе:');
+  console.error('Приватное содержимое или непроверяемые файлы в проверяемом наборе:');
   for (const f of findings) console.error(`  ${f.file} — ${f.rule}`);
   console.error(
     [
       'Правила: известные классы секретов (PEM, AWS, GitHub, Slack, sk-подобные,',
       'литеральные bearer/assignments), приватные абсолютные пути, чувствительные',
       'имена файлов. Это НЕ полный сканер секретов: нет энтропийного анализа,',
-      'истории git и бинарных файлов. Непрочитанный файл считается нарушением.',
+      'истории git; бинарное содержимое не разбирается, но ИМЯ файла проверяется',
+      'всегда. Непрочитанный файл считается нарушением.',
     ].join('\n'),
   );
   process.exit(1);

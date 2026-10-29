@@ -2,13 +2,19 @@
 # Linux build + Electron E2E и Windows installer + packaged smoke — отдельные
 # workflow, здесь они намеренно не дублируются (минуты против секунд).
 #
-# Установка (см. docs/development/local-gates.md):
-#   uv tool install prek     # или: uvx prek --version
-#   prek install             # включить git-хук pre-commit
-#   prek run --all-files     # прогнать по всему дереву
+# Режимы (измерено, см. docs/development/local-gates.md):
+#   uvx prek validate-config .pre-commit-config.yaml
+#   uvx prek run --files <paths…>   # РЕКОМЕНДУЕТСЯ: хук видит worktree-версию,
+#                                   # патч unstaged-изменений не создаётся
+#   uvx prek run                    # только на чистом дереве: prek временно
+#                                   # сохраняет ВСЕ unstaged-правки в патч
+#                                   # ~/.cache/prek/patches/ и восстанавливает их
+#   prek install                    # BLOCKED в рабочем checkout владельца:
+#                                   # bare-режим трогает незакоммиченные файлы
 #
-# Хуки работают только по файлам из индекса; чужие незакоммиченные правки
-# владельца не изменяются: ни один hook не пишет в файлы.
+# Ни один hook не пишет в файлы: автоформатирования нет, содержимое не
+# переписывается. Защищённые незакоммиченные файлы владельца не сташутся
+# самими хуками — это делает только bare-режим prek, поэтому он и ограничен.
 minimum_pre_commit_version: '3.5.0'
 default_stages: [pre-commit]
 

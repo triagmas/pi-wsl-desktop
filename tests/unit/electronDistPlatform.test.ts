@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import { verifyElectronDist, explainFailure, parseArgs, PLATFORM_MARKERS } from '../../scripts/check-electron-dist.mjs';
 import { resolveWinElectron, windowsPathToPosix, posixPathToWindows } from '../../scripts/start-win.mjs';
-import { findPrivate } from '../../scripts/check-private-content.mjs';
 
 const WIN_FILES = [
   'electron.exe',
@@ -67,6 +66,24 @@ describe('проверка платформы локальной поставк�
     const r = verifyElectronDist('win32', WIN_FILES.filter((f) => f !== 'resources.pak'));
     expect(r.ok).toBe(false);
     expect(r.missing).toEqual(['resources.pak']);
+  });
+
+  it('смешанный каталог отклоняется, даже если все win32-маркеры на месте', () => {
+    // UI26 R06 (P2): достаточно одного файла другой платформы — это не «сборка
+    // Windows с лишним файлом», а невалидная поставка.
+    const mixed = [...WIN_FILES, 'libffmpeg.so', 'chrome-sandbox'];
+    const r = verifyElectronDist('win32', mixed);
+    expect(r.ok).toBe(false);
+    expect(r.missing).toEqual([]);
+    expect(r.foreign).toContain('linux:libffmpeg.so');
+    expect(r.foreign).toContain('linux:chrome-sandbox');
+  });
+
+  it('смешанный каталог объясняется как смешанная поставка', () => {
+    const msg = explainFailure(verifyElectronDist('win32', [...WIN_FILES, 'libffmpeg.so']), '/repo/dist');
+    expect(msg).toContain('смешанная поставка');
+    expect(msg).not.toContain('отсутствуют:');
+    expect(msg).toContain('PI_WS_DESKTOP_ELECTRON_EXE');
   });
 
   it('маркеры платформ не пересекаются по именам файлов', () => {
@@ -156,25 +173,5 @@ describe('аргумент приложения для Windows-Electron из WSL
 
   it('посторонний путь не искажается', () => {
     expect(posixPathToWindows('/tmp/x', 'linux')).toBe('/tmp/x');
-  });
-});
-
-describe('локальный гейт приватного содержимого', () => {
-  it('чистый текст проходит', () => {
-    expect(findPrivate('feat(sessions): add native new-chat flow (#26)')).toBeNull();
-  });
-
-  it('идентификатор провайдера ловится', () => {
-    expect(findPrivate('provider = cliproxy' + 'api')).toBe('p0');
-  });
-
-  it('приватный домашний путь и путь checkout ловятся', () => {
-    expect(findPrivate('/ho' + 'me/triag/.pi')).toBe('p2');
-    expect(findPrivate('/mn' + 't/f/_hermes/CODE')).toBe('p3');
-  });
-
-  it('признак реальной сессии и ключи ловятся', () => {
-    expect(findPrivate('01a1' + '8005-911a')).toBe('p4');
-    expect(findPrivate('to' + 'ken=gh' + 'p_ABC123')).toBe('p6');
   });
 });

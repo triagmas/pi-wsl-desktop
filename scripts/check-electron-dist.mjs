@@ -46,17 +46,20 @@ export function verifyElectronDist(platform, entries) {
         // поэтому перепутанную сборку видно без догадок.
         .map((m) => `${p}:${m}`),
     );
-  return { ok: missing.length === 0, platform, missing, foreign };
+  // UI26 R06: достаточно ОДНОГО файла чужой платформы, чтобы сборка считалась
+  // смешанной и негодной — полный набор своих маркеров этого не оправдывает.
+  return { ok: missing.length === 0 && foreign.length === 0, platform, missing, foreign };
 }
 
 /** Человеческое объяснение отказа — то, чего не хватало при `npm start`. */
 export function explainFailure(result, distDir) {
-  const lines = [
-    `Electron для платформы "${result.platform}" не готов: ${path.join(distDir, '')}`,
-    `  отсутствуют: ${result.missing.join(', ')}`,
-  ];
+  const lines = [`Electron для платформы "${result.platform}" не готов: ${path.join(distDir, '')}`];
+  if (result.missing.length > 0) lines.push(`  отсутствуют: ${result.missing.join(', ')}`);
   if (result.foreign.length > 0) {
     lines.push(`  найдены файлы другой платформы: ${result.foreign.join(', ')}`);
+    if (result.missing.length === 0) {
+      lines.push('  → смешанная поставка: файлы двух платформ в одном каталоге недопустимы.');
+    }
     lines.push('  → каталог заполнен сборкой ДРУГОЙ ОС (обычно WSL/Linux внутри Windows-checkout).');
   }
   lines.push(

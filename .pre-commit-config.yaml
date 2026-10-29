@@ -1,0 +1,43 @@
+# Быстрые локальные гейты (prek). Полный набор проверок остаётся в CI:
+# Linux build + Electron E2E и Windows installer + packaged smoke — отдельные
+# workflow, здесь они намеренно не дублируются (минуты против секунд).
+#
+# Установка (см. docs/development/local-gates.md):
+#   uv tool install prek     # или: uvx prek --version
+#   prek install             # включить git-хук pre-commit
+#   prek run --all-files     # прогнать по всему дереву
+#
+# Хуки работают только по файлам из индекса; чужие незакоммиченные правки
+# владельца не изменяются: ни один hook не пишет в файлы.
+minimum_pre_commit_version: '3.5.0'
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (staged TS/TSX)
+        entry: npx eslint
+        language: system
+        files: \.(ts|tsx)$
+        types: [file]
+
+      - id: typecheck
+        name: typecheck (tsc --noEmit, оба проекта)
+        entry: npm run typecheck
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx)$
+
+      - id: electron-dist-platform
+        name: локальный Electron соответствует ОС
+        entry: node scripts/check-electron-dist.mjs
+        language: system
+        pass_filenames: false
+        files: ^package(-lock)?\.json$
+
+      - id: private-content
+        name: нет приватных путей, ключей и дампов сессий
+        entry: node scripts/check-private-content.mjs
+        language: system
+        types: [text]

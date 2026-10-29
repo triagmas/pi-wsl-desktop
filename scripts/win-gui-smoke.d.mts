@@ -12,15 +12,40 @@ export interface ProcInfo {
   exe: string;
   createdAt: string;
 }
+export interface Identity {
+  pid: number;
+  createdAt: string;
+  exe: string;
+}
 export interface OwnershipResult {
   ok: boolean;
   reason: string | null;
   owned: number[];
+  identities?: Identity[];
 }
-export interface CleanupPlan {
-  kill: number[];
+export interface IdentityCheck {
+  ok: boolean;
+  reason: string | null;
+  alive: number[];
+  gone: number[];
+  mismatch: number[];
+  unknown: number[];
+}
+export interface KillOutcome {
+  killed: number[];
+  skipped: number[];
+  failed: number[];
+  aborted: string | null;
+}
+export interface CleanupResult {
+  identities: Identity[];
+  order: number[];
+  killed: number[];
+  skipped: number[];
+  failed: number[];
   inconclusive: boolean;
-  note: string | null;
+  ok: boolean;
+  note?: string | null;
 }
 export interface SmokeVerdict {
   pass: boolean;
@@ -32,28 +57,37 @@ export interface SmokeReport {
   pass: boolean;
   reasons: string[];
   exe: string;
-  userData?: string;
+  userData: string | null;
+  userDataVerified?: boolean;
   startedAt: string;
   expectedTitle?: string;
   baselineProcessCount?: number;
-  rootPid?: number | null;
+  rootPid?: number;
   windows: WinInfo[];
   visible: boolean;
   titleMatched: boolean;
   ownedPids: number[];
   ownershipReason?: string | null;
   elapsedMs: number | null;
-  cleanup?: { killed: number[]; inconclusive: boolean; note: string | null; rootPid: number | null };
+  cleanup: CleanupResult | null;
   leftoverOwned?: number[];
+  aliveOwned?: number[];
+  mismatchOwned?: number[];
   userDataRemoved?: boolean;
+  userDataPreserved?: boolean;
   probeError?: string;
+  launchError?: string;
   error?: string;
 }
+
+type Runner = (script: string) => { ok: boolean; out: string; error: string | null };
 
 export declare function parseWindows(stdout: string): WinInfo[];
 export declare function parseProcessTable(stdout: string): ProcInfo[];
 export declare function normalizeWinPath(p: string): string;
 export declare function winDirname(p: string): string;
+export declare function psQuote(value: string): string;
+export declare function encodePowerShell(script: string): string;
 export declare function ownedWindows(windows: WinInfo[], ownedPids: number[]): WinInfo[];
 export declare function ownedVisibleWindows(windows: WinInfo[], ownedPids: number[]): WinInfo[];
 export declare function ownershipCheck(opts: {
@@ -63,50 +97,70 @@ export declare function ownershipCheck(opts: {
   baselinePids?: number[];
   probeOk?: boolean;
 }): OwnershipResult;
-export declare function cleanupPlan(opts: { ownership: OwnershipResult; probeOk?: boolean }): CleanupPlan;
-export declare function smokeVerdict(opts: {
-  probeOk: boolean;
-  ownership: OwnershipResult;
-  visible: boolean;
-  titleMatched: boolean;
-  leftoverOwned?: number[];
-}): SmokeVerdict;
-export declare function defaultOutPath(tmpDir?: string, now?: number): string;
-export declare function isOwnedSmokeDir(dir: string | null | undefined): boolean;
-type Runner = (script: string) => { ok: boolean; out: string; error: string | null };
-
+export declare function identitiesOf(table: ProcInfo[], pids: number[]): Identity[];
+export declare function killOrder(identities: Identity[], table?: ProcInfo[]): Identity[];
+export declare function verifyOwnedIdentities(opts: {
+  table: ProcInfo[];
+  identities: Identity[];
+  exeDir: string;
+  probeOk?: boolean;
+}): IdentityCheck;
+export declare function killProven(
+  ordered: Identity[],
+  hooks: {
+    verify: (identity: Identity) => 'alive' | 'gone' | 'ambiguous' | 'probe-failed';
+    kill: (identity: Identity) => boolean;
+    recheck: (identity: Identity) => 'gone' | 'alive' | 'probe-failed';
+  },
+): KillOutcome;
+export declare function killScript(pid: number): string;
+export declare function killOwned(owned: number[], runner?: Runner): number[];
+export declare function windowScript(): string;
 export declare function launchScript(opts: { exe: string; appPath: string; cwd: string }): string;
+export declare function verifyUserDataScript(dir: string): string;
+export declare function parseUserDataVerification(stdout: string): { parent: string; createdAt: string; name: string } | null;
 export declare function parseStartOutput(stdout: string): { rootPid: number; userData: string } | null;
 export declare function launchApp(
   opts: { exe: string; appPath: string; cwd: string },
   runner?: Runner,
 ): { ok: boolean; rootPid: number | null; userData: string | null; error: string | null };
-export declare function removeUserData(dir: string | null | undefined, runner?: Runner): boolean;
-export declare function windowScript(): string;
+export declare function isOwnedSmokeDir(dir: string | null | undefined, tempRoot?: string | null): boolean;
+export declare function removeUserData(
+  dir: string | null | undefined,
+  opts?: { tempRoot?: string | null; runner?: Runner },
+): boolean;
 export declare function processTableScript(): string;
-export declare function probeProcessTable(
-  runner?: (script: string) => { ok: boolean; out: string; error: string | null },
-): { probeOk: boolean; table: ProcInfo[]; error: string | null };
-export declare function killProven(
-  owned: number[],
-  hooks: { verify: (pid: number) => boolean; kill: (pid: number) => void },
-): number[];
-export declare function killOwned(owned: number[], runner?: (script: string) => { ok: boolean; out: string; error: string | null }): number[];
-export interface SmokeArgs {
+export declare function tempRootScript(): string;
+export declare function parseTempRoot(stdout: string): string | null;
+export declare function parseSmokeArgs(argv: string[], cwd?: string): {
   exe: string | null;
   out: string;
   timeoutMs: number;
   expectTitle: string;
-}
-export declare function parseSmokeArgs(argv: string[], cwd?: string): SmokeArgs;
-
+};
+export declare function probeProcessTable(
+  runner?: Runner,
+): { probeOk: boolean; table: ProcInfo[]; error: string | null };
+export declare function smokeVerdict(opts: {
+  probeOk: boolean;
+  ownership: OwnershipResult | null | undefined;
+  cleanup: CleanupResult | null | undefined;
+  visible: boolean;
+  titleMatched: boolean;
+  leftoverOwned?: number[];
+  aliveOwned?: number[];
+  mismatchOwned?: number[];
+}): SmokeVerdict;
+export declare function defaultOutPath(tmpDir?: string, now?: number): string;
 export declare function runSmoke(
-  args: SmokeArgs,
+  args: { exe?: string | null; out: string; timeoutMs?: number; expectTitle?: string },
   deps?: {
     env?: NodeJS.ProcessEnv;
     cwd?: string;
     ps?: Runner;
     probe?: (runner: Runner) => { probeOk: boolean; table: ProcInfo[]; error: string | null };
+    /** Возвращает СЫРОЙ вывод PowerShell-проверки каталога (`PATH <parent>|<created>|<name>`). */
+    verifyUserData?: (dir: string) => string;
     launch?: (opts: { exe: string; appPath: string; cwd: string }) => {
       ok: boolean;
       rootPid: number | null;

@@ -206,6 +206,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const terminalVisible = appearance.layout.terminalVisible;
   const detailsOpen = appearance.layout.rightVisible;
   const detailsRef = useRef<HTMLButtonElement | null>(null);
+  /** UI26-A2: сама колонка деталей — фокус при открытии и Escape. */
+  const rightPanelRef = useRef<HTMLElement | null>(null);
 
   const commitLayout = (patch: Partial<AppearanceSettings['layout']>): void => {
     setLayoutPreview({});
@@ -227,9 +229,36 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     // §8: focus returns to the button that opened the panel (it stays mounted).
     detailsRef.current?.focus();
   };
+
+  /* UI26-A2 (P2): на узком окне правая панель — overlay. Пока она открыта,
+   * фокус должен уходить внутрь неё, а Escape — закрывать панель и возвращать
+   * фокус на единственный тумблер (R07 §1: второго тумблера не добавляем). */
+  useEffect(() => {
+    if (!detailsOpen) return;
+    rightPanelRef.current?.focus();
+  }, [detailsOpen]);
   const toggleTerminal = (): void => {
     commitLayout({ terminalVisible: !terminalVisible });
   };
+
+  /* UI26-A2: Escape закрывает открытую панель деталей (dismissal без второго
+   * тумблера). Обработчик пересоздаётся только при изменении detailsOpen. */
+  const closeDetailsRef = useRef<() => void>(() => {});
+  // Синхронизация без deps: нужен самый свежий closeDetails, но не
+  // пересоздание подписки на Escape.
+  useEffect(() => {
+    closeDetailsRef.current = closeDetails;
+  });
+  useEffect(() => {
+    if (!detailsOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeDetailsRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [detailsOpen]);
 
   /* ------------------------------------------------------------------ *
    * Active session + chat controller (§9.1 item 4): above all panels.
@@ -1035,6 +1064,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       <AppScreen
         testid="app-shell"
         theme={appearance.theme.preset === 'light' ? 'light' : 'dark'}
+        detailsRef={rightPanelRef}
         windowControls={{
           onMinimize: () => {
             void effectiveApi?.windowControls?.minimize();
@@ -1074,7 +1104,14 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
                   <RightSidebar
                     tools={chat.state.tools}
                     streaming={chat.state.status === 'sending'}
-                    title={activeSession ? (activeSession.name ?? activeSession.id.slice(0, 8)) : undefined}
+                    // UI26-A2 (P3): та же подпись, что в breadcrumb (displayName),
+                    // а не технический id — id остаётся только fallback'ом.
+                    title={
+                      activeSession
+                        ? activeSession.displayName ||
+                          (activeSession.name ?? activeSession.id.slice(0, 8))
+                        : undefined
+                    }
                   />
                 ),
                 handle: (

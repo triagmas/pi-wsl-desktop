@@ -10,4 +10,6 @@ export declare function resolveWinElectron(
   env: Record<string, string | undefined>,
   cwd: string,
   exists: (p: string) => boolean,
+  /** Только для тестов; по умолчанию process.platform. */
+  platform?: NodeJS.Platform,
 ): WinElectron | null;

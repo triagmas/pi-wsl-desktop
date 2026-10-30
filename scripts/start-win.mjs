@@ -44,13 +44,22 @@ export function posixPathToWindows(p, platform = process.platform) {
   return `${m[1].toUpperCase()}:\\${m[2].replace(/\//g, '\\')}`;
 }
 
-/** Чистое разрешение пути: env → кандидаты; возвращает {exe, dist} или null. */
-export function resolveWinElectron(env, cwd, exists) {
+/**
+ * Чистое разрешение пути: env → кандидаты; возвращает {exe, dist} или null.
+ *
+ * `platform` — только для детерминированных тестов: рантайм всегда использует
+ * `process.platform`. Раньше конверсия env-пути зависела от платформы
+ * неявно, из-за чего одинаковые ожидания в тестах не выполнялись на Windows.
+ */
+export function resolveWinElectron(env, cwd, exists, platform = process.platform) {
   const raw = (env.PI_WS_DESKTOP_ELECTRON_EXE ?? '').trim();
-  const fromEnv = raw ? windowsPathToPosix(raw) : '';
+  const fromEnv = raw ? windowsPathToPosix(raw, platform) : '';
   const candidates = fromEnv ? [fromEnv] : DEFAULT_CANDIDATES.map((p) => path.join(cwd, p));
+  // `dist` считается по правилам целевой платформы: на нативном хосте это
+  // ровно path.dirname, но при инъекции платформы результат не зависит от ОС.
+  const dirname = platform === 'win32' ? path.win32.dirname : path.posix.dirname;
   for (const exe of candidates) {
-    if (exists(exe)) return { exe, dist: path.dirname(exe), fromEnv: Boolean(fromEnv) };
+    if (exists(exe)) return { exe, dist: dirname(exe), fromEnv: Boolean(fromEnv) };
   }
   return null;
 }

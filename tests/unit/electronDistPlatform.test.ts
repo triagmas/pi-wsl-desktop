@@ -126,20 +126,78 @@ describe('разбор аргументов проверки', () => {
 describe('поиск Windows-сборки для start:win', () => {
   const exists = (present: string[]) => (p: string) => present.includes(p.replace(/\\/g, '/'));
 
+  // Платформа передаётся явно: раньше ожидания зависели от process.platform,
+  // поэтому на нативном Windows-раннере эти же тесты падали, хотя рантайм
+  // вёл себя правильно.
+
   it('явная переменная окружения имеет приоритет', () => {
-    const found = resolveWinElectron({ PI_WS_DESKTOP_ELECTRON_EXE: 'F:/win/electron.exe' }, '/repo', exists(['/mnt/f/win/electron.exe']));
+    const found = resolveWinElectron(
+      { PI_WS_DESKTOP_ELECTRON_EXE: 'F:/win/electron.exe' },
+      '/repo',
+      exists(['/mnt/f/win/electron.exe']),
+      'linux',
+    );
     expect(found).toMatchObject({ fromEnv: true });
     expect(found?.exe).toBe('/mnt/f/win/electron.exe');
   });
 
   it('без переменной берётся локальная распаковка artifacts/win-electron', () => {
-    const found = resolveWinElectron({}, '/repo', exists(['/repo/artifacts/win-electron/electron.exe']));
+    const found = resolveWinElectron({}, '/repo', exists(['/repo/artifacts/win-electron/electron.exe']), 'linux');
     expect(found?.exe.replace(/\\/g, '/')).toBe('/repo/artifacts/win-electron/electron.exe');
     expect(found?.fromEnv).toBe(false);
   });
 
   it('если ничего нет — null (скрипт объясняет, что делать)', () => {
-    expect(resolveWinElectron({}, '/repo', () => false)).toBeNull();
+    expect(resolveWinElectron({}, '/repo', () => false, 'linux')).toBeNull();
+  });
+});
+
+describe('детерминированная платформа: Windows', () => {
+  const exists = (present: string[]) => (p: string) => present.includes(p.replace(/\\/g, '/'));
+
+  it('windows-путь из переменной остаётся буквальным (без /mnt)', () => {
+    const found = resolveWinElectron(
+      { PI_WS_DESKTOP_ELECTRON_EXE: 'F:\\win\\electron.exe' },
+      'F:\\repo',
+      exists(['F:/win/electron.exe']),
+      'win32',
+    );
+    expect(found).toEqual({ exe: 'F:\\win\\electron.exe', dist: 'F:\\win', fromEnv: true });
+  });
+
+  it('слэши в переменной не переписываются в /mnt-путь', () => {
+    const found = resolveWinElectron(
+      { PI_WS_DESKTOP_ELECTRON_EXE: 'F:/win/electron.exe' },
+      'F:\\repo',
+      exists(['F:/win/electron.exe']),
+      'win32',
+    );
+    expect(found?.exe).not.toMatch(/^\/mnt\//);
+    expect(found?.exe.replace(/\\/g, '/')).toBe('F:/win/electron.exe');
+    expect(found?.fromEnv).toBe(true);
+  });
+
+  it('без переменной берётся локальная распаковка рядом с проектом', () => {
+    const found = resolveWinElectron({}, 'F:\\repo', exists(['F:/repo/artifacts/win-electron/electron.exe']), 'win32');
+    expect(found?.exe.replace(/\\/g, '/')).toBe('F:/repo/artifacts/win-electron/electron.exe');
+    expect(found?.fromEnv).toBe(false);
+  });
+
+  it('несуществующий путь в переменной — null, без подмены на локальную сборку', () => {
+    expect(resolveWinElectron({ PI_WS_DESKTOP_ELECTRON_EXE: 'F:\\gone\\electron.exe' }, 'F:\\repo', () => false, 'win32')).toBeNull();
+  });
+
+  it('по умолчанию платформа берётся из process.platform (публичный API сохранён)', () => {
+    // Форма значения совпадает с поведением windowsPathToPosix без аргумента:
+    // конверсия выполняется только вне win32.
+    const literal = windowsPathToPosix('F:\\x\\electron.exe');
+    const found = resolveWinElectron(
+      { PI_WS_DESKTOP_ELECTRON_EXE: 'F:\\x\\electron.exe' },
+      '/repo',
+      (p) => p === literal,
+    );
+    expect(found?.fromEnv).toBe(true);
+    expect(found?.exe).toBe(literal);
   });
 });
 
@@ -155,7 +213,12 @@ describe('путь к Windows-сборке из WSL', () => {
   });
 
   it('переменная окружения с windows-путём находится из WSL', () => {
-    const found = resolveWinElectron({ PI_WS_DESKTOP_ELECTRON_EXE: 'F:\\x\\electron.exe' }, '/repo', (p) => p === '/mnt/f/x/electron.exe');
+    const found = resolveWinElectron(
+      { PI_WS_DESKTOP_ELECTRON_EXE: 'F:\\x\\electron.exe' },
+      '/repo',
+      (p) => p === '/mnt/f/x/electron.exe',
+      'linux',
+    );
     expect(found?.fromEnv).toBe(true);
     expect(found?.exe).toBe('/mnt/f/x/electron.exe');
   });

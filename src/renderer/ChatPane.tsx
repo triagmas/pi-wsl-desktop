@@ -178,7 +178,12 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '', dr
   // Only entries read for THIS file are ever displayed (never the previous one).
   const savedEntries = saved.file === file ? saved.entries : [];
   const visibleHistoryError = historyError && historyError.file === file ? historyError : null;
-  const activeModel = state.state?.model ?? null;
+  // UI26-A2: Pi может вернуть служебную модель-заглушку (`unknown/unknown`),
+  // когда в профиле не выбран провайдер. Показывать её как реальную модель
+  // нельзя: это не результат каталога, а отсутствие выбора.
+  const rawModel = state.state?.model ?? null;
+  const modelUnavailable = !rawModel || !rawModel.id || rawModel.id === 'unknown';
+  const activeModel = modelUnavailable ? null : rawModel;
   // Defensive defaults: an older/partial state object must never crash the pane.
   const models = useMemo(() => state.models ?? [], [state.models]);
   const thinkingLevels = state.thinkingLevels ?? [];

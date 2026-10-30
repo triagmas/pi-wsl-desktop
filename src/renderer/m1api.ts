@@ -1,6 +1,7 @@
 /** Typed facade for the M1 bridge surface (SPEC §4.1). */
 import type { DesktopApi } from './api';
 import type { ChatEventT, ModelInfoT, ProjectInfoT, ReadSessionResultT, RpcStateT, SearchResultT, SessionInfoT } from './types';
+export { parseBridgeError } from './bridgeError';
 
 const call = <T>(api: DesktopApi, method: string, params?: Record<string, unknown>): Promise<T> =>
   api.request(method, params) as Promise<T>;
@@ -22,9 +23,16 @@ export const m1 = {
     },
   ): Promise<ReadSessionResultT> => call(api, 'readSession', params),
   openSession: (api: DesktopApi, file: string): Promise<{ state: RpcStateT | null }> => call(api, 'openSession', { file }),
-  sendPrompt: (api: DesktopApi, message: string): Promise<{ disposition: string }> => call(api, 'sendPrompt', { message }),
+  /** UI26 R01: официальный новый диалог (Pi `new_session`), JSONL — на первой записи. */
+  newSession: (api: DesktopApi, cwd: string): Promise<{ state: RpcStateT; sessionFile: string; materialized: boolean }> =>
+    call(api, 'newSession', { cwd }),
+  sendPrompt: (
+    api: DesktopApi,
+    message: string,
+  ): Promise<{ disposition: string; sessionFile: string | null; sessionId: string | null; materialized: boolean }> =>
+    call(api, 'sendPrompt', { message }),
   interrupt: (api: DesktopApi): Promise<{ interrupted: boolean }> => call(api, 'interrupt'),
-  getState: (api: DesktopApi): Promise<{ state: RpcStateT | null }> => call(api, 'getState'),
+  getState: (api: DesktopApi): Promise<{ state: RpcStateT | null; sessionFileExists?: boolean }> => call(api, 'getState'),
   closeSession: (api: DesktopApi): Promise<{ closed: boolean }> => call(api, 'closeSession'),
   // UI21-F2: read-through to the installed Pi; no catalogue or defaults here.
   getAvailableModels: (api: DesktopApi): Promise<{ models: ModelInfoT[] }> => call(api, 'getAvailableModels'),
@@ -45,34 +53,4 @@ export const m1 = {
  * пользователь видел «UNKNOWN» вместо `BRIDGE_TIMEOUT`. Обёртку снимаем
  * послойно (Electron может обернуть повторно), не трогая остальной текст.
  */
-const IPC_WRAPPER = /^(?:Error invoking remote method '[^']*':\s*)?(?:Error:\s*)?/;
-
-function stripIpcWrapper(raw: string): string {
-  let text = raw.trim();
-  for (let i = 0; i < 4; i += 1) {
-    const m = IPC_WRAPPER.exec(text);
-    if (!m || m[0].length === 0) break;
-    text = text.slice(m[0].length).trim();
-  }
-  return text;
-}
-
-/** Parse an IPC-rethrown error `{CODE}: message` into a structured value. */
-export function parseBridgeError(err: unknown): { code: string; message: string } {
-  // Production path: ipc.ts prefixes `{CODE}: message` (Error props do not
-  // survive Electron serialization). Structured callers may attach `.code`.
-  const raw = err instanceof Error ? err.message : String(err);
-  const text = stripIpcWrapper(raw);
-  const attached = (err as { code?: unknown } | null)?.code;
-  if (typeof attached === 'string' && attached.length > 0) {
-    // Текст мог быть помечен ДРУГИМ кодом (например `UNKNOWN:` из bridge) —
-    // структурный `.code` всё равно главнее, но его префикс в тексте лишний.
-    const stripped = text.replace(new RegExp(`^([A-Z][A-Z0-9_]{2,}):\\s*`), '');
-    return { code: attached, message: stripped || text };
-  }
-  const m = /^([A-Z][A-Z0-9_]{2,}):(?:\s|$)/.exec(text);
-  if (m) return { code: m[1], message: text.slice(m[0].length) || text };
-  return { code: 'UNKNOWN', message: text };
-}
-
 export type { ChatEventT };

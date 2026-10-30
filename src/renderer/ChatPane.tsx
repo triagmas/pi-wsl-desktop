@@ -39,9 +39,14 @@ export interface ChatPaneProps {
   /** R07 §2: read-only источник сохранённых сообщений (M1 pagination). */
   api?: DesktopApi | null;
   file?: string;
+  /**
+   * UI26 R01: cwd черновика. Пока ничего не отправлено, панель честно
+   * показывает, в каком проекте появится новая сессия Pi.
+   */
+  draftCwd?: string | null;
 }
 
-export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: ChatPaneProps) {
+export function ChatPane({ chat, draft, onDraftChange, api = null, file = '', draftCwd = null }: ChatPaneProps) {
   const { state, open, send, resend, interrupt, closeChat, selectModel, selectThinkingLevel } = chat;
   // Актуальный черновик для отложенных колбэков (поздний ACK не должен стирать
   // текст, набранный после отправки).
@@ -273,6 +278,12 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '' }: 
       )}
       {state.status === 'error' && !state.error && (
         <div className="error-box" role="alert">Не удалось открыть чат</div>
+      )}
+      {draftCwd !== null && state.entries.length === 0 && state.status !== 'sending' && (
+        <p className="muted" data-testid="draft-notice" title={draftCwd}>
+          Новый диалог · {draftCwd} — сессия Pi создаётся официальным new_session, файл
+          появится при первом сообщении.
+        </p>
       )}
       {!isOpenLike && state.status !== 'opening' && (
         // R07 r01 (P2-B): компактная группа действия; явное открытие Pi RPC

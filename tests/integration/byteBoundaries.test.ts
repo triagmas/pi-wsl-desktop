@@ -68,6 +68,8 @@ describe('byte-exact chunked reads across multibyte UTF-8 boundaries', () => {
           projectId: '/p',
           projectPath: '/p',
           name: null,
+        displayName: 'bounded',
+        displayNameSource: 'id',
           createdAt: null,
           updatedAt: '2026-10-19T00:00:00.000Z',
           sizeBytes: 0,

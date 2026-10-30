@@ -29,6 +29,8 @@ import {
   GetThinkingLevelsResultSchema,
   OpenSessionParamsSchema,
   OpenSessionResultSchema,
+  NewSessionParamsSchema,
+  NewSessionResultSchema,
   SetModelParamsSchema,
   SetModelResultSchema,
   SetThinkingLevelParamsSchema,
@@ -38,6 +40,7 @@ import {
   SearchParamsSchema,
   SearchResultSchema,
   SendPromptParamsSchema,
+  SendPromptResultSchema,
   SubscribeParamsSchema,
 } from '../shared/m1Protocol';
 import {
@@ -397,10 +400,34 @@ export function makeHandlers(ctx: HandlersContext): Record<string, Handler> {
         await opened.handle.close().catch(() => undefined); // R1d: keep the original error
       }
     },
+    /**
+     * UI26 R01 — новый диалог.
+     *
+     * Safety: the renderer may only ask for a session in a cwd Pi itself has
+     * already reported as a project (resolved from real session headers), so a
+     * compromised renderer cannot spawn Pi in an arbitrary directory. Pi is
+     * spawned WITHOUT `--session` and asked for `new_session`; no JSONL is
+     * created here and none is written by this process.
+     */
+    newSession: async (params) => {
+      const { cwd } = parseParams(NewSessionParamsSchema, params, 'newSession');
+      const wanted = path.posix.resolve(cwd);
+      const { projects } = await index();
+      const known = projects.some((project) => path.posix.resolve(project.path) === wanted);
+      if (!known) {
+        throw new BridgeError('INVALID_REQUEST', 'cwd is not a known Pi project path');
+      }
+      const created = await getChat().newSession(wanted);
+      return assertOut(
+        NewSessionResultSchema,
+        { state: created.state, sessionFile: created.sessionFile, materialized: false },
+        'newSession',
+      );
+    },
     sendPrompt: async (params) => {
       const p = parseParams(SendPromptParamsSchema, params, 'sendPrompt');
-      const { disposition } = await getChat().sendPrompt(p.message, p.streamingBehavior);
-      return { disposition };
+      const { disposition, sessionFile, sessionId, materialized } = await getChat().sendPrompt(p.message, p.streamingBehavior);
+      return assertOut(SendPromptResultSchema, { disposition, sessionFile, sessionId, materialized }, 'sendPrompt');
     },
     interrupt: async () => assertOut(InterruptResultSchema, await getChat().interrupt(), 'interrupt'),
     getState: async () => assertOut(GetStateResultSchema, await getChat().getState(), 'getState'),

@@ -91,7 +91,13 @@ function makeApi(route: ChatRoute = {}) {
         saveAppearance: async () => undefined,
         resetAppearance: async () => undefined,
   };
-  return { api, request, chatSubs, emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb(p)) };
+  // UI26 R03: события всегда приходят с ключом соединения (см. chatSession.ts).
+  return {
+    api,
+    request,
+    chatSubs,
+    emit: (p: ChatEventT) => [...chatSubs].forEach((cb) => cb({ key: `file:${FILE}`, ...p } as ChatEventT)),
+  };
 }
 
 const READY: RendererSnapshot = { phase: 'ready', attempt: 0, distro: 'Ubuntu', distros: null, runtime: null };

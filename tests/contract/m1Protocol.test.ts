@@ -44,6 +44,8 @@ describe('M1 method allowlist', () => {
         'interrupt',
         'listProjects',
         'listSessions',
+        // UI26 R01 (#26): официальный новый диалог через Pi new_session.
+        'newSession',
         'openSession',
         'readSession',
         'searchSessions',
@@ -101,6 +103,10 @@ describe('project and session schemas', () => {
       availability: 'ok',
       activeWrite: false,
       diagnostics: null,
+      // UI26 R01: заголовок, который видит пользователь (Pi name → первое
+      // user-сообщение → короткий id), отдельно от честного `name`.
+      displayName: 'Bridge fixture session',
+      displayNameSource: 'pi',
     };
     expect(SessionInfoSchema.parse(session)).toEqual(session);
     expect(SessionInfoSchema.safeParse({ ...session, availability: 'writing' }).success).toBe(false);
@@ -115,6 +121,7 @@ describe('project and session schemas', () => {
           id: 'x', file: '/a/b.jsonl', root: '/a', projectId: 'p', projectPath: '/p',
           name: null, createdAt: '2026-10-19T00:00:00.000Z', updatedAt: '2026-10-19T00:00:00.000Z',
           sizeBytes: 1, version: 1, availability, activeWrite: false, diagnostics: 'line 1: invalid json',
+          displayName: 'x', displayNameSource: 'id',
         }).success,
       ).toBe(true);
     }
@@ -169,7 +176,15 @@ describe('chat contract', () => {
     expect(SendPromptParamsSchema.safeParse({ message: 'hi', streamingBehavior: 'steer' }).success).toBe(true);
     expect(SendPromptParamsSchema.safeParse({ message: '' }).success).toBe(false);
     expect(SendPromptParamsSchema.safeParse({ message: 'hi', streamingBehavior: 'shout' }).success).toBe(false);
-    expect(SendPromptResultSchema.parse({ disposition: 'started' }).disposition).toBe('started');
+    // UI26 R01: результат дополнительно сообщает, в КАКУЮ сессию Pi пишет и
+    // материализован ли уже JSONL (черновик до первой записи — false).
+    const started = SendPromptResultSchema.parse({
+      disposition: 'started',
+      sessionFile: '/roots/--p--/s.jsonl',
+      sessionId: 'sid',
+      materialized: false,
+    });
+    expect(started).toMatchObject({ disposition: 'started', materialized: false });
     expect(SendPromptResultSchema.safeParse({ disposition: 'done' }).success).toBe(false);
   });
 

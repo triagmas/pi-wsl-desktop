@@ -20,7 +20,10 @@
     "test:smoke:real": "REAL_WSL=1 vitest run --project smoke",
     "build": "node scripts/build.mjs",
     "design": "vite --config design-lab/vite.config.ts",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "prestart": "node scripts/check-electron-dist.mjs",
+    "start:win": "npm run build && node scripts/start-win.mjs",
+    "smoke:win:gui": "node scripts/win-gui-smoke.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

@@ -91,7 +91,12 @@ function makeApi(routes: { pages?: Array<Page | Promise<Page>>; error?: unknown 
     saveAppearance: async () => undefined,
     resetAppearance: async () => undefined,
   };
-  return { api, readCalls, emit: (p: unknown) => [...chatSubs].forEach((cb) => cb(p)) };
+  // UI26 R03: bridge штампует события ключом RPC-соединения.
+  return {
+    api,
+    readCalls,
+    emit: (p: unknown) => [...chatSubs].forEach((cb) => cb({ key: `file:${FILE}`, ...(p as object) })),
+  };
 }
 
 function Harness({ api, file }: { api: DesktopApi; file: string }) {
@@ -244,6 +249,9 @@ describe('R03 — панель чата открывается последни�
     setMetrics(feed, { scrollTop: 100, scrollHeight: 2000, clientHeight: 100 });
     fireEvent.scroll(feed); // пользователь отлистал вверх (2000−100−100 > 24)
 
+    // UI26 R02: ключ не передаётся (старый путь) — событие принимается только
+    // у доказанно живого диалога, поэтому сначала помечаем чат открытым.
+    emit({ kind: 'opened', state: null, key: `file:${FILE}` });
     emit({ kind: 'pi', name: 'message_end', data: { message: { id: 'm-live', role: 'user', content: 'новый вопрос' } } });
     await waitFor(() => expect(screen.getByText('новый вопрос')).toBeInTheDocument());
     expect(feed.scrollTop).toBe(100); // позиция чтения сохранена

@@ -2,6 +2,13 @@
  * Chat client state machine (M1): explicit write boundary, streamed text
  * reconstruction, tool lifecycle, error/recovery states.
  *
+ * UI26 R01 (#26): state is now kept PER CONVERSATION (`sessionChat.ts`), not in
+ * one global slot:
+ *  - switching dialogs no longer destroys the other one's stream/draft/errors;
+ *  - a late event stamped with another session key is never rendered here;
+ *  - a draft (`file === ''` + `cwd`) opens the official Pi `new_session` and is
+ *    bound to the real file once Pi reports it — the bridge never guesses paths.
+ *
  * Event semantics follow the verified Pi docs: `message_end` is the
  * authoritative final message (deltas are display-only until then),
  * `agent_settled` closes the sending state, `closed` drops back to an
@@ -9,182 +16,37 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopApi } from './api';
-import { m1, parseBridgeError } from './m1api';
-import { messageText } from './entryText';
-import { redactSecrets } from '../shared/redact';
-import type { ChatEventT, ModelInfoT, RpcStateT } from './types';
+import { m1 } from './m1api';
+import {
+  activeState,
+  activate,
+  bindDraft,
+  emptyStore,
+  fileKey,
+  getDraftText,
+  patchKey,
+  recordEvent,
+  setDraftText,
+  type SessionChatStore,
+} from './sessionChat';
+import { toUiError, type ChatUiState } from './chatState';
+import type { ChatEventT } from './types';
 
-export type ChatStatus = 'closed' | 'opening' | 'open' | 'sending' | 'error';
-export interface ChatEntry {
-  key: string;
-  kind: 'user' | 'assistant' | 'system' | 'tool' | 'other';
-  text: string;
-  /**
-   * UI21 R07 r02: доказуемое тождество события (id сообщения/записи), если Pi
-   * его предоставил. Только по нему разрешена дедупликация — совпадение роли и
-   * текста идентичностью не является.
-   */
-  eventId?: string;
-  /** UI21-F1-C: set when stopReason==='error' — the bounded, redacted model
-   *  error the pane must show instead of a blank assistant bubble. */
-  error?: string;
-}
-export interface ChatTool {
-  id: string;
-  name: string;
-  done: boolean;
-  error: boolean;
-}
-export interface ChatUiState {
-  status: ChatStatus;
-  state: RpcStateT | null;
-  entries: ChatEntry[];
-  streamText: string;
-  tools: ChatTool[];
-  error: { code: string; message: string } | null;
-  banner: { code: string; message: string } | null;
-  /** UI21-F2: the catalog and the thinking levels are Pi's answer, never ours. */
-  models: ModelInfoT[];
-  thinkingLevels: string[];
-  /** Catalog read failure (disconnected Pi, broken config) — chat stays usable. */
-  modelsError: { code: string; message: string } | null;
-  /** True while Pi's catalog/levels are being read (menu must not claim "empty"). */
-  modelsLoading: boolean;
-  /** Thinking-levels failure — INDEPENDENT of the catalog (it must not wipe it). */
-  thinkingError: { code: string; message: string } | null;
-  /**
-   * UI21 F1-B R02 (P1): отправка, судьба которой НЕ подтверждена (тайм-аут ACK).
-   * Текст хранится здесь, чтобы его нельзя было потерять, и чтобы явный повтор
-   * не отправил второе сообщение, если Pi уже принял первое.
-   */
-  pendingSend: {
-    text: string;
-    at: number;
-    /**
-     * Сколько записей было в ленте ПЕРЕД отправкой. Доказательством доставки
-     * считается пользовательская запись с тем же текстом, появившаяся после
-     * этой отметки: так исключается более раннее такое же сообщение, но
-     * засчитывается доставка, пришедшая ещё до тайм-аута ACK.
-     */
-    entryCountBeforeSend: number;
-  } | null;
-}
+/** UI26 R03: bounded re-check of delayed session materialization (read-only). */
+const MATERIALIZE_POLLS = 60;
+const MATERIALIZE_POLL_MS = 250;
 
-export const initialChatState: ChatUiState = {
-  status: 'closed',
-  state: null,
-  entries: [],
-  streamText: '',
-  tools: [],
-  error: null,
-  banner: null,
-  models: [],
-  thinkingLevels: [],
-  modelsError: null,
-  modelsLoading: false,
-  thinkingError: null,
-  pendingSend: null,
-};
-
-/**
- * UI21 R02: ONE safe error mapper for every error that can reach the DOM —
- * bridge/RPC failures, failed model runs, disconnect banners and catalog reads.
- * Plain text only (never Markdown/HTML), redacted and bounded by shared/redact.
- */
-/**
- * UI21 R07 r01 (P1-A): единственная граница отображения ошибок.
- * Экспортируется, чтобы новые пути (чтение JSONL) не заводили вторую,
- * неотредактированную ветку — секрет из bridge/readSession не должен
- * попадать в DOM.
- */
-export function toUiError(err: unknown): { code: string; message: string } {
-  const parsed = parseBridgeError(err);
-  return { code: parsed.code, message: redactSecrets(parsed.message) };
-}
-
-function entryFromMessage(
-  message: {
-    id?: unknown;
-    role?: unknown;
-    content?: unknown;
-    toolName?: unknown;
-    stopReason?: unknown;
-    errorMessage?: unknown;
-  },
-  index: number,
-): ChatEntry {
-  const role = message.role;
-  const text = messageText(message.content);
-  // Only a real id becomes an identity; absent/empty means "not provable".
-  const eventId = typeof message.id === 'string' && message.id !== '' ? message.id : undefined;
-  if (role === 'assistant') {
-    // UI21-F1-C: a failed run must surface its real error — never a blank bubble.
-    if (message.stopReason === 'error') {
-      return { key: `e${index}`, kind: 'assistant', text, error: redactSecrets(message.errorMessage), ...(eventId ? { eventId } : {}) };
-    }
-    return { key: `e${index}`, kind: 'assistant', text, ...(eventId ? { eventId } : {}) };
-  }
-  if (role === 'user') return { key: `e${index}`, kind: 'user', text, ...(eventId ? { eventId } : {}) };
-  if (role === 'system') return { key: `e${index}`, kind: 'system', text, ...(eventId ? { eventId } : {}) };
-  if (role === 'toolResult') {
-    const name = typeof message.toolName === 'string' ? message.toolName : 'tool';
-    return { key: `e${index}`, kind: 'tool', text: `${name}: ${text}`, ...(eventId ? { eventId } : {}) };
-  }
-  return { key: `e${index}`, kind: 'other', text, ...(eventId ? { eventId } : {}) };
-}
-
-export function applyChatEvent(state: ChatUiState, ev: ChatEventT): ChatUiState {
-  if (ev.kind === 'opened') {
-    return { ...state, status: 'open', state: ev.state, error: null, banner: null };
-  }
-  if (ev.kind === 'closed') {
-    const banner = ev.code === 'CANCELLED' ? null : { code: ev.code, message: redactSecrets(ev.message) };
-    // UI21-F1-A P1: the live tool strip belongs to a running RPC — on close/
-    // disconnect it must go with streamText, otherwise a reopened (resumed)
-    // chat renders a phantom live run (stale ⏳ step from the dead process).
-    return { ...state, status: 'closed', banner, error: null, streamText: '', tools: [] };
-  }
-  const data = (ev.data ?? {}) as Record<string, unknown>;
-  switch (ev.name) {
-    case 'message_end': {
-      const msg = data.message as
-        | { role?: unknown; content?: unknown; toolName?: unknown; stopReason?: unknown; errorMessage?: unknown }
-        | undefined;
-      if (!msg) return state;
-      const entry = entryFromMessage(msg, state.entries.length);
-      if (entry.text === '' && entry.kind === 'other') return state;
-      return { ...state, entries: [...state.entries, entry], streamText: '' };
-    }
-    case 'message_update': {
-      const evt = data.assistantMessageEvent as { type?: unknown; delta?: unknown } | undefined;
-      if (evt?.type === 'text_delta' && typeof evt.delta === 'string') {
-        return { ...state, streamText: state.streamText + evt.delta };
-      }
-      return state;
-    }
-    case 'tool_execution_start': {
-      const id = typeof data.toolCallId === 'string' ? data.toolCallId : `t${state.tools.length}`;
-      const name = typeof data.toolName === 'string' ? data.toolName : 'tool';
-      return { ...state, tools: [...state.tools.filter((t) => t.id !== id), { id, name, done: false, error: false }] };
-    }
-    case 'tool_execution_end': {
-      const id = typeof data.toolCallId === 'string' ? data.toolCallId : '';
-      return {
-        ...state,
-        tools: state.tools.map((t) => (t.id === id ? { ...t, done: true, error: data.isError === true } : t)),
-      };
-    }
-    case 'agent_settled':
-      // Keep streamText: an aborted run never gets message_end, and losing the
-      // partial output would be dishonest UX (message_end clears it normally).
-      return state.status === 'sending' ? { ...state, status: 'open' } : state;
-    default:
-      return state;
-  }
-}
+// UI26 R01: public surface unchanged — old imports of `useChat` keep working.
+export { applyChatEvent, initialChatState, toUiError } from './chatState';
+export type { ChatEntry, ChatStatus, ChatTool, ChatUiState } from './chatState';
 
 export interface ChatController {
   state: ChatUiState;
+  /** Key of the conversation this controller currently shows. */
+  key: string;
+  /** Composer text of THIS conversation (per-session draft). */
+  draftText: string;
+  setDraftText: (text: string) => void;
   open: () => Promise<void>;
   send: (text: string) => Promise<{ ok: boolean }>;
   /** UI21 F1-B R02: явный повтор неподтверждённой отправки (без дублей). */
@@ -198,11 +60,82 @@ export interface ChatController {
   selectThinkingLevel: (level: string) => Promise<void>;
 }
 
-export function useChat(api: DesktopApi | null, file: string): ChatController {
-  const [state, setState] = useState<ChatUiState>(initialChatState);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+export interface UseChatOptions {
+  /**
+   * Explicit conversation key (`file:<path>` или `draft:<id>`). Defaults to the
+   * file key, so a single-session caller behaves exactly as before.
+   */
+  key?: string;
+  /** Project cwd for a draft: the new Pi session is created inside it. */
+  cwd?: string | null;
+  /**
+   * Called when Pi assigned a session file. `materialized` distinguishes
+   * "Pi reserved a file (new_session, JSONL not written yet)" from
+   * "the JSONL now exists (first write happened)".
+   */
+  onSessionCreated?: (file: string, info: { materialized: boolean }) => void;
+}
+
+export function useChat(api: DesktopApi | null, file: string, opts: UseChatOptions = {}): ChatController {
+  const key = opts.key ?? fileKey(file);
+  const isDraft = file === '' && typeof opts.cwd === 'string' && opts.cwd !== '';
+  const [store, setStore] = useState<SessionChatStore>(() => activate(emptyStore(), key));
+  const storeRef = useRef(store);
+  storeRef.current = store;
   const mounted = useRef(true);
+  const createdRef = useRef<((f: string, i: { materialized: boolean }) => void) | undefined>(opts.onSessionCreated);
+  createdRef.current = opts.onSessionCreated;
+
+  /**
+   * UI26 R03 (P1-3): Pi may create the JSONL only AFTER the prompt ACK. The
+   * bridge reports `materialized:false` then; we re-check the real file with a
+   * bounded poll (read-only `getState.sessionFileExists`) and promote the draft
+   * to a real session as soon as the file exists. The renderer never writes a
+   * JSONL and never assumes existence.
+   */
+  const materializeWatch = useRef<Set<string>>(new Set());
+  const watchMaterialized = useCallback(
+    (target: string) => {
+      if (!api || materializeWatch.current.has(target)) return;
+      materializeWatch.current.add(target);
+      void (async () => {
+        const convKey = fileKey(target);
+        try {
+          for (let i = 0; i < MATERIALIZE_POLLS; i += 1) {
+            await new Promise((r) => setTimeout(r, MATERIALIZE_POLL_MS));
+            // UI26 R04 (P1): the poll belongs to ONE conversation and must stop
+            // safely when that conversation is switched away, closed, failed or
+            // disconnected — otherwise a later poll of another session could
+            // "materialize" this draft with someone else's file.
+            if (!mounted.current) return;
+            const conv = storeRef.current.byKey[convKey];
+            if (!conv || conv.status === 'closed' || conv.status === 'error') return;
+            const st = await m1.getState(api).catch(() => null);
+            if (!st?.sessionFileExists) continue;
+            // Existence alone proves nothing: Pi must still be bound to THIS
+            // file, and our conversation must still be alive after the await.
+            if (st.state?.sessionFile !== target) return;
+            const after = storeRef.current.byKey[convKey];
+            if (!after || after.status === 'closed' || after.status === 'error') return;
+            createdRef.current?.(target, { materialized: true });
+            return;
+          }
+        } finally {
+          materializeWatch.current.delete(target);
+        }
+      })();
+    },
+    [api],
+  );
+
+  // The active key may be a draft that got bound to a file after materialize:
+  // in that case the caller's `key` follows it through onSessionCreated.
+  const activeKeyRef = useRef(key);
+  activeKeyRef.current = key;
+
+  const state = activeState(store);
+  const draftText = getDraftText(store, key);
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -210,35 +143,95 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     };
   }, []);
 
+  /**
+   * Store updates are applied to a synchronous ref first and then published to
+   * React. Without this, two awaited calls in the same tick (open → refresh)
+   * would both observe the stale status and open the bridge twice.
+   */
+  const update = useCallback((fn: (s: SessionChatStore) => SessionChatStore) => {
+    storeRef.current = fn(storeRef.current);
+    setStore(storeRef.current);
+  }, []);
+
+  // Activate the requested conversation. Existing state is PRESERVED (#26):
+  // switching back restores the other dialog's stream, tools and errors.
+  useEffect(() => {
+    update((s) => activate(s, key));
+  }, [key, update]);
+
   useEffect(() => {
     if (!api) return;
     return api.onChatEvent((payload) => {
       if (!mounted.current) return;
-      setState((s) => applyChatEvent(s, payload as ChatEventT));
+      // Scoped routing: an event of another conversation is never rendered here.
+      update((s) => recordEvent(s, payload as ChatEventT));
     });
-  }, [api]);
+  }, [api, update]);
 
-  // Switching the active session resets the visible chat state — a draft or
-  // stream from another file must never leak into this one (§9.1 item 4).
-  useEffect(() => {
-    setState(initialChatState);
-  }, [file]);
+  const patch = useCallback((next: (s: ChatUiState) => ChatUiState) => {
+    update((s) => patchKey(s, activeKeyRef.current, next));
+  }, [update]);
+
+  /**
+   * Open (or create) the bridge side of THIS conversation.
+   *
+   * Draft: `newSession` — the official Pi command. The returned file may not
+   * exist yet (Pi 1.4.0 materializes lazily), which is exactly why the draft
+   * costs nothing until the user really sends something.
+   */
+  const openFlightRef = useRef<Promise<boolean> | null>(null);
+
+  const ensureOpen = useCallback(async (): Promise<boolean> => {
+    if (!api) return false;
+    // UI26 R03 (P1-1): single-flight. A second caller joins the in-flight open
+    // instead of starting another `newSession` — the bridge slot allows exactly
+    // one Pi process, and a duplicate renderer call must not race it.
+    const inflight = openFlightRef.current;
+    if (inflight) return inflight;
+    const run = (async () => {
+      const current = storeRef.current;
+      const status = current.byKey[activeKeyRef.current]?.status ?? 'closed';
+      if (status === 'open' || status === 'sending') return true;
+      patch((s) => ({ ...s, status: 'opening', error: null, banner: null }));
+      try {
+        if (isDraft) {
+          const r = await m1.newSession(api, String(opts.cwd));
+          if (!mounted.current) return true;
+          // The conversation key follows Pi's file: every further patch (and
+          // every event stamped with `file:<path>`) must land on the SAME slot.
+          const target = fileKey(r.sessionFile);
+          update((s) => bindDraft(s, activeKeyRef.current, r.sessionFile));
+          activeKeyRef.current = target;
+          patch((s) => ({ ...s, status: 'open', state: r.state, error: null, banner: null }));
+          createdRef.current?.(r.sessionFile, { materialized: r.materialized });
+        } else {
+          const r = await m1.openSession(api, file);
+          if (!mounted.current) return true;
+          patch((s) => ({ ...s, status: 'open', state: r.state, error: null, banner: null }));
+        }
+        return true;
+      } catch (err) {
+        if (!mounted.current) return false;
+        patch((s) => ({ ...s, status: 'error', error: toUiError(err) }));
+        return false;
+      }
+    })();
+    openFlightRef.current = run;
+    try {
+      return await run;
+    } finally {
+      if (openFlightRef.current === run) openFlightRef.current = null;
+    }
+  }, [api, file, isDraft, opts.cwd, patch, update]);
+
+  const ensureOpenRef = useRef(ensureOpen);
+  ensureOpenRef.current = ensureOpen;
 
   const open = useCallback(async () => {
     if (!api) return;
-    setState((s) => ({ ...s, status: 'opening', error: null, banner: null }));
-    try {
-      const r = await m1.openSession(api, file);
-      if (!mounted.current) return;
-      setState((s) => ({ ...s, status: 'open', state: r.state, error: null, banner: null }));
-      // UI21-F2: the catalog/levels are Pi's answer for THIS session; a failing
-      // read must not break the chat, so it is reported separately below.
-      void refreshModelsRef.current();
-    } catch (err) {
-      if (!mounted.current) return;
-      setState((s) => ({ ...s, status: 'error', error: toUiError(err) }));
-    }
-  }, [api, file]);
+    if (!(await ensureOpenRef.current())) return;
+    void refreshModelsRef.current();
+  }, [api]);
 
   /**
    * UI21 F1-B R02 (P1, review): одно решение о восстановлении на ВСЕ пути
@@ -249,9 +242,8 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
    */
   const deliveredSince = useCallback((pending: NonNullable<ChatUiState['pendingSend']>): boolean => {
     const text = pending.text.trim();
-    return stateRef.current.entries
-      .slice(pending.entryCountBeforeSend)
-      .some((e) => e.kind === 'user' && e.text.trim() === text);
+    const entries = storeRef.current.byKey[activeKeyRef.current]?.entries ?? [];
+    return entries.slice(pending.entryCountBeforeSend).some((e) => e.kind === 'user' && e.text.trim() === text);
   }, []);
 
   const send = useCallback(
@@ -259,9 +251,9 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       if (!api || text.trim() === '') return { ok: false };
       // Обычный Send после неподтверждённой отправки не должен дублировать
       // уже принятое сообщение: сначала то же решение, что и у «Повторить».
-      const unresolved = stateRef.current.pendingSend;
+      const unresolved = storeRef.current.byKey[activeKeyRef.current]?.pendingSend;
       if (unresolved && unresolved.text.trim() === text.trim() && deliveredSince(unresolved)) {
-        setState((s) => ({
+        patch((s) => ({
           ...s,
           pendingSend: null,
           error: null,
@@ -269,17 +261,28 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
         }));
         return { ok: true };
       }
-      const entryCountBeforeSend = stateRef.current.entries.length;
-      setState((s) => ({ ...s, status: 'sending', error: null, pendingSend: null }));
+      // #26: черновик становится реальной сессией Pi ровно в момент первой
+      // подтверждённой отправки — и только через официальный new_session.
+      if (!(await ensureOpenRef.current())) return { ok: false };
+      const entryCountBeforeSend = storeRef.current.byKey[activeKeyRef.current]?.entries.length ?? 0;
+      patch((s) => ({ ...s, status: 'sending', error: null, pendingSend: null }));
       try {
-        await m1.sendPrompt(api, text);
+        const r = await m1.sendPrompt(api, text);
+        // The renderer binds its state to Pi's real file — no path guessing.
+        if (r.sessionFile) {
+          const target = fileKey(r.sessionFile);
+          update((s) => bindDraft(s, activeKeyRef.current, r.sessionFile as string));
+          activeKeyRef.current = target;
+          createdRef.current?.(r.sessionFile, { materialized: r.materialized });
+          if (!r.materialized) watchMaterialized(r.sessionFile);
+        }
         // stays 'sending' until agent_settled arrives via events
         return { ok: true };
       } catch (err) {
         if (!mounted.current) return { ok: false };
         // Приём НЕ подтверждён: текст остаётся у пользователя (композер его не
         // очищает), автоповтора нет, причина показывается кодом bridge.
-        setState((s) => ({
+        patch((s) => ({
           ...s,
           status: 'open',
           error: toUiError(err),
@@ -288,7 +291,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
         return { ok: false };
       }
     },
-    [api, deliveredSince],
+    [api, deliveredSince, patch, update, watchMaterialized],
   );
 
   /**
@@ -297,11 +300,11 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
    * иначе фиксирует факт доставки баннером и снимает ожидание (без дубля).
    */
   const resend = useCallback(async (): Promise<{ ok: boolean; skipped: boolean }> => {
-    const pending = stateRef.current.pendingSend;
+    const pending = storeRef.current.byKey[activeKeyRef.current]?.pendingSend;
     if (!pending) return { ok: false, skipped: false };
     if (deliveredSince(pending)) {
       if (mounted.current) {
-        setState((s) => ({
+        patch((s) => ({
           ...s,
           pendingSend: null,
           error: null,
@@ -312,7 +315,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
     }
     const r = await send(pending.text);
     return { ok: r.ok, skipped: false };
-  }, [send, deliveredSince]);
+  }, [send, deliveredSince, patch]);
 
   const interrupt = useCallback(async () => {
     if (!api) return;
@@ -320,19 +323,23 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       await m1.interrupt(api);
     } catch (err) {
       if (!mounted.current) return;
-      setState((s) => ({ ...s, error: toUiError(err) }));
+      patch((s) => ({ ...s, error: toUiError(err) }));
     }
-  }, [api]);
+  }, [api, patch]);
 
   // UI21-F2: read-through model catalog + thinking levels from the live Pi RPC.
   const refreshModels = useCallback(async () => {
     if (!api) return;
-    setState((s) => ({ ...s, modelsLoading: true }));
+    // #26: Pi can answer the catalog for a draft too — but only once the
+    // official new_session exists. Model/thinking before the first prompt is a
+    // supported flow, not a special case with baked-in defaults.
+    if (!(await ensureOpenRef.current())) return;
+    patch((s) => ({ ...s, modelsLoading: true }));
     // The two reads are independent: a thinking-levels failure must never
     // discard a valid model catalog, and vice versa.
     const [catalog, levels] = await Promise.allSettled([m1.getAvailableModels(api), m1.getThinkingLevels(api)]);
     if (!mounted.current) return;
-    setState((s) => ({
+    patch((s) => ({
       ...s,
       modelsLoading: false,
       ...(catalog.status === 'fulfilled'
@@ -342,7 +349,7 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
         ? { thinkingLevels: levels.value.levels, thinkingError: null }
         : { thinkingLevels: [], thinkingError: toUiError(levels.reason) }),
     }));
-  }, [api]);
+  }, [api, patch]);
 
   const refreshModelsRef = useRef(refreshModels);
   useEffect(() => {
@@ -352,35 +359,39 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
   const selectModel = useCallback(
     async (provider: string, modelId: string) => {
       if (!api) return;
-      if (stateRef.current.status === 'sending') return; // no silent mid-run switch
+      const status = storeRef.current.byKey[activeKeyRef.current]?.status;
+      if (status === 'sending') return; // no silent mid-run switch
+      if (!(await ensureOpenRef.current())) return;
       try {
         const r = await m1.setModel(api, provider, modelId);
         if (!mounted.current) return;
-        setState((s) => ({ ...s, state: r.state ?? s.state, error: null }));
+        patch((s) => ({ ...s, state: r.state ?? s.state, error: null }));
         // Thinking levels belong to the selected model — re-read them from Pi.
         void refreshModelsRef.current();
       } catch (err) {
         if (!mounted.current) return;
-        setState((s) => ({ ...s, error: toUiError(err) }));
+        patch((s) => ({ ...s, error: toUiError(err) }));
       }
     },
-    [api],
+    [api, patch],
   );
 
   const selectThinkingLevel = useCallback(
     async (level: string) => {
       if (!api) return;
-      if (stateRef.current.status === 'sending') return;
+      const status = storeRef.current.byKey[activeKeyRef.current]?.status;
+      if (status === 'sending') return;
+      if (!(await ensureOpenRef.current())) return;
       try {
         const r = await m1.setThinkingLevel(api, level);
         if (!mounted.current) return;
-        setState((s) => ({ ...s, state: r.state ?? s.state, error: null }));
+        patch((s) => ({ ...s, state: r.state ?? s.state, error: null }));
       } catch (err) {
         if (!mounted.current) return;
-        setState((s) => ({ ...s, error: toUiError(err) }));
+        patch((s) => ({ ...s, error: toUiError(err) }));
       }
     },
-    [api],
+    [api, patch],
   );
 
   const closeChat = useCallback(async (): Promise<boolean> => {
@@ -389,15 +400,35 @@ export function useChat(api: DesktopApi | null, file: string): ChatController {
       await m1.closeSession(api);
     } catch (err) {
       if (!mounted.current) return false;
-      setState((s) => ({ ...s, error: toUiError(err) }));
+      patch((s) => ({ ...s, error: toUiError(err) }));
       // Review P1: a refused close is a FAILED close — the caller must not
       // treat it as success and switch away from a possibly live session.
       return false;
     }
     if (!mounted.current) return true;
-    setState((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '', tools: [] }));
+    patch((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '', tools: [] }));
     return true;
-  }, [api]);
+  }, [api, patch]);
 
-  return { state, open, send, resend, interrupt, closeChat, refreshModels, selectModel, selectThinkingLevel };
+  const setDraftTextForKey = useCallback(
+    (text: string) => {
+      update((s) => setDraftText(s, activeKeyRef.current, text));
+    },
+    [update],
+  );
+
+  return {
+    state,
+    key,
+    draftText,
+    setDraftText: setDraftTextForKey,
+    open,
+    send,
+    resend,
+    interrupt,
+    closeChat,
+    refreshModels,
+    selectModel,
+    selectThinkingLevel,
+  };
 }

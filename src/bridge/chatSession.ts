@@ -41,6 +41,16 @@ export interface ChatManagerFs {
   readRange(p: string, offset: number, length: number): Promise<Buffer>;
 }
 
+/**
+ * UI26 R03: one spawned Pi RPC process = one immutable event source. `key`
+ * starts empty and is filled only from Pi's own `get_state.sessionFile`; every
+ * event is stamped from THIS record.
+ */
+interface Conn {
+  client: PiRpcClient;
+  key: string | null;
+}
+
 export interface ChatSessionManagerDeps {
   fs: ChatManagerFs;
   home: string;
@@ -114,6 +124,17 @@ async function readHeaderCwd(fs: ChatManagerFs, file: string, max: number): Prom
 export class ChatSessionManager {
   private client: PiRpcClient | null = null;
   private file: string | null = null;
+  /**
+   * UI26 R01: the conversation this manager is currently attached to, as the
+   * renderer's session key (`file:<sessionFile>`). Every emitted event carries
+   * it, so a late event of chat A can never be rendered inside chat B.
+   * Set from Pi's `get_state.sessionFile` — never invented here.
+   */
+  private conn: Conn | null = null;
+  /** Slot is being taken by `open`/`newSession` — set before the first await. */
+  private opening = false;
+  /** In-flight open/newSession, so `close()` can wait instead of orphaning it. */
+  private openTask: Promise<unknown> | null = null;
   private idleMtimeMs = 0;
   private runActive = false;
   private readonly now: () => number;
@@ -128,8 +149,27 @@ export class ChatSessionManager {
     return this.client !== null && this.client.alive;
   }
 
+  /**
+   * UI26 R03: event provenance comes from the connection that produced it,
+   * never from a mutable `this.key`. A late event of chat A therefore keeps
+   * `file:A` even after B replaced it — it can never be re-stamped as B.
+   * Events emitted before Pi reported a session file are DROPPED: an event
+   * without a proven owner is not shown anywhere.
+   */
+  private emitFrom(conn: Conn, ev: ChatEventT): void {
+    // UI26 R04 (P2): only the CURRENT connection may publish. A closed
+    // connection can be replaced by a new one bound to the SAME `file:<path>`,
+    // so a matching key is not enough — the generation must match too.
+    if (this.conn !== conn) return;
+    const key = conn.key;
+    if (!key) return;
+    this.deps.onEvent?.({ ...ev, key } as ChatEventT);
+  }
+
   private emit(ev: ChatEventT): void {
-    this.deps.onEvent?.(ev);
+    const conn = this.conn;
+    if (!conn) return;
+    this.emitFrom(conn, ev);
   }
 
   private async statOrThrow(file: string): Promise<{ size: number; mtimeMs: number }> {
@@ -140,7 +180,35 @@ export class ChatSessionManager {
     }
   }
 
+  /**
+   * UI26 R03 (P1-1): the single RPC slot is RESERVED synchronously, before the
+   * first await. Two concurrent `open`/`newSession` calls can no longer both
+   * pass the liveness check and spawn two Pi processes.
+   */
+  private async withSlot<T>(run: () => Promise<T>): Promise<T> {
+    if (this.opening) {
+      throw new BridgeError('RESOURCE_BUSY', 'Диалог уже создаётся — дождитесь ответа Pi');
+    }
+    if (this.client?.alive) {
+      throw new BridgeError('RESOURCE_BUSY', 'Диалог уже открыт — закройте его перед открытием другого');
+    }
+    this.opening = true;
+    this.client = null; // stale dead handle (exit event not yet observed)
+    const task = run();
+    this.openTask = task;
+    try {
+      return await task;
+    } finally {
+      if (this.openTask === task) this.openTask = null;
+      this.opening = false;
+    }
+  }
+
   async open(file: string): Promise<RpcStateT | null> {
+    return this.withSlot(() => this.openInner(file));
+  }
+
+  private async openInner(file: string): Promise<RpcStateT | null> {
     if (this.client) {
       if (this.client.alive) {
         throw new BridgeError('RESOURCE_BUSY', 'A chat session is already open — close it before opening another');
@@ -160,6 +228,7 @@ export class ChatSessionManager {
     if (!piPath) throw new BridgeError('PI_NOT_FOUND', 'Pi executable not found for chat spawn');
     const cwd = (await readHeaderCwd(this.deps.fs, file, this.deps.headerMaxBytes ?? 64 * 1024)) ?? path.posix.dirname(file);
 
+    let conn: Conn | null = null;
     const client = new PiRpcClient({
       spawn: () =>
         this.deps.spawnRpc({
@@ -169,15 +238,20 @@ export class ChatSessionManager {
           env: { ...this.deps.env, PATH: buildProbePath(this.deps.home) },
         }),
       ...this.deps.rpcOptions,
-      onEvent: (name, record) => this.emit({ kind: 'pi', name, data: record }),
+      onEvent: (name, record) => {
+        if (conn) this.emitFrom(conn, { kind: 'pi', name, data: record });
+      },
       onExit: () => {
-        if (this.client !== client) return;
+        if (!conn || this.conn !== conn) return;
+        const key = conn.key;
+        this.conn = null;
         this.client = null;
         this.file = null;
         this.runActive = false;
-        this.emit({ kind: 'closed', code: 'DISCONNECTED', message: 'Pi RPC process exited' });
+        this.deps.onEvent?.({ kind: 'closed', code: 'DISCONNECTED', message: 'Pi RPC process exited', ...(key ? { key } : {}) });
       },
     });
+    conn = { client, key: null };
     client.connect();
 
     let state: RpcStateT;
@@ -204,24 +278,109 @@ export class ChatSessionManager {
 
     this.client = client;
     this.file = file;
+    this.conn = conn;
+    conn.key = `file:${file}`;
     this.runActive = false;
     // After the initial load (which may legitimately rewrite legacy files via
     // the official API), snapshot the idle baseline.
     const post = await this.statOrThrow(file).catch(() => meta);
     this.idleMtimeMs = post.mtimeMs;
-    this.emit({ kind: 'opened', state });
+    this.emitFrom(conn, { kind: 'opened', state });
     return state;
   }
 
-  async sendPrompt(message: string, streamingBehavior?: 'steer' | 'followUp'): Promise<{ disposition: string }> {
+  /**
+   * UI26 R01 — «Новый диалог» через официальный Pi RPC.
+   *
+   * Spawns `pi --mode rpc` in the project cwd (no `--session`) and issues
+   * `new_session`. Pi 1.4.0 does NOT materialize the JSONL at this point — the
+   * file appears on the first write. That is exactly the contract we want:
+   * a draft that costs nothing until the user really sends something. The
+   * bridge never writes a JSONL itself and never invents a session.
+   */
+  async newSession(cwd: string): Promise<{ state: RpcStateT; sessionFile: string }> {
+    return this.withSlot(() => this.newSessionInner(cwd));
+  }
+
+  private async newSessionInner(cwd: string): Promise<{ state: RpcStateT; sessionFile: string }> {
+
+    const piPath = await this.deps.resolvePi();
+    if (!piPath) throw new BridgeError('PI_NOT_FOUND', 'Pi executable not found for chat spawn');
+
+    let conn: Conn | null = null;
+    const client = new PiRpcClient({
+      spawn: () =>
+        this.deps.spawnRpc({
+          piPath,
+          args: ['--mode', 'rpc'],
+          cwd,
+          env: { ...this.deps.env, PATH: buildProbePath(this.deps.home) },
+        }),
+      ...this.deps.rpcOptions,
+      onEvent: (name, record) => {
+        if (conn) this.emitFrom(conn, { kind: 'pi', name, data: record });
+      },
+      onExit: () => {
+        if (!conn || this.conn !== conn) return;
+        const key = conn.key;
+        this.conn = null;
+        this.client = null;
+        this.file = null;
+        this.runActive = false;
+        this.deps.onEvent?.({ kind: 'closed', code: 'DISCONNECTED', message: 'Pi RPC process exited', ...(key ? { key } : {}) });
+      },
+    });
+    conn = { client, key: null };
+    client.connect();
+
+    let state: RpcStateT;
+    try {
+      // 1) confirm the RPC handshake, 2) ask Pi for a fresh session — the
+      // official command (an extension may cancel it; that is not a session).
+      await client.request('get_state');
+      const created = await client.request('new_session');
+      const cancelled = (created as { cancelled?: unknown } | null)?.cancelled === true;
+      if (cancelled) {
+        throw new BridgeError('SESSION_CONFLICT', 'Pi отклонил создание новой сессии (расширение отменило new_session)');
+      }
+      state = mapRpcState(await client.request('get_state'));
+      if (!state.sessionFile) {
+        throw new BridgeError('SESSION_CONFLICT', 'Pi не назначил файл новой сессии — создание отменено');
+      }
+    } catch (err) {
+      await client.close().catch(() => undefined);
+      if (err instanceof BridgeError) throw err;
+      if (err instanceof RpcTimeoutError) throw new BridgeError('BRIDGE_TIMEOUT', err.message);
+      if (err instanceof RpcCommandError) throw new BridgeError('SESSION_CONFLICT', err.message);
+      if (err instanceof RpcDisconnectedError) throw new BridgeError('BRIDGE_TIMEOUT', `Pi RPC exited during newSession: ${err.message}`);
+      throw new BridgeError('UNKNOWN', err instanceof Error ? err.message : String(err));
+    }
+
+    this.client = client;
+    this.file = state.sessionFile;
+    this.conn = conn;
+    conn.key = `file:${state.sessionFile}`;
+    this.runActive = false;
+    // The file does not exist yet; a baseline of 0 means "nothing to compare",
+    // and the writer gate below skips the stat while the file is absent.
+    this.idleMtimeMs = 0;
+    this.emitFrom(conn, { kind: 'opened', state });
+    return { state, sessionFile: state.sessionFile };
+  }
+
+  async sendPrompt(
+    message: string,
+    streamingBehavior?: 'steer' | 'followUp',
+  ): Promise<{ disposition: string; sessionFile: string | null; sessionId: string | null; materialized: boolean }> {
     return this.serialize(async () => this.sendPromptLocked(message, streamingBehavior));
   }
 
   private async sendPromptLocked(
     message: string,
     streamingBehavior?: 'steer' | 'followUp',
-  ): Promise<{ disposition: string }> {
+  ): Promise<{ disposition: string; sessionFile: string | null; sessionId: string | null; materialized: boolean }> {
     const client = this.client;
+    const conn = this.conn;
     if (!client || !client.alive || !this.file) {
       throw new BridgeError('DISCONNECTED', 'No chat session is open');
     }
@@ -264,10 +423,31 @@ export class ChatSessionManager {
         this.client = null;
         this.file = null;
         void client.close().catch(() => undefined);
-        this.emit({ kind: 'closed', code, message });
+        if (conn) this.emitFrom(conn, { kind: 'closed', code, message });
+        if (this.conn === conn) this.conn = null;
       },
     );
-    return { disposition: started.disposition };
+    // UI26 R01: report the concrete session Pi is writing to, plus whether the
+    // JSONL exists yet (Pi materializes it on the first write). The renderer
+    // binds its draft to this file — the bridge never guesses a path.
+    const materialized = await this.fileExists(file);
+    const current = await this.getState().catch(() => ({ state: null as RpcStateT | null }));
+    return {
+      disposition: started.disposition,
+      sessionFile: file,
+      sessionId: current.state?.sessionId ?? null,
+      materialized,
+    };
+  }
+
+  /** True when the session file is on disk right now (read-only stat). */
+  private async fileExists(file: string): Promise<boolean> {
+    try {
+      await this.deps.fs.stat(file);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async interrupt(): Promise<{ interrupted: boolean }> {
@@ -312,6 +492,10 @@ export class ChatSessionManager {
    */
   private async assertIdleWriterGate(action: string): Promise<{ size: number; mtimeMs: number }> {
     if (!this.file) throw new BridgeError('DISCONNECTED', 'No chat session is open');
+    // UI26 R01: a brand-new session (new_session) has no file yet — there is no
+    // external writer to detect and nothing to compare, so the gate lets the
+    // first prompt through. Once the file exists the normal gate applies.
+    if (!(await this.fileExists(this.file))) return { size: 0, mtimeMs: 0 };
     const meta = await this.statOrThrow(this.file);
     if (!this.runActive && meta.mtimeMs > this.idleMtimeMs) {
       throw new BridgeError(
@@ -479,11 +663,16 @@ export class ChatSessionManager {
     return new BridgeError('UNKNOWN', err instanceof Error ? err.message : String(err));
   }
 
-  async getState(): Promise<{ state: RpcStateT | null }> {
+  async getState(): Promise<{ state: RpcStateT | null; sessionFileExists: boolean }> {
     const client = this.client;
-    if (!client || !client.alive) return { state: null };
+    if (!client || !client.alive) return { state: null, sessionFileExists: false };
     try {
-      return { state: mapRpcState(await client.request('get_state')) };
+      const state = mapRpcState(await client.request('get_state'));
+      // UI26 R03 (P1-3): Pi may materialize the JSONL only after the prompt ACK.
+      // We report the REAL fact from disk (read-only stat) — never a guess, and
+      // the bridge never writes the file itself.
+      const sessionFileExists = state.sessionFile ? await this.fileExists(state.sessionFile) : false;
+      return { state, sessionFileExists };
     } catch (err) {
       if (err instanceof RpcTimeoutError) throw new BridgeError('BRIDGE_TIMEOUT', err.message);
       if (err instanceof RpcDisconnectedError) throw new BridgeError('DISCONNECTED', err.message);
@@ -492,16 +681,23 @@ export class ChatSessionManager {
   }
 
   async close(): Promise<void> {
-    return this.serialize(async () => this.closeLocked());
+    return this.serialize(async () => {
+      // UI26 R03: closing during an in-flight open must not leave an orphan Pi
+      // process — wait for that attempt to settle, then tear the slot down.
+      if (this.openTask) await this.openTask.catch(() => undefined);
+      return this.closeLocked();
+    });
   }
 
   private async closeLocked(): Promise<void> {
     const client = this.client;
+    const key = this.conn?.key ?? null;
     this.client = null;
     this.file = null;
+    this.conn = null;
     this.runActive = false;
     if (!client) return;
     await client.close().catch(() => undefined);
-    this.emit({ kind: 'closed', code: 'CANCELLED', message: 'chat closed by user' });
+    this.deps.onEvent?.({ kind: 'closed', code: 'CANCELLED', message: 'chat closed by user', ...(key ? { key } : {}) });
   }
 }

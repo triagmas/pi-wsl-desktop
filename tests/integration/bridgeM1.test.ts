@@ -139,7 +139,12 @@ describe('bridge M1 read paths (real subprocess)', () => {
 
       // getState with no chat open
       child.stdin.write(req('g0', 'getState') + '\n');
-      expect(ok((await reader.waitForResponse('g0')).frame as ResponseOkFrameT)).toEqual({ state: null });
+      // UI26 R03: getState additionally reports whether the session JSONL exists
+      // (read-only fact used for delayed materialization) — no chat, so false.
+      expect(ok((await reader.waitForResponse('g0')).frame as ResponseOkFrameT)).toEqual({
+        state: null,
+        sessionFileExists: false,
+      });
 
       // no chat events without subscription/open
       const chatFrames = reader.frames.filter((f) => f.frame?.type === 'event' && f.frame.event === 'chat');

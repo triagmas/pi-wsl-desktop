@@ -1,0 +1,53 @@
+# Быстрые локальные гейты (prek). Полный набор проверок остаётся в CI:
+# Linux build + Electron E2E и Windows installer + packaged smoke — отдельные
+# workflow, здесь они намеренно не дублируются (минуты против секунд).
+#
+# Режимы (измерено, см. docs/development/local-gates.md):
+#   uvx prek validate-config .pre-commit-config.yaml
+#   uvx prek run --files <paths…>   # РЕКОМЕНДУЕТСЯ: хук видит worktree-версию,
+#                                   # патч unstaged-изменений не создаётся
+#   uvx prek run                    # только на чистом дереве: prek временно
+#                                   # сохраняет ВСЕ unstaged-правки в патч
+#                                   # ~/.cache/prek/patches/ и восстанавливает их
+#   prek install                    # BLOCKED в рабочем checkout владельца:
+#                                   # bare-режим трогает незакоммиченные файлы
+#
+# Ни один hook не пишет в файлы: автоформатирования нет, содержимое не
+# переписывается. Защищённые незакоммиченные файлы владельца не сташутся
+# самими хуками — это делает только bare-режим prek, поэтому он и ограничен.
+minimum_pre_commit_version: '3.5.0'
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (staged TS/TSX)
+        entry: npx eslint
+        language: system
+        files: \.(ts|tsx)$
+        types: [file]
+
+      - id: typecheck
+        name: typecheck (tsc --noEmit, оба проекта)
+        entry: npm run typecheck
+        language: system
+        pass_filenames: false
+        files: \.(ts|tsx)$
+
+      - id: electron-dist-platform
+        name: локальный Electron соответствует ОС
+        entry: node scripts/check-electron-dist.mjs
+        language: system
+        pass_filenames: false
+        files: ^package(-lock)?\.json$
+
+      # R07: `types: [file]`, а не `[text]`: иначе бинарные контейнеры ключей
+      # (.p12/.pfx/.pem) вообще не доходят до хука, и проверка ИМЕНИ файла не
+      # выполняется. Скрипт проверяет имя ДО чтения содержимого, а бинарное
+      # содержимое не разбирает (лимит размера и fail-closed сохранены).
+      - id: private-content
+        name: нет приватных путей, ключей и дампов сессий
+        entry: node scripts/check-private-content.mjs
+        language: system
+        types: [file]

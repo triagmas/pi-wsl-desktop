@@ -21,6 +21,7 @@ import {
   IconFolder,
   IconGear,
   IconPanelLeft,
+  IconRefresh,
   IconChevronLeft,
   IconPuzzle,
 } from '../ui/icons';
@@ -37,12 +38,18 @@ export interface LeftSidebarProps {
   activeFile: string | null;
   onToggleCollapsed: () => void;
   onNewChat: () => void;
+  /** UI26 R02: создать диалог в конкретном проекте (`+` у проекта). */
+  onNewChatInProject?: (cwd: string) => void;
   onView: (view: string) => void;
   onPickSession: (session: SessionInfoT) => void;
   /** Живой предпросмотр ширины (без записи) во время drag. */
   onWidthPreview?: (width: number) => void;
   /** Фиксация ширины (persist appearance): drag-end или клавиша. */
   onWidthCommit?: (width: number) => void;
+  /** UI26 R01: перечитать список после materialize новой сессии. */
+  sessionsVersion?: number;
+  /** UI26 R01: активный черновик (ещё не сессия Pi). */
+  activeDraftCwd?: string | null;
 }
 
 function projectName(project: ProjectInfoT): string {
@@ -62,16 +69,22 @@ export function LeftSidebar({
   activeFile,
   onToggleCollapsed,
   onNewChat,
+  onNewChatInProject,
   onView,
   onPickSession,
   onWidthPreview,
   onWidthCommit,
+  sessionsVersion = 0,
+  activeDraftCwd = null,
 }: LeftSidebarProps) {
   const [projects, setProjects] = useState<ProjectInfoT[]>([]);
   const [sessions, setSessions] = useState<SessionInfoT[]>([]);
   const [openProjects, setOpenProjects] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (!api) return undefined;
@@ -97,17 +110,34 @@ export function LeftSidebar({
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setRefreshing(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [api, connectionReady]);
+  }, [api, connectionReady, sessionsVersion, reloadToken]);
+
+  /**
+   * UI26 R02: явный Refresh. Внешний Pi CLI может переименовать сессию или
+   * дописать её — watcher не нужен, но пользователь должен иметь возможность
+   * перечитать настоящий список Pi (названия + порядок по активности).
+   */
+  const refresh = (): void => {
+    if (!connectionReady) return;
+    setRefreshing(true);
+    setReloadToken((n) => n + 1);
+  };
 
   const q = query.trim().toLowerCase();
+  // #26: поиск идёт по тому, что видит пользователь — производный заголовок
+  // тоже участвует, иначе «Починить ленту» нельзя найти по названию.
+  const titleOf = (s: SessionInfoT): string => s.displayName ?? s.name ?? s.id.slice(0, 8);
   const visibleSessions = q
     ? sessions.filter(
         (s) =>
+          titleOf(s).toLowerCase().includes(q) ||
           (s.name ?? '').toLowerCase().includes(q) ||
           s.file.toLowerCase().includes(q) ||
           s.projectPath.toLowerCase().includes(q),
@@ -131,11 +161,12 @@ export function LeftSidebar({
     name: projectName(p),
     expanded: q ? true : openProjects.has(p.id),
     testid: `project-${p.id}`,
+    newChatTestId: `project-new-${p.id}`,
     sessions: visibleSessions
       .filter((s) => s.projectId === p.id)
       .map((s) => ({
         id: s.id,
-        title: s.name ?? s.id.slice(0, 8),
+        title: titleOf(s),
         testid: `session-${s.id}`,
       })),
   }));
@@ -255,6 +286,18 @@ export function LeftSidebar({
                   <IconFolder size={20} />
                   Открыть проект
                 </span>
+                <button
+                  type="button"
+                  className="dl-btn-ghost dl-side-refresh"
+                  data-testid="refresh-sessions"
+                  aria-label={refreshing ? 'Обновление списка…' : 'Обновить проекты и чаты'}
+                  title={refreshing ? 'Обновление списка…' : 'Обновить проекты и чаты'}
+                  aria-busy={refreshing}
+                  disabled={refreshing || !connectionReady}
+                  onClick={refresh}
+                >
+                  <IconRefresh size={18} />
+                </button>
                 {collapseToggle}
               </>
             }
@@ -263,7 +306,7 @@ export function LeftSidebar({
             searchPlaceholder={q ? 'Поиск по названиям и файлам…' : 'Поиск чатов'}
             searchValue={query}
             onSearchChange={setQuery}
-            newChatLabel="Открыть последний диалог"
+            newChatLabel={activeDraftCwd ? 'Новый диалог · ' + (activeDraftCwd.split(/[\\/]/).filter(Boolean).pop() ?? '') : 'Новый диалог'}
             projectsTitle={
               <span className="dl-side-label-app">
                 <IconChevronDown size={15} />
@@ -274,6 +317,11 @@ export function LeftSidebar({
             activeSessionId={activeSessionId}
             nav={nav}
             onNewChat={onNewChat}
+            onNewChatInProject={
+              onNewChatInProject
+                ? (projectId) => onNewChatInProject(projects.find((p) => p.id === projectId)?.path ?? projectId)
+                : undefined
+            }
             onToggleProject={(id) =>
               setOpenProjects((prev) => {
                 const next = new Set(prev);

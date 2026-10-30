@@ -28,6 +28,8 @@ export const M1_METHODS = [
   'readSession',
   'searchSessions',
   'openSession',
+  // UI26 R01: официальный новый диалог (Pi `new_session`), без фиктивного JSONL.
+  'newSession',
   'sendPrompt',
   'interrupt',
   'getState',

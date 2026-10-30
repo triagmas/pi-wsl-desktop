@@ -21,6 +21,7 @@ import {
   type ModuleEntry,
 } from './modules/registry';
 import { LeftSidebar } from './shell/LeftSidebar';
+import { draftKey, fileKey, restorableKey } from './sessionChat';
 import { RightSidebar, RightSidebarHead, RightSidebarResize } from './shell/RightSidebar';
 import { TerminalDock } from './shell/TerminalDock';
 import { AppScreen } from './ui/AppScreen';
@@ -50,6 +51,35 @@ const RIGHT_PANEL_MIN = 240;
 const RIGHT_PANEL_MAX = 560;
 const LEFT_MIN = 200;
 const LEFT_MAX = 480;
+
+/**
+ * UI26 R01: последний выбранный диалог. Восстанавливается только если файл
+ * реально есть в списке Pi — иначе честное пустое состояние (никаких
+ * пересозданных сессий и записей).
+ */
+const LAST_SESSION_KEY = 'pi-desktop:last-session';
+
+/** Заглушка-запись для черновика, которому Pi уже назначил файл. */
+function draftAsSession(file: string, cwd: string): SessionInfoT {
+  const stem = file.split(/[\\/]/).pop() ?? file;
+  return {
+    id: stem.replace(/\.jsonl$/, '') || stem,
+    file,
+    root: '',
+    projectId: cwd,
+    projectPath: cwd,
+    name: null,
+    displayName: 'Новый диалог',
+    displayNameSource: 'id',
+    createdAt: null,
+    updatedAt: new Date().toISOString(),
+    sizeBytes: 0,
+    version: 1,
+    availability: 'ok',
+    activeWrite: false,
+    diagnostics: null,
+  };
+}
 
 export function App({ api, moduleDefinitions }: AppProps = {}) {
   const effectiveApi = api === undefined ? getDesktopApi() : api;
@@ -206,13 +236,56 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * ------------------------------------------------------------------ */
   const [activeSession, setActiveSession] = useState<SessionInfoT | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionInfoT | null>(null);
-  const chat = useChat(effectiveApi, activeSession?.file ?? '');
-  const [draft, setDraft] = useState('');
+  /**
+   * UI26 R01: «Новый диалог» — это черновик с ЯВНЫМ cwd, а не последняя
+   * сессия. Файл сессии Pi создаёт сам при первой записи; черновик без
+   * отправленного сообщения не оставляет на диске ничего.
+   */
+  const [activeDraft, setActiveDraft] = useState<{ id: string; cwd: string; file: string | null } | null>(null);
+  /** Растёт после materialize — сайдбар перечитывает список Pi. */
+  const [sessionsVersion, setSessionsVersion] = useState(0);
+  /** Явное сообщение конфликта writer'а (не молчаливое переключение). */
+  const [conflict, setConflict] = useState<string | null>(null);
+  /** UI26 R02: новый диалог, ждущий явного закрытия текущего (один writer). */
+  const [pendingDraftCwd, setPendingDraftCwd] = useState<string | null>(null);
+  /**
+   * UI26 R03 (P1-5): новый диалог без подтверждённого cwd. Никакого fallback `/`
+   * — приложение говорит об этом прямо и не создаёт «безымянную» сессию.
+   */
+  const [noProjectNotice, setNoProjectNotice] = useState(false);
+  const sessionKey = activeDraft
+    ? activeDraft.file !== null
+      ? fileKey(activeDraft.file)
+      : draftKey(activeDraft.id)
+    : fileKey(activeSession?.file ?? '');
+  // Hoisted function declaration: the hook may call it later, not during render.
+  const chat = useChat(effectiveApi, activeSession?.file ?? '', {
+    key: sessionKey,
+    cwd: activeDraft?.cwd ?? null,
+    onSessionCreated: (file, info) => handleSessionCreated(file, info),
+  });
+  const draft = chat.draftText;
+  const setDraft = chat.setDraftText;
   const chatBusy = chat.state.status === 'open' || chat.state.status === 'sending' || chat.state.status === 'opening';
 
   const pickSession = (session: SessionInfoT): void => {
     if (activeSession?.file === session.file) {
       setView('chat');
+      return;
+    }
+    // UI26 R03 (P1-4): уход из ПУСТОГО черновика — один подтверждённый переход:
+    // черновик закрывается РОВНО один раз, второго диалога подтверждения нет
+    // (раньше close вызывался здесь и повторно в confirmSwitchSession).
+    const emptyDraft = Boolean(activeDraft) && chat.state.entries.length === 0 && chat.state.status !== 'sending';
+    if (emptyDraft) {
+      void (async () => {
+        const closed = await chat.closeChat();
+        if (!closed) return; // fail-closed: остаёмся там, где были
+        setActiveDraft(null);
+        setActiveSession(session);
+        setPendingSession(null);
+        setView('chat');
+      })();
       return;
     }
     // Explicit write boundary: never silently switch away from a live chat.
@@ -221,8 +294,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       setView('chat');
       return;
     }
+    setActiveDraft(null);
     setActiveSession(session);
-    setDraft('');
     setView('chat');
   };
 
@@ -234,30 +307,156 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       // confirm dialog up and do not present another session as active.
       return;
     }
+    setActiveDraft(null);
     setActiveSession(pendingSession);
     setPendingSession(null);
-    setDraft('');
     setView('chat');
   };
 
-  const newChat = (): void => {
-    // Bridge M1 has no create-session method (ALL_METHODS check): «Новый
-    // диалог» focuses the most recent real session instead of faking creation.
-    void (async () => {
-      if (!effectiveApi) return;
-      try {
-        const { sessions } = await m1.listSessions(effectiveApi);
-        if (sessions.length === 0) return;
-        const mostRecent = [...sessions].sort((a, b) =>
-          String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')),
-        )[0];
-        pickSession(mostRecent);
-        setView('chat');
-      } catch {
-        // sidebar shows the load error; nothing else to do
+  /**
+   * UI26 R01 — «Новый диалог».
+   *
+   * cwd берётся из реального проекта Pi: текущий диалог → последний проект из
+   * списка Pi. Ничего не выдумывается: если проект неизвестен, честно
+   * остаёмся на пустом состоянии. Файл сессии появится только после первого
+   * сообщения (Pi materializes the JSONL on first write).
+   */
+  const newChat = (cwdOverride?: string): void => {
+    if (!effectiveApi) return;
+    if (chatBusy) {
+      // UI26 R02: один writer — новый диалог НЕ отбирает слот у живого чата
+      // молча. Пользователь явно закрывает текущий либо остаётся в нём;
+      // во время генерации сначала нужно дождаться/прервать её.
+      if (chat.state.status === 'sending') {
+        setConflict('Сначала дождитесь ответа или прервите генерацию — Pi ведёт один диалог за раз.');
+        return;
       }
+      setPendingDraftCwd(cwdOverride ?? activeSession?.projectPath ?? '');
+      return;
+    }
+    setConflict(null);
+    void (async () => {
+      let cwd = cwdOverride ?? activeSession?.projectPath ?? null;
+      if (!cwd) {
+        try {
+          const { projects } = await m1.listProjects(effectiveApi);
+          cwd = projects[0]?.path ?? null;
+        } catch {
+          cwd = null;
+        }
+      }
+      if (!cwd) {
+        // UI26 R03 (P1-5): cwd не подтверждён — никакого fallback `/`.
+        setNoProjectNotice(true);
+        setView('chat');
+        return;
+      }
+      createDraftNow(cwd);
     })();
   };
+
+  /** Создать новый черновик с известным cwd (после явного закрытия слота). */
+  const createDraftNow = (cwd: string): void => {
+    setConflict(null);
+    setNoProjectNotice(false);
+    setPendingSession(null);
+    setPendingDraftCwd(null);
+    setActiveSession(null);
+    setActiveDraft({ id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, cwd, file: null });
+    setView('chat');
+  };
+
+  /** Явное подтверждение: закрыть текущий чат и создать новый диалог. */
+  const confirmNewChat = async (): Promise<void> => {
+    const requested = pendingDraftCwd;
+    if (requested === null) return;
+    const closed = await chat.closeChat();
+    if (!closed) return; // fail-closed: слот мог остаться занятым
+    setPendingDraftCwd(null);
+    setActiveDraft(null);
+    if (requested !== '') {
+      createDraftNow(requested);
+      return;
+    }
+    const fallback = activeSession?.projectPath ?? null;
+    if (fallback) createDraftNow(fallback);
+    else setNoProjectNotice(true);
+  };
+
+  /**
+   * Pi назначил файл сессии (new_session или первая запись). Черновик
+   * становится реальной сессией: ключ диалога мигрирует, список перечитывается.
+   */
+  function handleSessionCreated(file: string, info: { materialized: boolean }): void {
+    if (!info.materialized) {
+      // Pi зарезервировал файл (new_session), но JSONL ещё не существует:
+      // диалог остаётся ЧЕРНОВИКОМ, просто его ключ следует за файлом Pi.
+      setActiveDraft((d) => (d ? { ...d, file } : d));
+      return;
+    }
+    // Первая запись состоялась: это уже настоящая сессия Pi.
+    setActiveDraft(() => null);
+    setActiveSession((current) => current ?? draftAsSession(file, activeDraft?.cwd ?? ''));
+    setSessionsVersion((n) => n + 1);
+    try {
+      localStorage.setItem(LAST_SESSION_KEY, fileKey(file));
+    } catch {
+      /* private mode / no storage — restoring is best-effort, never a hard dep */
+    }
+  }
+
+  /**
+   * UI26 R01: черновик открывает СВОЮ RPC-сессию через официальный new_session
+   * сразу (это локальный спавн, не вызов модели), чтобы композер и выбор
+   * модели/thinking были доступны до первого сообщения. JSONL при этом ещё не
+   * существует — файл появляется на первой записи.
+   */
+  useEffect(() => {
+    if (!activeDraft || !effectiveApi) return;
+    if (snapshot.phase !== 'ready') return;
+    if (chat.state.status === 'closed') void chat.open();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDraft?.id, snapshot.phase, effectiveApi]);
+
+  /** Восстановление последнего диалога — только по надёжному ключу файла. */
+  useEffect(() => {
+    if (!effectiveApi || snapshot.phase !== 'ready') return;
+    let cancelled = false;
+    const readSaved = (): string | null => {
+      try {
+        return localStorage.getItem(LAST_SESSION_KEY);
+      } catch {
+        return null;
+      }
+    };
+    void (async () => {
+      const key = readSaved();
+      if (!key) return;
+      try {
+        const { sessions } = await m1.listSessions(effectiveApi);
+        if (cancelled) return;
+        const restore = restorableKey(key, sessions);
+        if (!restore) return;
+        const target = sessions.find((s) => fileKey(s.file) === restore);
+        if (!target) return;
+        setActiveSession((current) => current ?? target);
+      } catch {
+        /* listSessions failure: остаёмся на пустом состоянии, без выдумок */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveApi, snapshot.phase]);
+
+  useEffect(() => {
+    if (!activeSession?.file) return;
+    try {
+      localStorage.setItem(LAST_SESSION_KEY, fileKey(activeSession.file));
+    } catch {
+      /* best effort */
+    }
+  }, [activeSession?.file]);
 
   /**
    * R04 external discovery — default registrations only (tests that inject
@@ -475,7 +674,18 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
 
   /** D3: единственная crumb-row главного экрана (структура Design Lab):
    * crumb-данные слева, actions (режим сессии + тумблер панели) справа. */
-  const sessionCrumb = activeSession ? (
+  const sessionCrumb = activeDraft ? (
+    <>
+      <span className="muted" title={activeDraft.cwd}>
+        {activeDraft.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект'}
+      </span>
+      <span aria-hidden="true">/</span>
+      <strong data-testid="draft-title">Новый диалог</strong>
+      <span className="badge" data-testid="draft-cwd" title={activeDraft.cwd}>
+        черновик
+      </span>
+    </>
+  ) : activeSession ? (
     <>
       <span
         className="muted"
@@ -485,7 +695,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       </span>
       <span aria-hidden="true">/</span>
       <strong title={activeSession.file}>
-        {activeSession.name ?? activeSession.id.slice(0, 8)}
+        {activeSession.displayName}
       </strong>
       {activeSession.activeWrite && <span className="badge badge-active">запись</span>}
       {activeSession.availability !== 'ok' && (
@@ -497,7 +707,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** R07 §2: переключателя «История | Чат» больше нет — «Чат» это статичный
    * контекст рядом с единственной кнопкой правой панели, не вторая вкладка. */
   const sessionTabs =
-    view === 'chat' && activeSession ? (
+    view === 'chat' && (activeSession || activeDraft) ? (
       <span className="dl-crumb-context" data-testid="session-context">
         Чат
       </span>
@@ -534,6 +744,39 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     // о подключении внутри пустого состояния чата.
     centerBody = (
       <div className="chat-workspace" data-testid="view-chat">
+        {conflict && (
+          <div className="switch-guard" role="alert" data-testid="writer-conflict">
+            <span>{conflict}</span>
+            <div className="switch-guard-actions">
+              <button type="button" data-testid="conflict-dismiss" onClick={() => setConflict(null)}>
+                Понятно
+              </button>
+            </div>
+          </div>
+        )}
+        {noProjectNotice && (
+          <div className="switch-guard" role="alert" data-testid="new-chat-no-project">
+            <span>Не удалось определить проект Pi для нового диалога — выберите проект в списке слева.</span>
+            <div className="switch-guard-actions">
+              <button type="button" data-testid="no-project-dismiss" onClick={() => setNoProjectNotice(false)}>
+                Понятно
+              </button>
+            </div>
+          </div>
+        )}
+        {pendingDraftCwd !== null && (
+          <div className="switch-guard" role="alert" data-testid="new-chat-guard">
+            <span>Открыт другой чат — новый диалог займёт тот же единственный слот Pi.</span>
+            <div className="switch-guard-actions">
+              <button type="button" data-testid="new-chat-confirm" onClick={() => void confirmNewChat()}>
+                Закрыть чат и создать новый
+              </button>
+              <button type="button" data-testid="new-chat-cancel" onClick={() => setPendingDraftCwd(null)}>
+                Остаться
+              </button>
+            </div>
+          </div>
+        )}
         {pendingSession && (
           <div className="switch-guard" role="alert" data-testid="switch-guard">
             <span>
@@ -553,15 +796,16 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             </div>
           </div>
         )}
-        {activeSession ? (
+        {activeSession || activeDraft ? (
           <section className="dl-session-detail" data-testid="session-detail">
             <div className="dl-session-body">
               <ChatPane
                 api={effectiveApi}
-                file={activeSession.file}
+                file={activeSession?.file ?? ''}
                 chat={chat}
                 draft={draft}
                 onDraftChange={setDraft}
+                draftCwd={activeDraft?.cwd ?? null}
               />
             </div>
           </section>
@@ -573,11 +817,11 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
               <div data-testid="chat-empty">
                 <h2 className="dl-h2">Выберите диалог слева</h2>
                 <p className="muted">
-                  Проекты и чаты загружаются из Pi в WSL. Открытие диалога запускает самую свежую
-                  сессию; создание файлов сессий доступно в Pi CLI.
+                  Проекты и чаты загружаются из Pi в WSL. «Новый диалог» создаёт сессию через
+                  официальный Pi RPC; файл появится при первом сообщении.
                 </p>
-                <button type="button" className="dl-btn-primary" onClick={newChat}>
-                  Открыть последний диалог
+                <button type="button" className="dl-btn-primary" onClick={() => newChat()}>
+                  Новый диалог
                 </button>
                 {/* D3: честная компактная статус-цепь §5 ВНУТРИ утверждённой
                     пустой композиции чата (без legacy StatusPanel-обёртки
@@ -810,7 +1054,10 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             view={view}
             activeFile={activeSession?.file ?? null}
             onToggleCollapsed={() => commitLayout({ leftCollapsed: !appearance.layout.leftCollapsed })}
-            onNewChat={newChat}
+            onNewChat={() => newChat()}
+            onNewChatInProject={(cwd) => newChat(cwd)}
+            sessionsVersion={sessionsVersion}
+            activeDraftCwd={activeDraft?.cwd ?? null}
             connectionReady={snapshot.phase === 'ready'}
             moduleTabs={tabs.map(({ tabKey, tab }) => ({ tabKey, title: tab.title }))}
             onView={(v) => setView(v as View)}

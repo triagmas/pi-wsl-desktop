@@ -56,15 +56,8 @@ Scope: только визуальный слой (design-lab/, `src/renderer/de
 
 ## Гейты и конфликт с `pi-desktop-development`
 
-- **Чисто визуальная итерация** (только design-слой/фикстуры): `npx tsc -p
-  tsconfig.node.json --noEmit`, `npx tsc -p tsconfig.web.json --noEmit`,
-  `npx eslint .`, `npm run build` + адресные Playwright-пробы; целевой
-  Vitest-файл только если тронут общий модуль (напр.
-  `tests/unit/designSystem.test.ts` под `contrast.ts`). **НЕ запускать**: полный
-  Vitest, Electron E2E, installer, CI.
-- **Изменён функциональный контракт или готовим merge**: обычные продуктовые
-  гейты по `pi-desktop-development` (typecheck/lint/build/`npm test`/
-  `test:e2e`/CI, `NOT RUN` — явно) + независимый `pi-desktop-review`.
+- **Чисто визуальная итерация (уровень V)**: скриншоты затронутых состояний BEFORE/AFTER (2–4 кадра) + адресная Playwright-проба только при интерактивном поведении; целевой Vitest-файл — если тронут общий модуль (напр. `tests/unit/designSystem.test.ts` под `contrast.ts`); `tsc`/`eslint`/`npm run build` — только когда затронуты `.ts/.tsx` или нужен реальный экран/EXE. **НЕ запускать**: полный Vitest, Electron E2E, installer, CI, все DPI. Правило и матрица: [docs/development/quality-gates.md](../../../docs/development/quality-gates.md#fast-development-уровень-qa-выбирается-до-начала-работы).
+- **Изменён функциональный контракт (F/B) или готовим merge (R)**: адресные продуктовые гейты по `pi-desktop-development`, перед merge — полный релевантный набор (typecheck/lint/build/`npm test`/`test:e2e`/CI, `NOT RUN` — явно) + независимый `pi-desktop-review`.
 - Оба Skill применимы совместно; приоритет у этого — только для визуального цикла.
 
 ## Pitfalls

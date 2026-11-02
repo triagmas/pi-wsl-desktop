@@ -6,9 +6,9 @@
 
 [Обзор](README.md) · [Продукт](PRODUCT.md) · [Техническая спецификация](SPECIFICATION.md) · [Общий план в GitHub](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
-## QUALITY — дополнительные бесплатные проверки (Issue #35)
+## QUALITY — дополнительные бесплатные проверки ([Issue #35](https://github.com/triagmas/pi-wsl-desktop/issues/35))
 
-- [ ] **Q1 / Draft — CodeQL JS/TS**: в ветке `quality/q1-codeql-20261102` добавлен отдельный pinned workflow `.github/workflows/quality-codeql.yml`. **CI и Code Scanning NOT RUN / NOT VERIFIED** на момент составления; наличие Default Setup в настройках GitHub **UNKNOWN**. Независимое ревью и merge — отдельно по решению владельца.
+- [ ] **Q1 / Draft — NOT ACCEPTED — CodeQL JS/TS** ([PR #36](https://github.com/triagmas/pi-wsl-desktop/pull/36), ветка `quality/q1-codeql-20261102`): отдельный pinned workflow `.github/workflows/quality-codeql.yml`. Подтверждено на `0afcb04e`: Product CI и Repository Contract — SUCCESS, CodeQL analyze — SUCCESS (`results_count: 0`, 87 правил, CodeQL 2.27.3); Default Setup — `not-configured`, то есть работает только Advanced Setup. Независимое ревью и merge — отдельно по решению владельца.
 - [ ] **Q2**: пилот Knip и dependency-cruiser в report-only, подтверждение архитектурных правил и baseline перед блокирующими гейтами.
 - [ ] **Q3**: scoped mutation testing (Stryker), утверждённые визуальные регрессии Playwright и доступность UI.
 - [ ] **Q4**: воспроизводимые Harness² eval-сценарии с фиксированными моделями и измерением токенов; реальные вызовы моделей только по отдельному разрешению.

@@ -6,6 +6,15 @@
 
 [Обзор](README.md) · [Продукт](PRODUCT.md) · [Техническая спецификация](SPECIFICATION.md) · [Общий план в GitHub](https://github.com/triagmas/pi-wsl-desktop/issues/1)
 
+## QUALITY — дополнительные бесплатные проверки (Issue #35)
+
+- [ ] **Q1 / Draft — CodeQL JS/TS**: в ветке `quality/q1-codeql-20261102` добавлен отдельный pinned workflow `.github/workflows/quality-codeql.yml`. **CI и Code Scanning NOT RUN / NOT VERIFIED** на момент составления; наличие Default Setup в настройках GitHub **UNKNOWN**. Независимое ревью и merge — отдельно по решению владельца.
+- [ ] **Q2**: пилот Knip и dependency-cruiser в report-only, подтверждение архитектурных правил и baseline перед блокирующими гейтами.
+- [ ] **Q3**: scoped mutation testing (Stryker), утверждённые визуальные регрессии Playwright и доступность UI.
+- [ ] **Q4**: воспроизводимые Harness² eval-сценарии с фиксированными моделями и измерением токенов; реальные вызовы моделей только по отдельному разрешению.
+
+Процедуры, стоимость и критерии: [Quality Gates](docs/development/quality-gates.md). Новых платных подписок/API и изменений профиля Pi нет. Действующие Product CI и Repository Contract остаются в силе.
+
 ## Где мы сейчас
 
 | Часть продукта | Состояние | Задача и подтверждение |

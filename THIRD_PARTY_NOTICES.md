@@ -11,6 +11,18 @@ at build time; the Windows installer ships no `node_modules` of its own.
 | zod | ^4.6.7 | MIT | https://github.com/colinhacks/zod |
 | @xterm/xterm | ^6.0.0 | MIT | https://github.com/xtermjs/xterm.js |
 | @xterm/addon-fit | ^0.11.0 | MIT | https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit |
+| electron (runtime) | ^44.9.0 (44.9.0 shipped) | MIT | https://github.com/electron/electron |
+| Chromium / Chromium third-party components | as shipped with Electron 44.9.0 | BSD-3-Clause and others | https://github.com/chromium/chromium |
+
+## Electron runtime
+
+The installer ships an Electron runtime, not just javascript bundles. The
+Electron binary is distributed under the MIT license; the Chromium and
+third-party component licenses shipped inside it are included verbatim in
+`LICENSES.chromium.html`, which electron-builder places next to
+`electron.exe` in the installed application directory (20 MB, verified in the
+packaged build). `LICENSE` (this project, MIT) is shipped in the same
+directory and inside the application asar.
 
 ## Full license texts (verbatim from the installed packages)
 

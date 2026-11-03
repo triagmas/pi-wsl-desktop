@@ -4,7 +4,7 @@
 >
 > Одно окно для проектов, чатов, сессий, Skills, Extensions и MCP. Без собственной реализации Pi, копирования сессий или второй конфигурации.
 
-**Текущий статус:** M0 ([PR #4](https://github.com/triagmas/pi-wsl-desktop/pull/4)), M1 ([PR #6](https://github.com/triagmas/pi-wsl-desktop/pull/6)) и **M2 Pi Manager ([PR #8](https://github.com/triagmas/pi-wsl-desktop/pull/8)) приняты и слиты** (`main` `6107f959`). M3 Module System готовится — [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10); остаточные риски M2 — [Issue #9](https://github.com/triagmas/pi-wsl-desktop/issues/9). Актуальная приёмка — [ROADMAP.md](ROADMAP.md).
+**Текущий статус:** M0–M3 приняты и слиты; UI-A, UI21 и UI-B в `main`. Версия пакета — `1.0.0` (подготовка релиза); тег `v1.0.0`, GitHub Release и установщик публично не выпущены. Реальная генерация, streaming и Stop подтверждены на реальном провайдере (2 API-обращения); установка финального установщика в пользовательский профиль — **NOT RUN**. Актуальная приёмка — [ROADMAP.md](ROADMAP.md), состояние релиза — [1.0.0-release-notes.md](docs/release/1.0.0-release-notes.md).
 
 ## Документация
 
@@ -16,6 +16,10 @@
 | 🤖 **[AGENTS.md](AGENTS.md)** | Правила Pi, применимые Skills, TDD, выбор усилия модели, отчёты и ревью |
 | 💸 **[TOKEN_EFFICIENCY.md](docs/TOKEN_EFFICIENCY.md)** | Экономия токенов Pi: модели/effort, компактный контекст, измерения, границы безопасности |
 | ⚖️ **[LICENSE](LICENSE)** | Лицензия собственного кода |
+| 📝 **[1.0.0 release notes](docs/release/1.0.0-release-notes.md)** | Что входит в 1.0, требования, известные ограничения |
+| 📦 **[Установка и откат](docs/release/1.0.0-install-rollback.md)** | Установка, обновление, удаление и пошаговый rollback для пользователя |
+| ✅ **[Acceptance checklist 1.0.0](docs/release/1.0.0-acceptance-checklist.md)** | Доказательства проверок и незакрытые гейты |
+| 📄 **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** | Сторонние компоненты и их лицензии (включая Electron/Chromium) |
 
 ## Принцип работы
 
@@ -51,14 +55,42 @@ Windows-клиент — **интерфейс**. Исполнение Pi, Skills
 - Не зависит от VoiceForge, Hermes или ChatWake.
 - Не включает встроенную IDE, голосовые функции, Git Review, мобильный клиент и собственный MCP-клиент.
 
+## Установка (для пользователей)
+
+**Требования:** Windows 10/11 x64; WSL2 с хотя бы одним дистрибутивом (проверено на Ubuntu); установленный Pi Coding Agent внутри этого дистрибутива.
+
+Внутри того же дистрибутива нужны две **разные** зависимости:
+
+- **Node.js ≥ 22.19.0** — на нём работает WSL Bridge, который приложение запускает внутри WSL. Это же требование задаёт сам Pi 1.5.0 (`engines: node >= 22.19.0`); Desktop объявляет `>= 22.13.0`, поэтому фактически действует более строгая граница Pi. Node ищется без login-shell в `PATH`, затем в `~/.local/bin`, `/usr/local/bin`, `/usr/bin`; если его нет, подключение завершается ошибкой `NODE_NOT_FOUND`. Слишком старая версия Node не блокируется отдельной проверкой в UI — она проявится ошибкой при старте моста, поэтому версию нужно проверить самому.
+- **Python 3** — нужен **только** для встроенного терминала (PTY). К подключению Pi, чату и ресурсам он не относится: без `python3` приложение работает, а терминал честно сообщает `TERMINAL_UNAVAILABLE`.
+
+Проверка перед запуском (в терминале WSL):
+
+```bash
+node --version    # ожидается v22.19.0 или новее
+python3 --version # любая версия 3.x — только для терминала
+pi --version      # Pi установлен и доступен в PATH
+```
+
+> **Статус распространения:** публичный релиз пока не выпущен — установщик `1.0.0` собирается и проверяется в CI, но на GitHub Release не опубликован. Ниже описано поведение выпущенного установщика; до релиза используйте сборку из CI или `npm run build` + `npx electron-builder --win nsis --x64` локально.
+
+1. Скачать установщик `PiWSLDesktop-<версия>-setup.exe` и сверить SHA-256 с опубликованным в релизе.
+2. Запустить — установка per-user, без прав администратора; приложение ставится в `%LOCALAPPDATA%\Programs\pi-wsl-desktop` и само не запускается.
+3. Запустить из меню «Пуск» и дождаться подключения к WSL и Pi в левой панели.
+4. Обновление — установка более нового установщика поверх; удаление — через «Параметры → Приложения». Данные пользователя в `%APPDATA%\pi-wsl-desktop` при удалении сохраняются.
+
+Установщик не подписан (SmartScreen может предупредить) и не содержит автоматического обновления. Пошаговые инструкции, удаление следов и **rollback** — в [docs/release/1.0.0-install-rollback.md](docs/release/1.0.0-install-rollback.md); ограничения версии — в [release notes](docs/release/1.0.0-release-notes.md#known-limitations-in-100).
+
+**Границы записи:** чтение проектов, сессий и истории ничего не меняет. Операции Resource Manager (Skills, пакеты/Extensions, MCP) изменяют файлы Pi только после явного подтверждения пользователя, с резервной копией и откатом: приложение не является «только для чтения» по построению, и это отражено в предпросмотре перед каждым применением.
+
 ## Процесс разработки
 
 **Pi** разрабатывает и применяет все доступные **релевантные Skills**, **независимый ревьюер** проверяет PR, **владелец продукта** утверждает merge. Для снижения токенов действуют [профили сложности и протокол измерений](docs/TOKEN_EFFICIENCY.md); `AGENTS.md` не меняет автоматически уровень модели. Каждый принятый результат отмечается в `ROADMAP.md` с GitHub-доказательством; несогласованный прогресс блокирует принятие PR. Авторитетные решения закрепляются в корневых MD-документах и GitHub Issues.
 
 **Публичный GitHub:** два уровня проверки. [Repository Contract CI](.github/workflows/repository-contract.yml) — только документация и правила учёта (принят в PR #3). [Product CI](.github/workflows/product-ci.yml) — реальные `typecheck` / `lint` / Vitest (unit, contract, integration, UI) / сборка / Playwright Electron E2E на стандартных бесплатных `ubuntu-latest` и `windows-latest` без секретов. Реальный Windows+WSL smoke остаётся отдельным ручным гейтом и никогда не подменяется зелёным CI.
 
-**M0, M1 и M2 приняты.** Оригинальные Pi-сессии остаются по месту; просмотр истории read-only, Pi RPC resume только по действию пользователя. **M2** добавил менеджер Skills, Packages/Extensions, MCP и подтверждаемые операции с резервными копиями (интеграционный smoke выполнялся только на синтетических ресурсах). Реальный write/model prompt в пользовательской `~/.pi` **NOT RUN** и требует отдельного разрешения. Для M3 см. [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10), для остаточных рисков M2 — [#9](https://github.com/triagmas/pi-wsl-desktop/issues/9).
+**M0–M3 приняты, UI-пакеты и UI-B в `main`.** Оригинальные Pi-сессии остаются по месту; просмотр истории read-only, Pi RPC resume только по действию пользователя. **M2** добавил менеджер Skills, Packages/Extensions, MCP и подтверждаемые операции с резервными копиями; операции записи выполняются только после подтверждения пользователя. Реальная запись в пользовательскую `~/.pi` без явного подтверждения не выполняется; границы и остаточные риски — [#9](https://github.com/triagmas/pi-wsl-desktop/issues/9). Для M3 см. [Issue #10](https://github.com/triagmas/pi-wsl-desktop/issues/10), для отложенных UX-замечаний 1.0 — [#37](https://github.com/triagmas/pi-wsl-desktop/issues/37), [#38](https://github.com/triagmas/pi-wsl-desktop/issues/38), [#40](https://github.com/triagmas/pi-wsl-desktop/issues/40), [#41](https://github.com/triagmas/pi-wsl-desktop/issues/41).
 
 ---
 
-**Технологии (план):** Windows 11 · WSL2 · Ubuntu · Node.js / TypeScript · Electron / React · Pi CLI RPC / SDK.
+**Технологии:** Windows 11 · WSL2 · Ubuntu · Node.js / TypeScript · Electron / React · Pi CLI RPC / SDK. Лицензия собственного кода — MIT, сторонние компоненты — в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

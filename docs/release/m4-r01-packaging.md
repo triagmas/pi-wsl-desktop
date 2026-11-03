@@ -113,9 +113,12 @@ no network updates; the file is inert. Disclosed here for the security review.
 
 ## Versioning & reproducibility
 
-- `package.json` version `1.0.0-rc.1` — the `1.0.0` release is declared only
-  after the FINAL M4 acceptance (Issue #16). Artifact name pins the version:
-  `PiWSLDesktop-1.0.0-rc.1-setup.exe`.
+- `package.json` version was `1.0.0-rc.1` when R01 shipped; artifact name
+  pins the version: `PiWSLDesktop-1.0.0-rc.1-setup.exe`. **Update (M4 R03
+  preparation):** the package is now `1.0.0` and the installer is named
+  `PiWSLDesktop-1.0.0-setup.exe`. Declaring the version is not a release:
+  the tag, the GitHub Release and the public installer upload still require
+  the FINAL M4 acceptance and an explicit owner decision (Issue #16).
 - Reproducible inputs: `package-lock.json` via `npm ci`, pinned
   `electron-builder`, Electron 44.9.0 fetched with checksum verification by
   `@electron/get`. Byte-identical binaries are NOT claimed (NSIS/PE
@@ -136,7 +139,10 @@ no network updates; the file is inert. Disclosed here for the security review.
 
 ## Rollback
 
-- App-level: reinstall the previous archived installer (userData is
-  version-independent).
+- App-level: reinstall the previous installer — one you saved yourself, since
+  the application archives none (the userData **folder** is not version-bound,
+  but a downgrade is not guaranteed to read state written by a newer version;
+  take a copy of `%APPDATA%\pi-wsl-desktop` first). See
+  [1.0.0-install-rollback.md](1.0.0-install-rollback.md).
 - Change-level: this R01 lands as one PR; reverting it restores the dev-only
   build (`npm run build`/`npm start`), which is unaffected by packaging.

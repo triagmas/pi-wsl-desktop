@@ -1,6 +1,6 @@
 {
   "name": "pi-wsl-desktop",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0",
   "description": "Lightweight Windows desktop client for the existing Pi coding agent inside WSL. M4 R01: reproducible Windows release packaging.",
   "license": "MIT",
   "private": true,

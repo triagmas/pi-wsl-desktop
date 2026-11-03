@@ -32,8 +32,12 @@ const build = (pkg.build ?? {}) as {
 };
 
 describe('M4 R01 — release versioning', () => {
-  it('declares a prerelease version: 1.0.0 is NOT released before final M4 acceptance', () => {
-    expect(pkg.version).toBe('1.0.0-rc.1');
+  // M4 R03 preparation moved the package to the 1.0.0 line. Declaring the
+  // version is NOT the same as releasing it: tag v1.0.0, the GitHub Release
+  // and the public installer upload each still require explicit owner
+  // approval, and the release contract below keeps the lifecycle guarantees.
+  it('pins the 1.0.0 release line for M4 R03 preparation', () => {
+    expect(pkg.version).toBe('1.0.0');
     expect(pkg.main).toBe('dist/main/index.cjs');
   });
 

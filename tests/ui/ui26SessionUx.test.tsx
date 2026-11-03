@@ -273,7 +273,17 @@ describe('#26 восстановление последнего диалога',
     render(<App api={h.api} moduleDefinitions={[]} />);
     // Диалог восстановлен как КОНТЕКСТ: заголовок и панель на месте…
     // «Второй» есть и в сайдбаре, и в заголовке диалога — берём заголовок.
-    expect(await screen.findByTitle(FILE_B)).toHaveTextContent('Второй');
+    // R06 (#37): шапка сокращает заголовок, поэтому tooltip несёт полное
+    // название диалога, а не путь к файлу сессии.
+    const headerTitle = await waitFor(() => {
+      const el = Array.from(document.querySelectorAll('.dl-app-crumb strong')).find(
+        (node) => node.textContent === 'Второй',
+      );
+      expect(el).toBeDefined();
+      return el as HTMLElement;
+    });
+    expect(headerTitle).toHaveTextContent('Второй');
+    expect(headerTitle).toHaveAttribute('title', 'Второй');
     expect(await screen.findByTestId('session-detail')).toBeInTheDocument();
     // …но RPC не спавнится сам: открытие остаётся явным действием (граница записи).
     expect(methods(h)).not.toContain('openSession');

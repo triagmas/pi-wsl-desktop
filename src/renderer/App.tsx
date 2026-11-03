@@ -867,7 +867,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         {activeSession.projectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Проект'}
       </span>
       <span aria-hidden="true">/</span>
-      <strong title={activeSession.file}>
+      {/* R06 V1 (#37): полный заголовок доступен в tooltip, даже когда
+          в шапке он сокращён до ellipsis. */}
+      <strong title={activeSession.displayName}>
         {activeSession.displayName}
       </strong>
       {activeSession.activeWrite && <span className="badge badge-active">запись</span>}

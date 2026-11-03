@@ -2535,3 +2535,71 @@ html:not([data-design-lab]) .dl-frame[data-layout="app"] .dl-side-divider {
   font-weight: 600;
   opacity: 0.9;
 }
+
+/* UI-B R01: живой PTY внутри дока. Тело дока перестаёт быть текстовой
+ * заглушкой: рамка/фон остаются прежними, содержимым управляет xterm. */
+/* Хост нужен только для того, чтобы док оставался смонтированным при
+   скрытии. `display: contents` убирает его из раскладки: .dl-terminal
+   остаётся прямым участником центральной колонки (высоты и лимиты как были). */
+.dl-terminal-dock-host {
+  display: contents;
+}
+
+.dl-terminal-dock-host[hidden] {
+  display: none;
+}
+
+.dl-term-body.dl-term-body-live {
+  padding: 0;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dl-term-empty {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 2px;
+}
+
+.dl-term-session {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* В живом режиме пустой слот-заглушка не участвует в раскладке: иначе он
+ * забирает половину высоты дока (flex: 1) и терминал остаётся в 5 строк. */
+.dl-term-body-live > .terminal-slot {
+  display: none;
+}
+
+.dl-term-session[hidden] {
+  display: none;
+}
+
+.dl-term-session > .dl-term-note {
+  /* Заметка — подпись над терминалом, а не половина дока: базовый стиль
+   * заглушки (.dl-term-note { flex: 1 }) в живом режиме не применяется. */
+  flex: 0 0 auto;
+  padding: 4px 14px;
+  font-size: 12px;
+  line-height: 1.3;
+  opacity: 0.85;
+}
+
+.dl-term-xterm {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 14px;
+}
+
+.dl-term-xterm .xterm,
+.dl-term-xterm .xterm-viewport,
+.dl-term-xterm .xterm-screen {
+  height: 100%;
+}

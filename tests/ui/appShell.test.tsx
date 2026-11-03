@@ -75,11 +75,13 @@ describe('App shell', () => {
     await waitFor(() => expect(within(bar).getByText(/Ubuntu · WSL/)).toBeInTheDocument());
   });
 
-  it('shows only real status indicators — no fake CPU/RAM numbers (§6/§7)', () => {
+  it('shows only real status indicators — CPU/RAM stay honest placeholders without a sampler (§6/§7)', () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     const bar = screen.getByTestId('status-bar');
     expect(within(bar).getByText('Windows')).toBeInTheDocument();
-    expect(within(bar).queryByText(/CPU|RAM/)).not.toBeInTheDocument();
+    // UI-B: метрики приходят из main; пока снимка нет — «—», а не выдуманные числа.
+    expect(within(bar).getByTestId('status-cpu')).toHaveTextContent('CPU —');
+    expect(within(bar).getByTestId('status-ram')).toHaveTextContent('RAM —');
     expect(within(bar).queryByText(/\d+\s*%/)).not.toBeInTheDocument();
   });
 
@@ -100,9 +102,13 @@ describe('App shell', () => {
     expect(toggle).not.toBeDisabled();
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
     await user.click(toggle);
-    expect(screen.queryByTestId('terminal-slot')).not.toBeInTheDocument();
+    // UI-B R01: док скрывается, но остаётся смонтированным — внутри живёт PTY,
+    // поэтому проверяем видимость (hidden у хоста), а не удаление из DOM.
+    expect(screen.getByTestId('terminal-dock-host')).toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock')).toBeInTheDocument();
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
     await user.click(toggle);
+    expect(screen.getByTestId('terminal-dock-host')).not.toHaveAttribute('hidden');
     expect(screen.getByTestId('terminal-slot')).toBeInTheDocument();
   });
 
@@ -486,5 +492,58 @@ describe('D2 layout integration', () => {
         expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 385 }) }),
       ),
     );
+  });
+});
+
+/**
+ * UI-B R01: док терминала — это живой PTY в main-процессе, поэтому скрытие
+ * дока не должно размонтировать компонент: иначе терялись вкладки и оставался
+ * невидимый процесс терминала.
+ */
+describe('App shell — док терминала при скрытии', () => {
+  it('скрытие дока не размонтирует его и не пересоздаёт (процесс терминала живёт)', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    const host = () => screen.getByTestId('terminal-dock-host');
+    if (host().hasAttribute('hidden')) await user.click(screen.getByTestId('status-terminal-btn'));
+    expect(host()).not.toHaveAttribute('hidden');
+    const dockNode = screen.getByTestId('terminal-dock');
+
+    await user.click(screen.getByTestId('status-terminal-btn'));
+    expect(host()).toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock'), 'док должен остаться смонтированным').toBe(dockNode);
+
+    await user.click(screen.getByTestId('status-terminal-btn'));
+    expect(host()).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock')).toBe(dockNode);
+  });
+});
+
+/**
+ * P1 (независимое ревью): переход между экранами не должен размонтировать док
+ * терминала. Иначе терялись вкладки, а PTY в main оставался запущенным без
+ * возможности его закрыть. Физически док виден только в области чата.
+ */
+describe('App shell — док терминала при переходе между экранами', () => {
+  it('переключение Chat → Resources → Chat сохраняет смонтированный док', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    const host = () => screen.getByTestId('terminal-dock-host');
+    if (host().hasAttribute('hidden')) await user.click(screen.getByTestId('status-terminal-btn'));
+    expect(host()).not.toHaveAttribute('hidden');
+    const dockNode = screen.getByTestId('terminal-dock');
+
+    await user.click(screen.getByTestId('nav-resources'));
+    expect(screen.getByTestId('view-resources')).toBeInTheDocument();
+    expect(host()).toHaveAttribute('hidden'); // вне чата терминала не видно
+    expect(screen.getByTestId('terminal-dock'), 'док должен остаться смонтированным').toBe(dockNode);
+
+    await user.click(screen.getByTestId('nav-settings'));
+    expect(host()).toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock')).toBe(dockNode);
+
+    await user.click(screen.getByTestId('nav-chat'));
+    expect(host()).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock')).toBe(dockNode);
   });
 });

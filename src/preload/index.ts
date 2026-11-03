@@ -6,6 +6,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ConnectionSnapshot } from '../main/connection';
 import { isAllowedRendererMethod } from '../shared/whitelist';
+import type { TerminalEvent, TerminalOpenRequest, TerminalSession } from '../shared/terminal';
+import type { MetricsSample } from '../shared/terminalMetrics';
 
 export interface DesktopApi {
   request(method: string, params?: Record<string, unknown>): Promise<unknown>;
@@ -15,6 +17,21 @@ export interface DesktopApi {
   selectDistro(distro: string): Promise<ConnectionSnapshot>;
   onStateChange(callback: (snapshot: ConnectionSnapshot) => void): () => void;
   onChatEvent(callback: (payload: unknown) => void): () => void;
+  /**
+   * UI-B: узкий типизированный контракт терминала. Renderer не получает
+   * ни Node.js, ни произвольный shell: только эти четыре операции и события.
+   */
+  terminal: {
+    open(request: TerminalOpenRequest): Promise<TerminalSession>;
+    /** Подписка renderer на события сессии: отдаёт накопленные ранние кадры. */
+    attach(id: string): Promise<boolean>;
+    write(id: string, dataB64: string): Promise<boolean>;
+    resize(id: string, cols: number, rows: number): Promise<void>;
+    close(id: string): Promise<void>;
+    onEvent(callback: (event: TerminalEvent) => void): () => void;
+  };
+  /** UI-B: снимок CPU/RAM Windows-хоста (считает main-процесс). */
+  getMetrics(): Promise<MetricsSample>;
   getAppearance(): Promise<unknown>;
   saveAppearance(settings: unknown): Promise<unknown>;
   resetAppearance(): Promise<unknown>;
@@ -47,6 +64,19 @@ const api: DesktopApi = {
     ipcRenderer.on('bridge:chat', listener as never);
     return () => ipcRenderer.removeListener('bridge:chat', listener as never);
   },
+  terminal: {
+    open: (request) => ipcRenderer.invoke('terminal:open', request) as Promise<TerminalSession>,
+    attach: (id) => ipcRenderer.invoke('terminal:attach', id) as Promise<boolean>,
+    write: (id, dataB64) => ipcRenderer.invoke('terminal:write', id, dataB64) as Promise<boolean>,
+    resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows).then(() => undefined),
+    close: (id) => ipcRenderer.invoke('terminal:close', id).then(() => undefined),
+    onEvent(callback) {
+      const listener = (_event: unknown, payload: TerminalEvent) => callback(payload);
+      ipcRenderer.on('terminal:event', listener as never);
+      return () => ipcRenderer.removeListener('terminal:event', listener as never);
+    },
+  },
+  getMetrics: () => ipcRenderer.invoke('metrics:get') as Promise<MetricsSample>,
   getAppearance: () => ipcRenderer.invoke('appearance:get'),
   saveAppearance: (settings) => ipcRenderer.invoke('appearance:set', settings),
   resetAppearance: () => ipcRenderer.invoke('appearance:reset'),

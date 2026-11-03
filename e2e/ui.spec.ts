@@ -53,10 +53,11 @@ test.describe('UI-A application shell E2E', () => {
       await expect(sidebar).toBeVisible();
       await expect(page.getByTestId('open-details')).toHaveAttribute('aria-pressed', 'false');
 
-      // Status bar: только реальные индикаторы (§7). Фиктивные CPU/RAM удалены;
-      // выдуманных процентов в строке быть не может.
-      await expect(page.getByTestId('status-cpu')).toHaveCount(0);
-      await expect(page.getByTestId('status-ram')).toHaveCount(0);
+      // Status bar: только реальные индикаторы (§7). UI-B приносит настоящие
+      // метрики Windows-хоста из main-процесса; пока снимка нет — «—», и
+      // выдуманных чисел быть не может.
+      await expect(page.getByTestId('status-cpu')).toContainText(/CPU (—|\d+%)/);
+      await expect(page.getByTestId('status-ram')).toContainText(/RAM (—|\d+([.,]\d+)? \/ \d+([.,]\d+)? ГБ)/);
       await expect(page.getByTestId('status-bar')).toContainText('Windows');
       await expect(page.getByTestId('status-connection')).toBeVisible();
       await expect(page.getByTestId('status-distro')).toContainText('Ubuntu');
@@ -68,7 +69,9 @@ test.describe('UI-A application shell E2E', () => {
       await expect(page.getByTestId('status-terminal-btn')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('terminal-slot')).toBeVisible();
       await expect(page.getByTestId('terminal-slot')).toHaveText(''); // инвариант: в слоте НЕТ фиктивного вывода
-      await expect(page.getByTestId('terminal-dock')).toHaveText(/PTY/i); // честная надпись дока о реальном PTY в UI-B
+      await expect(page.getByTestId('terminal-dock')).toHaveText(/PTY/i); // честная надпись дока о реальном PTY
+      // UI-B: shell стартует только по действию пользователя — до клика сессии нет.
+      await expect(page.getByTestId('terminal-xterm')).toHaveCount(0);
 
       // Right details panel: open → focus lands in the panel context; close →
       // §8 focus returns to the opening button.
@@ -552,9 +555,13 @@ test.describe('R01 owner acceptance repair', () => {
       await expect(page.getByTestId('terminal-expand')).toHaveAttribute('aria-pressed', 'false');
       expect((await dock.boundingBox())!.height).toBeCloseTo(h0, 0);
 
+      // UI-B R01: док скрывается, но остаётся смонтированным — внутри живёт
+      // настоящий PTY, поэтому проверяем видимость, а не удаление из DOM.
       await page.getByTestId('terminal-close').click();
-      await expect(dock).toHaveCount(0);
+      await expect(page.getByTestId('terminal-dock-host')).toHaveAttribute('hidden', '');
+      await expect(dock).toBeHidden();
       await page.getByTestId('status-terminal-btn').click();
+      await expect(page.getByTestId('terminal-dock-host')).not.toHaveAttribute('hidden');
       await expect(dock).toBeVisible();
     } finally {
       await app.close();

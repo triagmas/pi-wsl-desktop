@@ -5,7 +5,7 @@
  * Реальный PTY/терминал — UI-B и НЕ начинается в D1; строки — иллюстрация,
  * ANSI-цвета через токены --pw-terminal-*.
  */
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { IconClose, IconExpandArrows, IconPlus, IconTerminalGlyph } from './icons';
 
 export interface TerminalTab {
@@ -33,6 +33,8 @@ export interface TerminalPaneProps {
   body?: ReactNode;
   /** D3 (Electron): продуктовые testid (terminal-dock / terminal-slot). */
   testid?: { dock?: string; slot?: string };
+  /** UI-B: живой PTY — тело дока перестаёт быть текстовым блоком-заглушкой. */
+  live?: boolean;
   /** board: переключение вкладки (без обработчика вкладки статичны). */
   onSelectTab?: (id: string) => void;
   /** board: кнопка «+» (без обработчика не рендерится — контракт ref5 сохранён). */
@@ -55,6 +57,7 @@ export function TerminalPane({
   grip,
   body,
   testid,
+  live = false,
   onSelectTab,
   onAddTab,
   onCloseTab,
@@ -91,8 +94,23 @@ export function TerminalPane({
               {tab.closable ? (
                 <span
                   className="dl-term-tab-close"
-                  aria-hidden="true"
-                  onClick={onCloseTab ? (e) => { e.stopPropagation(); onCloseTab(tab.id); } : undefined}
+                  {...(onCloseTab
+                    ? {
+                        role: 'button' as const,
+                        tabIndex: 0,
+                        'aria-label': `Закрыть вкладку ${tab.label}`,
+                        onClick: (e: MouseEvent) => {
+                          e.stopPropagation();
+                          onCloseTab(tab.id);
+                        },
+                        onKeyDown: (e: KeyboardEvent) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onCloseTab(tab.id);
+                        },
+                      }
+                    : { 'aria-hidden': true as const })}
                 >
                   <IconClose size={15} />
                 </span>
@@ -101,7 +119,13 @@ export function TerminalPane({
           );
         })}
         {onAddTab ? (
-          <button type="button" className="dl-term-add" aria-label="Новая вкладка" onClick={onAddTab}>
+          <button
+            type="button"
+            className="dl-term-add"
+            aria-label="Новая вкладка"
+            data-testid="terminal-new-tab"
+            onClick={onAddTab}
+          >
             <IconPlus size={17} />
           </button>
         ) : null}
@@ -127,7 +151,7 @@ export function TerminalPane({
           </button>
         </div>
       </div>
-      <div className="dl-term-body">
+      <div className={live ? 'dl-term-body dl-term-body-live' : 'dl-term-body'}>
         {body}
         {testid?.slot ? <div data-testid={testid.slot} className="terminal-slot" aria-hidden="true" /> : null}
         {lines.map((line, i) => (

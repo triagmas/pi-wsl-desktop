@@ -153,9 +153,17 @@ function draftAsSession(file: string, cwd: string): SessionInfoT {
  * R02: id черновика — только ключ стора (файл назначает Pi официальным
  * new_session). Вынесен из тела компонента, чтобы не нарушать правило
  * чистоты рендера.
+ *
+ * CodeQL js/insecure-randomness: id не является секретом, но `Math.random()`
+ * для него всё равно непригоден — берём криптостойкий источник, а при его
+ * отсутствии — монотонный счётчик (уникальность внутри сеанса достаточна).
  */
+let draftIdSeq = 0;
 function newDraftId(): string {
-  return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `d${uuid.replace(/-/g, '').slice(0, 12)}`;
+  draftIdSeq += 1;
+  return `d${Date.now().toString(36)}${draftIdSeq.toString(36)}`;
 }
 
 export function App({ api, moduleDefinitions }: AppProps = {}) {

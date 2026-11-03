@@ -18,7 +18,9 @@ import {
   BRIDGE_MAX_REQUEST_TIMEOUT_MS,
   BRIDGE_REQUEST_TIMEOUT_MS,
   bridgeHandlerTimeoutMs,
+  PI_COLD_START_TIMEOUT_MS,
   PI_COMMAND_TIMEOUT_MS,
+  PI_START_BUDGET_MS,
   PI_INTERRUPT_TIMEOUT_MS,
   PI_PROMPT_ACK_TIMEOUT_MS,
   methodTimeoutMs,
@@ -106,5 +108,72 @@ describe('registerIpc передаёт вычисленный тайм-аут', 
     const { request, call } = makeIpc();
     await call('readSession');
     expect(request).toHaveBeenCalledWith('readSession', undefined, { timeoutMs: BRIDGE_REQUEST_TIMEOUT_MS });
+  });
+});
+
+/**
+ * R02 (#6566550672): «Новый диалог» в реальном Windows-приложении падал через
+ * 10 000 мс с BRIDGE_TIMEOUT, хотя Pi просто ещё не ответил.
+ *
+ * Замер без inference (изолированный профиль, WSL, `pi --mode rpc` + new_session):
+ * 22 848 / 33 451 / 23 673 мс на холодном и уже прогретом профиле. Значит
+ * `newSession` обязан иметь собственный бюджет, а не общий 10 000 мс: он
+ * поднимает процесс Pi, ждёт new_session и затем get_state.
+ */
+describe('бюджет newSession (R02)', () => {
+  it('внешний бюджет покрывает холодный старт + вторую команду Pi', () => {
+    expect(methodTimeoutMs('newSession')).toBeGreaterThan(BRIDGE_REQUEST_TIMEOUT_MS);
+    expect(methodTimeoutMs('newSession')).toBeGreaterThan(
+      PI_COLD_START_TIMEOUT_MS + PI_COMMAND_TIMEOUT_MS,
+    );
+  });
+
+  it('openSession тоже покрывает холодный get_state (первая команда)', () => {
+    expect(methodTimeoutMs('openSession')).toBeGreaterThan(
+      PI_COLD_START_TIMEOUT_MS + 2 * PI_COMMAND_TIMEOUT_MS,
+    );
+    // потолок bridge не должен обрезать собственный бюджет main
+    expect(bridgeHandlerTimeoutMs('openSession')).toBeLessThanOrEqual(BRIDGE_MAX_REQUEST_TIMEOUT_MS);
+  });
+
+  it('покрывает холодный старт и остаётся под потолком bridge', () => {
+    expect(methodTimeoutMs('newSession')).toBeGreaterThan(PI_COLD_START_TIMEOUT_MS);
+    expect(bridgeHandlerTimeoutMs('newSession')).toBeLessThanOrEqual(BRIDGE_MAX_REQUEST_TIMEOUT_MS);
+  });
+
+  it('bridge получает потолок строго меньше внешнего тайм-аута main', () => {
+    expect(bridgeHandlerTimeoutMs('newSession')).toBeGreaterThan(PI_COMMAND_TIMEOUT_MS);
+    expect(bridgeHandlerTimeoutMs('newSession')).toBeLessThan(methodTimeoutMs('newSession'));
+  });
+});
+
+/**
+ * R03-3 (#26, #6572954720, P2): сквозная схема deadline холодного запуска.
+ * Раньше арифметика не сходилась: две команды по 40 000 мс (первая и вторая)
+ * были допустимы каждая по отдельности, но внешний бюджет main (70 000 мс)
+ * обрывал вторую. Теперь бюджет один и он больше суммы допустимых окон,
+ * а каждый слой ждёт дольше внутреннего.
+ */
+describe('R03-3 · сквозная схема deadline запуска Pi', () => {
+  it('единый бюджет запуска вмещает две допустимо медленные команды', () => {
+    expect(PI_START_BUDGET_MS).toBeGreaterThanOrEqual(2 * PI_COLD_START_TIMEOUT_MS);
+  });
+
+  it('слои вложены: бюджет < bridge-handler < main < потолок bridge', () => {
+    for (const method of ['newSession', 'openSession']) {
+      expect(bridgeHandlerTimeoutMs(method)).toBeGreaterThan(PI_START_BUDGET_MS);
+      expect(bridgeHandlerTimeoutMs(method)).toBeLessThan(methodTimeoutMs(method));
+      expect(methodTimeoutMs(method)).toBeLessThan(BRIDGE_MAX_REQUEST_TIMEOUT_MS);
+    }
+  });
+
+  it('запас между бюджетом и bridge-handler покрывает отмену и накладные расходы', () => {
+    for (const method of ['newSession', 'openSession']) {
+      expect(bridgeHandlerTimeoutMs(method) - PI_START_BUDGET_MS).toBeGreaterThanOrEqual(3_000);
+    }
+  });
+
+  it('обычные команды не расширены', () => {
+    expect(PI_COMMAND_TIMEOUT_MS).toBe(15_000);
   });
 });

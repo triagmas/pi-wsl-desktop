@@ -10,6 +10,8 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import path from 'node:path';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fakePi, launchApp } from './launchApp';
 
 const repoRoot = path.join(__dirname, '..');
@@ -51,10 +53,11 @@ test.describe('UI-A application shell E2E', () => {
       await expect(sidebar).toBeVisible();
       await expect(page.getByTestId('open-details')).toHaveAttribute('aria-pressed', 'false');
 
-      // Status bar: honest em dashes for unavailable Windows CPU/RAM (§7),
-      // no invented numbers.
-      await expect(page.getByTestId('status-cpu')).toHaveText('CPU —');
-      await expect(page.getByTestId('status-ram')).toHaveText('RAM —');
+      // Status bar: только реальные индикаторы (§7). Фиктивные CPU/RAM удалены;
+      // выдуманных процентов в строке быть не может.
+      await expect(page.getByTestId('status-cpu')).toHaveCount(0);
+      await expect(page.getByTestId('status-ram')).toHaveCount(0);
+      await expect(page.getByTestId('status-bar')).toContainText('Windows');
       await expect(page.getByTestId('status-connection')).toBeVisible();
       await expect(page.getByTestId('status-distro')).toContainText('Ubuntu');
 
@@ -97,99 +100,116 @@ test.describe('UI-A application shell E2E', () => {
     }
   });
 
-  test('settings: 5 theme cards, tokens reach the DOM, typography + workspace sections', async () => {
+  test('settings: 5 light / 4 dark palettes, four colors, two font slots', async () => {
     const testInfo = test.info();
     const { app, page } = await launch();
     try {
       await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      // Колонка 760 px требует десктопной ширины (Electron стартует с 800×600).
+      await page.setViewportSize({ width: 1440, height: 900 });
       await page.getByTestId('nav-settings').click();
       await expect(page.getByTestId('settings-root')).toBeVisible();
 
-      // Isolated dark profile → the default card is checked without any click.
-      await expect(page.getByTestId('theme-card-dark')).toHaveAttribute('aria-checked', 'true');
+      // Контракт Stage 2 R01: одна страница, три раздела, колонка 760 px.
+      for (const id of ['settings-appearance', 'settings-typography', 'settings-connection']) {
+        await expect(page.getByTestId(id)).toBeVisible();
+      }
+      const colWidth = await page.evaluate(() => {
+        const w = window as unknown as {
+          document: { querySelector: (s: string) => unknown };
+          getComputedStyle: (el: unknown) => { width: string };
+        };
+        const el = w.document.querySelector('[data-testid="settings-col"]');
+        return el ? parseFloat(w.getComputedStyle(el).width) : 0;
+      });
+      expect(colWidth).toBeGreaterThan(740);
+      expect(colWidth).toBeLessThan(780);
 
-      // §9.2: exactly four presets + custom.
-      for (const id of ['dark', 'light', 'claude', 'codex', 'custom']) {
+      // Тёмный режим по умолчанию: 4 палитры, выбрана «Тёмная».
+      await expect(page.getByTestId('theme-card-dark')).toHaveAttribute('aria-checked', 'true');
+      for (const id of ['dark', 'claudeDark', 'codexDark', 'custom']) {
         await expect(page.getByTestId(`theme-card-${id}`)).toBeVisible();
       }
+      await expect(page.getByTestId('theme-card-light')).toHaveCount(0);
 
-      // Switch to Light: color-scheme AND real computed body color change —
-      // theme tokens reach the actual rendering, not just inline vars (P1).
+      // Светлый режим: 5 палитр.
+      await page.getByTestId('theme-mode-light').click();
+      for (const id of ['light', 'astra', 'claudeLight', 'codexLight', 'custom']) {
+        await expect(page.getByTestId(`theme-card-${id}`)).toBeVisible();
+      }
       await page.getByTestId('theme-card-light').click();
-      await expect(page.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
       await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG);
-      const scheme = await page.evaluate(() => {
-        // e2e window typing is the preload surface only — reach the DOM via casts.
+      const schemeLight = await page.evaluate(() => {
         const w = window as unknown as {
           getComputedStyle: (el: unknown) => { colorScheme: string };
           document: { documentElement: unknown };
         };
         return w.getComputedStyle(w.document.documentElement).colorScheme;
       });
-      expect(scheme).toContain('light');
+      expect(schemeLight).toContain('light');
       await page.screenshot({ path: testInfo.outputPath('ui-settings-light.png') });
 
-      // Custom editor opens from the fifth card and can be cancelled without
-      // changing the persisted theme or the document (live preview restores).
+      // «Своя» тема: ровно четыре поля цвета, живой предпросмотр, Apply.
       await page.getByTestId('theme-card-custom').click();
       await expect(page.getByTestId('theme-editor')).toBeVisible();
+      const colorInputs = await page.getByTestId('theme-editor').locator('input[type="color"]').count();
+      expect(colorInputs).toBe(4);
+      await page.getByTestId('custom-accent').evaluate((node) => {
+        // e2e-контекст: DOM-типы недоступны в node-конфиге TS — сужаем локально.
+        // Натуральный setter нужен, чтобы React увидел onChange (трекер value).
+        const g = globalThis as unknown as {
+          HTMLInputElement: { prototype: object };
+          Event: new (type: string, init?: { bubbles?: boolean }) => unknown;
+          Object: { getOwnPropertyDescriptor: (o: object, p: string) => { set?: (v: string) => void } | undefined };
+        };
+        const el = node as unknown as { dispatchEvent: (ev: unknown) => boolean };
+        const desc = g.Object.getOwnPropertyDescriptor(g.HTMLInputElement.prototype, 'value');
+        desc?.set?.call(el, '#0e7490');
+        el.dispatchEvent(new g.Event('input', { bubbles: true }));
+        el.dispatchEvent(new g.Event('change', { bubbles: true }));
+      });
+      await expect(page.getByTestId('custom-contrast-status')).toHaveAttribute('data-ok', 'true');
+      await page.getByTestId('theme-apply').click();
+      await expect(page.getByTestId('settings-state')).toHaveText(/применено/);
+      // После применения черновик чист — «Отмена» недоступна (честное состояние).
+      await expect(page.getByTestId('theme-cancel')).toBeDisabled();
+      await expect(page.getByTestId('theme-card-custom')).toHaveAttribute('aria-checked', 'true');
+      // Правим ещё раз и отменяем: редактор остаётся на сохранённой «своей» теме.
+      await page.getByTestId('custom-accent').evaluate((node) => {
+        const g = globalThis as unknown as {
+          HTMLInputElement: { prototype: object };
+          Event: new (type: string, init?: { bubbles?: boolean }) => unknown;
+          Object: { getOwnPropertyDescriptor: (o: object, p: string) => { set?: (v: string) => void } | undefined };
+        };
+        const el = node as unknown as { dispatchEvent: (ev: unknown) => boolean };
+        const desc = g.Object.getOwnPropertyDescriptor(g.HTMLInputElement.prototype, 'value');
+        desc?.set?.call(el, '#123456');
+        el.dispatchEvent(new g.Event('input', { bubbles: true }));
+        el.dispatchEvent(new g.Event('change', { bubbles: true }));
+      });
+      await expect(page.getByTestId('theme-cancel')).toBeEnabled();
       await page.getByTestId('theme-cancel').click();
-      await expect(page.getByTestId('theme-editor')).toBeHidden();
-      await expect(page.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
-      await expect.poll(() => bodyBackground(page)).toBe(LIGHT_BG); // preview did not leak
+      await expect(page.getByTestId('settings-state')).toHaveText(/применено/);
+      await expect(page.getByTestId('theme-editor')).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath('ui-settings-custom.png') });
 
-      // Typography: eight independent areas (§9.3) — all sections share the
-      // approved screen (C3), so no section-tab click is needed.
-      for (const area of ['ui', 'sidebar', 'chatInput', 'chatResponse', 'code', 'terminal', 'statusBar']) {
-        await expect(page.getByTestId(`typo-${area}`)).toBeVisible();
+      // Типографика: системный блок без контролов + два слота с превью.
+      await expect(page.getByTestId('font-block-system').locator('input, select')).toHaveCount(0);
+      for (const slot of ['reply', 'code']) {
+        await expect(page.getByTestId(`font-${slot}-family`)).toBeVisible();
+        await expect(page.getByTestId(`font-${slot}-size`)).toBeVisible();
+        await expect(page.getByTestId(`preview-${slot}`)).toBeVisible();
       }
 
-      // The sidebar zone must drive the REAL project/session rows — not just a
-      // dead selector (round-2 review). Fixture sessions render in the list.
-      const rowFontSize = () =>
-        page.evaluate(() => {
-          const w = window as unknown as {
-            document: { querySelector: (s: string) => unknown };
-            getComputedStyle: (el: unknown) => { fontSize: string };
-          };
-          const el = w.document.querySelector('.session-row') ?? w.document.querySelector('.project-row');
-          return el ? w.getComputedStyle(el).fontSize : 'missing';
-        });
-      await expect.poll(rowFontSize).not.toBe('missing');
-      await page.getByTestId('sidebar-size').fill('19');
-      await expect.poll(rowFontSize).toBe('19px');
-      await page.getByTestId('sidebar-weight').selectOption('700');
-      const rowWeight = () =>
-        page.evaluate(() => {
-          const w = window as unknown as {
-            document: { querySelector: (s: string) => unknown };
-            getComputedStyle: (el: unknown) => { fontWeight: string };
-          };
-          const el = w.document.querySelector('.session-row') ?? w.document.querySelector('.project-row');
-          return el ? w.getComputedStyle(el).fontWeight : 'missing';
-        });
-      await expect.poll(rowWeight).toBe('700');
-      // Status bar and terminal slot consume their own zones as computed styles.
-      await page.getByTestId('statusBar-size').fill('17');
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const w = window as unknown as {
-              document: { querySelector: (s: string) => unknown };
-              getComputedStyle: (el: unknown) => { fontSize: string };
-            };
-            const el = w.document.querySelector('.dl-status') ?? w.document.querySelector('.status-bar');
-            return el ? w.getComputedStyle(el).fontSize : 'missing';
-          }),
-        )
-        .toBe('17px');
+      // Ширины панелей и высота терминала больше не настройки страницы.
+      await expect(page.getByTestId('left-width')).toHaveCount(0);
+      await expect(page.getByTestId('settings-workspace')).toHaveCount(0);
 
-      // Workspace: layout controls exist and the status panel keeps the real
-      // connection data (§5 settings scope).
-      await expect(page.getByTestId('left-width')).toBeVisible();
+      // Подключение: реальные данные моста.
       await expect(page.getByTestId('status-phase')).toBeVisible();
-      await expect(page.getByTestId('runtime')).toContainText('9.9.9');
+      await expect(page.getByTestId('runtime-pi')).toContainText('версия');
 
+      await page.getByTestId('theme-mode-dark').click();
       await page.getByTestId('theme-card-dark').click();
       await expect.poll(() => bodyBackground(page)).toBe(DARK_BG);
       await page.screenshot({ path: testInfo.outputPath('ui-settings-dark.png') });
@@ -221,6 +241,7 @@ test.describe('UI-A application shell E2E', () => {
         // 1024 where the right panel becomes an overlay (≤1100).
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.getByTestId('nav-settings').click();
+        if (theme === 'light') await page.getByTestId('theme-mode-light').click();
         await page.getByTestId(`theme-card-${theme}`).click();
         await expect.poll(() => bodyBackground(page)).toBe(theme === 'dark' ? DARK_BG : LIGHT_BG);
         await chatScreen();
@@ -379,4 +400,487 @@ test('D2 review coverage: tree scroll, left overlay ≤800, dock height clamp', 
   } finally {
     await app.close();
   }
+});
+
+/**
+ * R01 (#6559283775): владелец проверял реальный Windows-EXE и нашёл четыре
+ * регрессии. Здесь — реальные layout-инварианты, которые jsdom не измерить:
+ * прокрутка Settings (единственный скролл-контейнер), настоящие действия
+ * «Проекты» и терминала, отсутствие кнопки refresh в шапке.
+ */
+test.describe('R01 owner acceptance repair', () => {
+  const screenGeometry = (page: Page) =>
+    page.evaluate(() => {
+      const w = window as unknown as {
+        document: { querySelector: (s: string) => unknown };
+        getComputedStyle: (el: unknown) => { overflowY: string; height: string };
+      };
+      const el = w.document.querySelector('[data-testid="settings-root"]') as unknown as {
+        clientHeight: number;
+        scrollHeight: number;
+        scrollTop: number;
+      } | null;
+      const page_ = w.document.querySelector('[data-testid="view-settings"]') as unknown as {
+        clientHeight: number;
+      } | null;
+      if (!el || !page_) return null;
+      const cs = w.getComputedStyle(el);
+      return {
+        overflowY: cs.overflowY,
+        screenClient: el.clientHeight,
+        screenScroll: el.scrollHeight,
+        slotHeight: page_.clientHeight,
+        scrollTop: el.scrollTop,
+      };
+    });
+
+  test('Settings прокручивается до конца в тёмной и светлой теме', async () => {
+    const testInfo = test.info();
+    const { app, page } = await launch();
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 700 });
+      await page.getByTestId('nav-settings').click();
+      await expect(page.getByTestId('settings-root')).toBeVisible();
+
+      for (const mode of ['dark', 'light'] as const) {
+        await page.getByTestId(`theme-mode-${mode}`).click();
+        const g = await screenGeometry(page);
+        expect(g).not.toBeNull();
+        // один настоящий скролл-контейнер: контент выше вьюпорта
+        expect(g!.overflowY).toBe('auto');
+        expect(g!.screenClient).toBe(g!.slotHeight);
+        expect(g!.screenScroll).toBeGreaterThan(g!.screenClient + 200);
+
+        // колесо мыши
+        const box = await page.getByTestId('settings-root').boundingBox();
+        expect(box).not.toBeNull();
+        await page.mouse.move(box!.x + box!.width / 2, box!.y + 40);
+        await page.mouse.wheel(0, 4000);
+        await expect
+          .poll(async () => (await screenGeometry(page))!.scrollTop)
+          .toBeGreaterThan(100);
+
+        // End → низ, действия доступны и в пределах окна
+        await page.keyboard.press('End');
+        await expect
+          .poll(async () => {
+            const cur = (await screenGeometry(page))!;
+            return cur.scrollTop + cur.screenClient;
+          })
+          .toBeGreaterThanOrEqual((await screenGeometry(page))!.screenScroll - 4);
+        await expect(page.getByTestId('theme-apply')).toBeInViewport();
+        await page.screenshot({
+          path: testInfo.outputPath(`r01-settings-${mode}-bottom.png`),
+          fullPage: false,
+        });
+
+        // Home → верх
+        await page.keyboard.press('Home');
+        await expect.poll(async () => (await screenGeometry(page))!.scrollTop).toBe(0);
+        await expect(page.getByTestId('settings-appearance')).toBeInViewport();
+        await expect(page.getByTestId(`theme-mode-${mode}`)).toHaveAttribute('aria-checked', 'true');
+      }
+
+      // .dl-main остаётся без собственной прокрутки — не появился второй скролл
+      const mainOverflow = await page.evaluate(() => {
+        const w = window as unknown as {
+          document: { querySelector: (s: string) => unknown };
+          getComputedStyle: (el: unknown) => { overflowY: string };
+        };
+        const el = w.document.querySelector('.dl-main');
+        return el ? w.getComputedStyle(el).overflowY : '';
+      });
+      expect(mainOverflow).toBe('hidden');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('«Проекты», терминал и названия сессий работают в реальном окне', async () => {
+    const testInfo = test.info();
+    const { app, page } = await launch();
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1440, height: 900 });
+
+      // --- «Проекты» ---
+      const toggle = page.getByTestId('projects-toggle');
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const tree = page.getByTestId('project-list');
+      await expect(tree).toBeVisible();
+      // кнопка refresh больше не занимает место в шапке
+      await expect(page.getByTestId('refresh-sessions')).toHaveCount(0);
+
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(tree).toHaveCount(0);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(tree).toBeVisible();
+
+      // клавиатура: заголовок — обычная кнопка
+      await toggle.focus();
+      await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+      // --- названия сессий ---
+      const titles = await page.evaluate(() => {
+        const w = window as unknown as { document: { querySelectorAll: (s: string) => ArrayLike<{ textContent: string | null }> } };
+        return Array.from(w.document.querySelectorAll('[data-testid^="session-"]')).map(
+          (el) => (el.textContent ?? '').trim(),
+        );
+      });
+      expect(titles.length).toBeGreaterThan(0);
+      for (const t of titles) {
+        expect(t, 'технический id вместо названия').not.toMatch(/^[0-9a-f]{8}$/);
+      }
+
+      // --- терминал ---
+      const dock = page.getByTestId('terminal-dock');
+      await expect(dock).toBeVisible();
+      const h0 = (await dock.boundingBox())!.height;
+      await page.getByTestId('terminal-expand').click();
+      await expect(page.getByTestId('terminal-expand')).toHaveAttribute('aria-pressed', 'true');
+      const h1 = (await dock.boundingBox())!.height;
+      expect(h1).toBeGreaterThan(h0 + 40);
+      await page.screenshot({ path: testInfo.outputPath('r01-terminal-expanded.png'), fullPage: false });
+      await page.getByTestId('terminal-expand').click();
+      await expect(page.getByTestId('terminal-expand')).toHaveAttribute('aria-pressed', 'false');
+      expect((await dock.boundingBox())!.height).toBeCloseTo(h0, 0);
+
+      await page.getByTestId('terminal-close').click();
+      await expect(dock).toHaveCount(0);
+      await page.getByTestId('status-terminal-btn').click();
+      await expect(dock).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+/**
+ * UI Owner Review R02 (Issue #21, comment #6566550672) — реальное окно Electron.
+ *
+ * Владелец проверял сборку руками: «Новый диалог» уходил в произвольный проект,
+ * в черновике не было поля ввода, а левый сайдбар жил на трёх разных сетках.
+ * Здесь это измеряется в CSS px: колонка иконок, зазор до имени, правая колонка
+ * «+», симметрия полей чата.
+ */
+test.describe('R02 · сайдбар, чат и композер', () => {
+  test('одна сетка сайдбара: иконки 16, общий зазор, «+» в своей колонке', async () => {
+    const { app, page } = await launch(fakePiRpc);
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+      // первый проект раскрыт по умолчанию — строки сессий уже видны
+      const session = page.locator('[data-testid^="session-"]').first();
+      await expect(session).toBeVisible();
+
+      const geo = await page.evaluate(() => {
+        type El = {
+          getBoundingClientRect: () => { x: number; y: number; width: number; height: number; right: number };
+          querySelector: (s: string) => El | null;
+          scrollWidth: number;
+          clientWidth: number;
+        };
+        const w = window as unknown as {
+          getComputedStyle: (el: El) => { textOverflow: string; paddingRight: string };
+          document: { querySelectorAll: (s: string) => ArrayLike<El> };
+        };
+        const rect = (el: El) => el.getBoundingClientRect();
+        const pick = (sel: string) => Array.from(w.document.querySelectorAll(sel))[0] ?? null;
+        const rows = [
+          pick('[data-testid^="project-/"]'),
+          pick('[data-testid^="session-"]'),
+          pick('[data-testid="nav-chat"]'),
+        ].filter((el): el is El => el !== null);
+        const out = rows.map((row) => {
+          const icon = row.querySelector('.dl-row-icon');
+          const text = row.querySelector('.dl-row-text');
+          return {
+            row: rect(row),
+            icon: icon ? rect(icon) : null,
+            text: text ? rect(text) : null,
+          };
+        });
+        const tree = pick('.dl-tree');
+        const plus = pick('.dl-project-new');
+        const projectRow = rows[0];
+        return {
+          rows: out,
+          tree: tree ? rect(tree) : null,
+          treeScrollW: tree ? tree.scrollWidth : null,
+          treeClientW: tree ? tree.clientWidth : null,
+          plus: plus ? rect(plus) : null,
+          projectPadRight: projectRow
+            ? w.getComputedStyle(projectRow).paddingRight
+            : null,
+          projectRowRight: projectRow ? rect(projectRow).right : null,
+          textOverflow: projectRow && projectRow.querySelector('.dl-row-text')
+            ? w.getComputedStyle(projectRow.querySelector('.dl-row-text') as El).textOverflow
+            : null,
+        };
+      });
+
+      expect(geo.rows.length).toBe(3);
+      for (const row of geo.rows) {
+        expect(row.icon, 'нет иконочной колонки').not.toBeNull();
+        // 16 CSS px — внутри B1-диапазона 14–16 и одинаково во всех строках
+        expect(Math.round(row.icon!.width)).toBe(16);
+        expect(Math.round(row.icon!.height)).toBe(16);
+      }
+      const iconX = geo.rows.map((r) => Math.round(r.icon!.x));
+      const textX = geo.rows.map((r) => Math.round(r.text!.x));
+      const rowLeft = geo.rows.map((r) => Math.round(r.row.x));
+      const rowRight = geo.rows.map((r) => Math.round(r.row.right));
+      expect(new Set(iconX).size, `иконки не в одной колонке: ${iconX.join('/')}`).toBe(1);
+      expect(new Set(textX).size, `имена не выровнены: ${textX.join('/')}`).toBe(1);
+      expect(new Set(rowLeft).size, `левый край строк разный: ${rowLeft.join('/')}`).toBe(1);
+      expect(new Set(rowRight).size, `правый край строк разный: ${rowRight.join('/')}`).toBe(1);
+
+      // «+» — отдельная правая колонка 28×28 внутри дерева, имя не перекрыто
+      expect(Math.round(geo.plus!.width)).toBe(28);
+      expect(Math.round(geo.plus!.height)).toBe(28);
+      expect(Math.abs(geo.plus!.right - geo.projectRowRight!)).toBeLessThanOrEqual(1);
+      expect(geo.projectPadRight).toBe('36px');
+      expect(geo.textOverflow).toBe('ellipsis');
+      // нет горизонтального артефакта/переполнения под «Проекты»
+      expect(geo.treeScrollW!).toBeLessThanOrEqual(geo.treeClientW! + 1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('чат и композер стоят в одной симметричной колонке', async () => {
+    const { app, page } = await launch(fakePiRpc);
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.getByText('E2E fixture session').click();
+      await expect(page.locator('[data-testid="chat-pane"] .dl-md').first()).toBeVisible({
+        timeout: 20_000,
+      });
+      for (const width of [1280, 1440]) {
+        await page.setViewportSize({ width, height: 800 });
+        const m = await page.evaluate(() => {
+          type El = {
+            getBoundingClientRect: () => { x: number; y: number; width: number; height: number; right: number };
+          };
+          const w = window as unknown as { document: { querySelectorAll: (s: string) => ArrayLike<El> } };
+          const rect = (el: El) => el.getBoundingClientRect();
+          const pick = (sel: string) => Array.from(w.document.querySelectorAll(sel))[0] ?? null;
+          const feed = pick('[data-testid="chat-feed"]');
+          const turn = pick('.dl-turn-assistant');
+          const md = pick('.dl-md');
+          const composer = pick('.dl-composer-wrap');
+          const inner = pick('.dl-composer');
+          return {
+            feed: feed ? rect(feed) : null,
+            feedScroll: feed
+              ? { w: (feed as unknown as { scrollWidth: number }).scrollWidth, cw: (feed as unknown as { clientWidth: number }).clientWidth }
+              : null,
+            turn: turn ? rect(turn) : null,
+            md: md ? rect(md) : null,
+            composer: composer ? rect(composer) : null,
+            inner: inner ? rect(inner) : null,
+          };
+        });
+        expect(m.turn).not.toBeNull();
+        // симметричные внешние поля: слева и справа одинаково (±2 px)
+        const left = m.turn!.x - m.feed!.x;
+        const right = m.feed!.right - m.turn!.right;
+        expect(Math.abs(left - right), `width=${width}: ${left}/${right}`).toBeLessThanOrEqual(2);
+        // мера текста не расползлась на всю ширину окна
+        expect(m.md!.width).toBeLessThanOrEqual(742);
+        expect(m.inner!.width).toBeLessThanOrEqual(790);
+        expect(Math.abs(m.inner!.x - m.turn!.x)).toBeLessThanOrEqual(2);
+        // лента не «уезжает» по горизонтали из-за длинного кода
+        expect(m.feedScroll!.w).toBeLessThanOrEqual(m.feedScroll!.cw + 1);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('черновик: поле ввода на месте сразу, а не пустой экран', async () => {
+    const { app, page } = await launch(fakePiRpc);
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.locator('[data-testid^="project-new-"]').first().click();
+
+      const input = page.locator('.dl-composer-input');
+      await expect(input).toBeVisible();
+      // до готовности — честно неактивное поле с объяснением
+      await expect(page.getByTestId('draft-notice')).toBeVisible();
+      // после официального new_session поле становится рабочим
+      await expect(input).toBeEnabled({ timeout: 20_000 });
+      await expect(input).toHaveAttribute('placeholder', 'Сообщение…');
+      await input.fill('Проверка композера');
+      await expect(input).toHaveValue('Проверка композера');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('«Новый диалог» берёт последний открытый проект, без угадывания', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'piwsd-r02-sessions-'));
+    const src = path.join(repoRoot, 'tests', 'fixtures', 'sessions', '--e2e-project--');
+    const file = (await readdir(src))[0];
+    for (const [bucket, cwd, id] of [
+      ['--e2e-one--', '/e2e/one', 'e2e-one-uuid'],
+      ['--e2e-two--', '/e2e/two', 'e2e-two-uuid'],
+    ] as const) {
+      const dir = path.join(root, bucket);
+      await mkdir(dir, { recursive: true });
+      const body = (await readFile(path.join(src, file), 'utf8'))
+        .replace('"cwd": "/"', `"cwd": "${cwd}"`)
+        .replace('"id": "e2e-fixture-uuid"', `"id": "${id}"`);
+      await writeFile(path.join(dir, file), body, 'utf8');
+    }
+
+    const { app, page } = await launchApp({
+      PI_WS_DESKTOP_PI: fakePiRpc,
+      PI_CODING_AGENT_SESSION_DIR: root,
+    });
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await expect(page.getByTestId('project-/e2e/one')).toBeVisible();
+
+      // Ни один проект ещё не открывали → явный выбор, без произвольного cwd.
+      await page.locator('.dl-newchat').first().click();
+      await expect(page.getByTestId('project-chooser')).toBeVisible();
+      await expect(page.getByTestId('project-chooser-/e2e/two')).toBeVisible();
+
+      // Явно открываем второй проект и создаём диалог глобальной кнопкой.
+      await page.getByTestId('project-chooser-/e2e/two').click();
+      await expect(page.getByTestId('draft-cwd')).toHaveAttribute('title', '/e2e/two', {
+        timeout: 20_000,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+  /**
+   * R03-1 (#26, #6572954720, P1): контекст нового диалога — последний ЯВНО
+   * выбранный проект. Живой чат проекта «one» не должен перебивать выбор «two».
+   */
+  test('R03: «Новый диалог» после явного выбора другого проекта', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'piwsd-r03-sessions-'));
+    const src = path.join(repoRoot, 'tests', 'fixtures', 'sessions', '--e2e-project--');
+    const file = (await readdir(src))[0];
+    // cwd проекта должен существовать: Pi запускается именно в нём
+    const one = path.join(root, 'one');
+    const two = path.join(root, 'two');
+    await mkdir(one, { recursive: true });
+    await mkdir(two, { recursive: true });
+    for (const [bucket, cwd, id] of [
+      ['--e2e-one--', one, 'e2e-one-uuid'],
+      ['--e2e-two--', two, 'e2e-two-uuid'],
+    ] as const) {
+      const dir = path.join(root, bucket);
+      await mkdir(dir, { recursive: true });
+      const body = (await readFile(path.join(src, file), 'utf8'))
+        .replace('"cwd": "/"', `"cwd": "${cwd}"`)
+        .replace('"id": "e2e-fixture-uuid"', `"id": "${id}"`);
+      await writeFile(path.join(dir, file), body, 'utf8');
+    }
+
+    const { app, page } = await launchApp({
+      PI_WS_DESKTOP_PI: fakePiRpc,
+      PI_CODING_AGENT_SESSION_DIR: root,
+    });
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+
+      // 1) диалог в проекте one (слот занят живым чатом)
+      await page.getByTestId(`project-new-${one}`).click();
+      await expect(page.getByTestId('draft-cwd')).toHaveAttribute('title', one, { timeout: 20_000 });
+      await expect(page.locator('.dl-composer-input')).toBeEnabled({ timeout: 20_000 });
+
+      // 2) пользователь явно выбирает проект two
+      await page.getByTestId(`project-${two}`).click();
+
+      // 3) общий «Новый диалог» → подтверждение → черновик именно в two
+      await page.locator('.dl-newchat').first().click();
+      await page.getByTestId('new-chat-confirm').click();
+      await expect(page.getByTestId('draft-cwd')).toHaveAttribute('title', two, { timeout: 20_000 });
+      // и поле ввода снова доступно — состояния диалога независимы
+      await expect(page.locator('.dl-composer-input')).toBeEnabled({ timeout: 20_000 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  /**
+   * R03-2: предпросмотр шрифта на одну ступень ниже рабочего размера, muted и
+   * читаемый (AA) в обеих темах. Фактические контролы не уменьшены.
+   */
+  test('R03: предпросмотр шрифта на ступень ниже, контраст AA', async () => {
+    const { app, page } = await launch(fakePiRpc);
+    try {
+      await expect(page.getByTestId('status-phase')).toHaveText(/Готово/, { timeout: 30_000 });
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.getByTestId('nav-settings').click();
+
+      const read = () =>
+        page.evaluate(() => {
+          type El = {
+            parentElement: El | null;
+            backgroundColor: string;
+          };
+          const w = window as unknown as {
+            getComputedStyle: (el: El) => { fontSize: string; color: string; backgroundColor: string };
+            document: {
+              body: El;
+              querySelectorAll: (s: string) => ArrayLike<El>;
+            };
+          };
+          const lum = (rgb: number[]) => {
+            const [r, g, b] = rgb.map((v) => {
+              const c = v / 255;
+              return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          };
+          const parse = (str: string) => (str.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number);
+          const ratio = (fg: string, bg: string) => {
+            const a = lum(parse(fg));
+            const b = lum(parse(bg));
+            return +(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)).toFixed(2));
+          };
+          const bgOf = (el: El) => {
+            let node: El | null = el;
+            while (node) {
+              const bg = w.getComputedStyle(node).backgroundColor;
+              if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+              node = node.parentElement;
+            }
+            return w.getComputedStyle(w.document.body).backgroundColor;
+          };
+          return Array.from(w.document.querySelectorAll('.dl2-preview')).map((el) => {
+            const cs = w.getComputedStyle(el);
+            const bg = bgOf(el);
+            return { size: cs.fontSize, color: cs.color, contrast: ratio(cs.color, bg) };
+          });
+        });
+
+      for (const theme of ['dark', 'light']) {
+        await page.getByTestId(`theme-mode-${theme}`).click();
+        const rows = await read();
+        expect(rows.map((r) => r.size)).toEqual(['12px', '13px', '12px']);
+        for (const row of rows) expect(row.contrast).toBeGreaterThanOrEqual(4.5);
+        // контролы размера остались рабочими 13 px — уменьшен только образец
+        await expect(page.getByTestId('font-reply-size')).toHaveValue('14');
+      }
+    } finally {
+      await app.close();
+    }
+  });
 });

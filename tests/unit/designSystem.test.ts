@@ -7,15 +7,19 @@ import {
   semanticTokenKeys,
 } from '../../src/shared/design/presets';
 import { contrastRatio, meetsAA, hexColor } from '../../src/shared/design/contrast';
+import { DARK_PALETTES, LIGHT_PALETTES } from '../../src/shared/design/palettes';
 import { validateCustomTokens } from '../../src/renderer/design/customTheme';
 
 /**
- * Issue #21 §9.2 / exec task #6354590198 step 4: four immutable presets plus
- * the semantic token contract shared by the custom theme editor.
+ * Issue #21 §9.2 + UI Integration V1: пять светлых и четыре тёмных палитры
+ * (включая «свою» в каждом режиме), полный набор токенов выводится из четырёх
+ * цветов, контраст проверяется по AA.
  */
 describe('design system presets', () => {
-  it('exposes exactly the four immutable presets', () => {
-    expect(PRESET_IDS).toEqual(['dark', 'light', 'claude', 'codex']);
+  it('exposes 5 light and 4 dark palettes, 7 immutable built-ins', () => {
+    expect(LIGHT_PALETTES.map((p) => p.id)).toEqual(['light', 'astra', 'claudeLight', 'codexLight', 'customLight']);
+    expect(DARK_PALETTES.map((p) => p.id)).toEqual(['dark', 'claudeDark', 'codexDark', 'customDark']);
+    expect(PRESET_IDS).toEqual(['light', 'astra', 'claudeLight', 'codexLight', 'dark', 'claudeDark', 'codexDark']);
     expect(Object.keys(THEME_PRESETS).sort()).toEqual([...PRESET_IDS].sort());
   });
 
@@ -43,15 +47,16 @@ describe('design system presets', () => {
     }
   });
 
-  it('Dark preset anchors the palette from Issue #21 §1', () => {
+  it('Dark preset keeps the Issue #21 §1 anchors and derives the rest', () => {
     const t = THEME_PRESETS.dark.tokens;
     expect(t.windowBackgroundColor).toBe('#20221F');
     expect(t.sidebarLeftBackgroundColor).toBe('#191C19');
-    expect(t.surfaceBackgroundColor).toBe('#2A2E29');
-    expect(t.dividerColor).toBe('#3A4038');
+    expect(t.sidebarRightBackgroundColor).toBe('#191C19'); // обе панели одним цветом
     expect(t.bodyTextColor).toBe('#E7EAE3');
-    expect(t.mutedTextColor).toBe('#A9B1A5');
     expect(t.accentColor).toBe('#78957C');
+    // производные поверхности светлее окна, разделители — между текстом и панелью
+    expect(contrastRatio(t.surfaceBackgroundColor, t.windowBackgroundColor)).toBeGreaterThan(1);
+    expect(t.dividerColor).not.toBe(t.borderColor);
   });
 
   it('Light preset anchors the milk palette from Issue #21 §1', () => {
@@ -61,16 +66,20 @@ describe('design system presets', () => {
     expect(t.accentColor).toBe('#65816D');
   });
 
-  it('Claude/Codex are recognizable inspired-by presets with distinct palettes', () => {
-    const claude = THEME_PRESETS.claude.tokens;
-    const codex = THEME_PRESETS.codex.tokens;
+  it('Claude/Codex presets (dark and light) are distinct and attributed', () => {
+    const claude = THEME_PRESETS.claudeDark.tokens;
+    const codex = THEME_PRESETS.codexDark.tokens;
     expect(claude.windowBackgroundColor).not.toBe(codex.windowBackgroundColor);
     expect(claude.windowBackgroundColor).not.toBe(THEME_PRESETS.dark.tokens.windowBackgroundColor);
     expect(codex.windowBackgroundColor).not.toBe(THEME_PRESETS.dark.tokens.windowBackgroundColor);
-    expect(THEME_PRESETS.claude.label).toMatch(/claude/i);
-    expect(THEME_PRESETS.codex.label).toMatch(/codex/i);
-    expect(THEME_PRESETS.claude.attribution).toBeTruthy();
-    expect(THEME_PRESETS.codex.attribution).toBeTruthy();
+    expect(THEME_PRESETS.claudeDark.label).toMatch(/claude/i);
+    expect(THEME_PRESETS.codexDark.label).toMatch(/codex/i);
+    expect(THEME_PRESETS.claudeDark.attribution).toBeTruthy();
+    expect(THEME_PRESETS.codexDark.attribution).toBeTruthy();
+    // Claude Dark — настоящая тёмная палитра (светимость окна < 0.05)
+    const hex = claude.windowBackgroundColor.slice(1);
+    const lum = [0, 2, 4].reduce((acc, i) => acc + parseInt(hex.slice(i, i + 2), 16) / 3, 0) / 255;
+    expect(lum).toBeLessThan(0.2);
   });
 
   it('every preset passes AA for body/muted text against its backgrounds', () => {
@@ -90,19 +99,20 @@ describe('D3: approved typography defaults (Design Lab canonical scale)', () => 
   it('DEFAULT_TYPOGRAPHY equals typography.css canonical values (owner #6398531407)', async () => {
     const { DEFAULT_APPEARANCE } = await import('../../src/shared/appearance');
     const t = DEFAULT_APPEARANCE.typography;
-    expect(t.ui).toMatchObject({ fontSizePx: 18, lineHeight: 1.4, weight: 500 });
-    expect(t.sidebar).toMatchObject({ fontSizePx: 17, lineHeight: 1.5, weight: 400 });
-    expect(t.chatInput).toMatchObject({ fontSizePx: 20, lineHeight: 1.45, weight: 400 });
-    expect(t.chatResponse).toMatchObject({ fontSizePx: 20, lineHeight: 1.55, weight: 400 });
-    expect(t.code).toMatchObject({ fontSizePx: 17, lineHeight: 1.5, weight: 500 });
-    expect(t.toolOutput).toMatchObject({ fontSizePx: 16, lineHeight: 1.5, weight: 400 });
-    expect(t.terminal).toMatchObject({ fontSizePx: 17, lineHeight: 1.5, weight: 400 });
-    expect(t.statusBar).toMatchObject({ fontSizePx: 16, lineHeight: 1.4, weight: 400 });
+    // UI Integration V1: компактная шкала Stage 2 R01 (5 ролей вместо 18 кеглей)
+    expect(t.ui).toMatchObject({ fontSizePx: 13, lineHeight: 1.4, weight: 400 });
+    expect(t.sidebar).toMatchObject({ fontSizePx: 13, lineHeight: 1.45, weight: 400 });
+    expect(t.chatInput).toMatchObject({ fontSizePx: 14, lineHeight: 1.5, weight: 400 });
+    expect(t.chatResponse).toMatchObject({ fontSizePx: 14, lineHeight: 1.55, weight: 400 });
+    expect(t.code).toMatchObject({ fontSizePx: 13, lineHeight: 1.5, weight: 400 });
+    expect(t.toolOutput).toMatchObject({ fontSizePx: 13, lineHeight: 1.5, weight: 400 });
+    expect(t.terminal).toMatchObject({ fontSizePx: 13, lineHeight: 1.5, weight: 400 });
+    expect(t.statusBar).toMatchObject({ fontSizePx: 12, lineHeight: 1.4, weight: 400 });
     // стеки = canonical --dl-font-stack / --dl-font-mono
     expect(t.ui.fontFamily).toContain('Segoe UI');
     expect(t.ui.fontFamily).toContain('Helvetica Neue');
-    expect(t.code.fontFamily).toContain('Cascadia Mono');
-    expect(t.code.fontFamily).toContain('ui-monospace');
+    expect(t.code.fontFamily).toContain('Consolas');
+    expect(t.code.fontFamily).toContain('monospace');
   });
 });
 

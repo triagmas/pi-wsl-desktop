@@ -1,720 +1,504 @@
 /**
- * Settings (Issue #21 §5, §9.2–9.4): Внешний вид (5 theme cards + custom
- * editor), Типографика (independent per-area), Рабочее пространство (layout),
- * Подключение WSL (real M0 status/diagnostics). All changes go through the
- * appearance store — Pi data is never touched.
+ * Settings (Issue #21 §5, §9.2–§9.4; UI Integration V1).
+ *
+ * Скелет страницы — общий с Design Lab (`src/renderer/design/settings-page.css`):
+ * колонка 760 px, отступы 24, зазоры разделов 24 / групп 12.
+ *
+ * Тема: 5 светлых / 4 тёмных палитры; у каждой карточки четыре образца в порядке
+ * «область → обе панели → акцент → текст»; «своя» тема редактируется ровно
+ * четырьмя полями, одно из которых задаёт обе боковые панели. Светлая и тёмная
+ * палитры хранятся независимо. Контраст считается по 19 парам (AA 4.5:1) и
+ * блокирует «Применить» при провале.
+ *
+ * Типографика: один неизменяемый системный шрифт + два настраиваемых слота
+ * (ответы и код). Ширины панелей и высота терминала здесь не настраиваются —
+ * они живут в раскладке и меняются перетаскиванием.
+ *
+ * Все изменения уходят в appearance-store (IPC). Pi-данные не затрагиваются.
  */
-import { useEffect, useRef, useState } from 'react';
-import type { DesktopApi } from './api';
-import { StatusPanel } from './StatusPanel';
-import { SettingsScreen } from './ui/SettingsScreen';
+import { useLayoutEffect, useMemo, useState } from 'react';
+import type { RendererSnapshot } from './types';
+import { phaseText } from './StatusPanel';
 import {
-  COLOR_TOKEN_KEYS,
-  PRESET_IDS,
-  THEME_PRESETS,
-  type ThemePresetId,
-  type ThemeTokens,
-} from '../shared/design/presets';
-import {
-  TYPOGRAPHY_AREAS,
+  DEFAULT_APPEARANCE,
+  appearanceThemeTokens,
   type AppearanceSettings,
   type TypographyArea,
 } from '../shared/appearance';
-import { validateCustomTokens, suggestFix, type ValidationIssue } from './design/customTheme';
+import {
+  resolveThemeTokens,
+  type ThemeMode,
+  type ThemePresetId,
+} from '../shared/design/presets';
+import {
+  FONT_CHOICES,
+  FONT_SLOT_AREAS,
+  FONT_SLOT_LABELS,
+  FONT_SLOT_ORDER,
+  PALETTES_BY_MODE,
+  SYSTEM_FONT_STACK,
+  fontIdFromStack,
+  fontStackById,
+  type FontSlot,
+  type PaletteSeed,
+} from '../shared/design/palettes';
+import { contrastRatio } from '../shared/design/contrast';
+import { validateCustomTokens } from './design/customTheme';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
-import type { RendererSnapshot } from './types';
 
-const TOKEN_GROUPS: { title: string; keys: (keyof ThemeTokens)[] }[] = [
-  {
-    title: 'Фоны и поверхности',
-    keys: [
-      'windowBackgroundColor',
-      'titleBarBackgroundColor',
-      'sidebarLeftBackgroundColor',
-      'sidebarRightBackgroundColor',
-      'statusBarBackgroundColor',
-      'surfaceBackgroundColor',
-      'elevatedSurfaceBackgroundColor',
-      'chatInputBackgroundColor',
-      'chatBubbleUserBackgroundColor',
-      'chatBubbleAssistantBackgroundColor',
-    ],
-  },
-  {
-    title: 'Текст, ссылки, акцент',
-    keys: [
-      'bodyTextColor',
-      'mutedTextColor',
-      'linkColor',
-      'accentColor',
-      'accentHoverColor',
-      'accentActiveColor',
-      'accentTextColor',
-    ],
-  },
-  {
-    title: 'Кнопки',
-    keys: [
-      'buttonPrimaryBackgroundColor',
-      'buttonPrimaryHoverColor',
-      'buttonPrimaryActiveColor',
-      'buttonPrimaryDisabledColor',
-      'buttonPrimaryTextColor',
-    ],
-  },
-  {
-    title: 'Поля ввода и фокус',
-    keys: [
-      'inputBackgroundColor',
-      'inputBorderColor',
-      'placeholderColor',
-      'focusRingColor',
-      'selectionBackgroundColor',
-      'selectionTextColor',
-    ],
-  },
-  {
-    title: 'Границы и состояния',
-    keys: ['borderColor', 'dividerColor', 'hoverBackgroundColor', 'selectedBackgroundColor'],
-  },
-  {
-    title: 'Статусы',
-    keys: ['warningColor', 'errorColor', 'successColor'],
-  },
-  {
-    title: 'Инструменты',
-    keys: ['toolCardBackgroundColor', 'toolCardBorderColor'],
-  },
-  {
-    title: 'Код',
-    keys: [
-      'codeBackgroundColor',
-      'codeForegroundColor',
-      'syntaxKeywordColor',
-      'syntaxStringColor',
-      'syntaxCommentColor',
-      'syntaxNumberColor',
-      'syntaxFunctionColor',
-    ],
-  },
-  {
-    title: 'Терминал',
-    keys: [
-      'terminalBackgroundColor',
-      'terminalForegroundColor',
-      'terminalCursorColor',
-      'terminalAnsiBlackColor',
-      'terminalAnsiRedColor',
-      'terminalAnsiGreenColor',
-      'terminalAnsiYellowColor',
-      'terminalAnsiBlueColor',
-      'terminalAnsiMagentaColor',
-      'terminalAnsiCyanColor',
-      'terminalAnsiWhiteColor',
-      'terminalAnsiBrightBlackColor',
-      'terminalAnsiBrightRedColor',
-      'terminalAnsiBrightGreenColor',
-      'terminalAnsiBrightYellowColor',
-      'terminalAnsiBrightBlueColor',
-      'terminalAnsiBrightMagentaColor',
-      'terminalAnsiBrightCyanColor',
-      'terminalAnsiBrightWhiteColor',
-    ],
-  },
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+const REPLY_SAMPLE =
+  'Ответ Pi: поиск по истории диалогов снова работает.\n' +
+  'Les accents français — déjà, garçon, naïve, cœur, Noël.\n' +
+  'English sample: the quick brown fox jumps over the lazy dog.';
+
+const CODE_SAMPLE =
+  'const sessions = all.filter((s) => s.title.includes(query));\n' +
+  '// Поиск: «Открыть проект» — кириллица, accents: déjà vu, Noël\n' +
+  'npm run test -- --run tests/ui/sessionSearch.ts';
+
+/**
+ * R03-2 (#26, #6572954720, P3) — предпросмотр на одну ступень НИЖЕ рабочего
+ * размера: он показывает характер шрифта, а не конкурирует с рабочим текстом.
+ * Фактические настройки пользователя (`font-reply-size` и т.п.) не меняются —
+ * уменьшается только образец, стоящий рядом с контролом.
+ */
+/** Системный шрифт неизменяем (B1 R06 r01) — его размер также фиксирован. */
+const SYSTEM_FONT_SIZE = 13;
+const PREVIEW_STEP_PX = 1;
+const PREVIEW_MIN_PX = 11;
+
+export function previewFontSize(actualPx: number): number {
+  return Math.max(PREVIEW_MIN_PX, actualPx - PREVIEW_STEP_PX);
+}
+
+const SYSTEM_SAMPLE = 'Панели, меню и поле ввода чата · Session list\nProjet déjà ouvert · Noël · кириллица';
+
+const COLOR_FIELDS: { key: keyof PaletteSeed; label: string; hint: string; testid: string }[] = [
+  { key: 'window', label: 'Рабочая область', hint: 'фон окна и центральной области', testid: 'custom-workspace' },
+  { key: 'panel', label: 'Боковые панели', hint: 'одно поле задаёт левую и правую панели', testid: 'custom-panels' },
+  { key: 'accent', label: 'Акцент', hint: 'кнопки, ссылки, фокус, выделение', testid: 'custom-accent' },
+  { key: 'text', label: 'Основной текст', hint: 'не переопределяется автоматически', testid: 'custom-text' },
 ];
 
-const TOKEN_LABELS: Partial<Record<keyof ThemeTokens, string>> = {
-  windowBackgroundColor: 'Фон окна',
-  titleBarBackgroundColor: 'Заголовок окна',
-  sidebarLeftBackgroundColor: 'Левая панель',
-  sidebarRightBackgroundColor: 'Правая панель',
-  statusBarBackgroundColor: 'Статус-бар',
-  surfaceBackgroundColor: 'Поверхности',
-  elevatedSurfaceBackgroundColor: 'Приподнятые поверхности',
-  chatInputBackgroundColor: 'Поле ввода чата',
-  chatBubbleUserBackgroundColor: 'Сообщение пользователя',
-  chatBubbleAssistantBackgroundColor: 'Ответ Pi',
-  bodyTextColor: 'Основной текст',
-  mutedTextColor: 'Вторичный текст',
-  linkColor: 'Ссылки',
-  accentColor: 'Акцент',
-  accentHoverColor: 'Акцент (наведение)',
-  accentActiveColor: 'Акцент (нажатие)',
-  accentTextColor: 'Текст на акценте',
-  buttonPrimaryBackgroundColor: 'Основная кнопка',
-  buttonPrimaryHoverColor: 'Кнопка (наведение)',
-  buttonPrimaryActiveColor: 'Кнопка (нажатие)',
-  buttonPrimaryDisabledColor: 'Кнопка (выключена)',
-  buttonPrimaryTextColor: 'Текст кнопки',
-  inputBackgroundColor: 'Фон поля',
-  inputBorderColor: 'Граница поля',
-  placeholderColor: 'Подсказка',
-  focusRingColor: 'Фокус-кольцо',
-  selectionBackgroundColor: 'Выделение',
-  selectionTextColor: 'Текст выделения',
-  borderColor: 'Границы',
-  dividerColor: 'Разделители',
-  hoverBackgroundColor: 'Наведение',
-  selectedBackgroundColor: 'Выбранное',
-  warningColor: 'Предупреждение',
-  errorColor: 'Ошибка',
-  successColor: 'Успех',
-  toolCardBackgroundColor: 'Карточка инструмента',
-  toolCardBorderColor: 'Граница карточки',
-  codeBackgroundColor: 'Фон кода',
-  codeForegroundColor: 'Текст кода',
-  syntaxKeywordColor: 'Ключевые слова',
-  syntaxStringColor: 'Строки',
-  syntaxCommentColor: 'Комментарии',
-  syntaxNumberColor: 'Числа',
-  syntaxFunctionColor: 'Функции',
-  terminalBackgroundColor: 'Фон терминала',
-  terminalForegroundColor: 'Текст терминала',
-  terminalCursorColor: 'Курсор',
-  radiusSmall: 'Радиус (мелкий)',
-  radiusMedium: 'Радиус (средний)',
-  radiusLarge: 'Радиус (крупный)',
-  spacingScale: 'Плотность интервала',
-  animationDurationMs: 'Длительность анимации (мс)',
-};
+interface ThemeDraft {
+  mode: ThemeMode;
+  preset: Record<ThemeMode, ThemePresetId>;
+  custom: Record<ThemeMode, PaletteSeed>;
+}
 
-export interface LayoutControls {
-  leftWidth: number;
-  rightWidth: number;
-  leftCollapsed: boolean;
-  onLeftWidth: (w: number) => void;
-  onRightWidth: (w: number) => void;
-  onToggleLeft: () => void;
-  onTerminalHeight: (h: number) => void;
+interface Draft {
+  theme: ThemeDraft;
+  typography: AppearanceSettings['typography'];
+}
+
+function draftFrom(appearance: AppearanceSettings): Draft {
+  return {
+    theme: structuredClone(appearance.theme),
+    typography: structuredClone(appearance.typography),
+  };
 }
 
 export interface SettingsViewProps {
-  api: DesktopApi | null;
   appearance: AppearanceSettings;
   ready: boolean;
   onChange: (next: AppearanceSettings) => void;
-  onReset: () => void;
   snapshot: RendererSnapshot;
   requestError: string | null;
   onRetry: () => void;
   onRefresh: () => void;
   onSelectDistro: (distro: string) => void;
-  layout: LayoutControls;
 }
 
-export function SettingsView(props: SettingsViewProps) {
-  const { appearance, ready, onChange, onReset, layout } = props;
+export function SettingsView({
+  appearance,
+  ready,
+  onChange,
+  snapshot,
+  requestError,
+  onRetry,
+  onRefresh,
+  onSelectDistro,
+}: SettingsViewProps) {
+  const [draft, setDraft] = useState<Draft>(() => draftFrom(appearance));
+  const [draftSource, setDraftSource] = useState(appearance);
 
-  /* Custom editor state (§9.2): opened only under the fifth card. */
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editTokens, setEditTokens] = useState<ThemeTokens | null>(null);
-  const [editName, setEditName] = useState('Моя тема');
-  const [editIssues, setEditIssues] = useState<ValidationIssue[]>([]);
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  /** Tokens the editor was opened with — Reset returns exactly here (review P2). */
-  const startTokens = useRef<ThemeTokens | null>(null);
-  /** Set right after a successful Apply so the restore effect keeps the new theme. */
-  const skipRestore = useRef(false);
-  /**
-   * Latest persisted appearance for the close-cleanup. The cleanup depends on
-   * `editorOpen` ONLY (round-2 review): if it depended on `appearance`, every
-   * preset/typography change with the editor open would run the cleanup and
-   * roll the document back to the previous snapshot.
-   */
-  const appearanceRef = useRef(appearance);
-  useEffect(() => {
-    appearanceRef.current = appearance;
-  }, [appearance]);
+  // Внешние изменения (применение, сброс, другой экран) синхронизируют черновик.
+  // Корректировка состояния во время рендера — рекомендованный React-паттерн:
+  // без эффекта, без каскадного рендера после коммита.
+  if (draftSource !== appearance) {
+    setDraftSource(appearance);
+    setDraft(draftFrom(appearance));
+  }
 
-  const startEditor = (base: ThemePresetId): void => {
-    // Re-opening the editor must start from the SAVED custom theme when there
-    // is one — never silently reset editing to preset-dark (review P2).
-    const saved = appearance.theme.preset === 'custom' ? appearance.theme.custom : null;
-    const initial = structuredClone(saved ?? THEME_PRESETS[base].tokens);
-    startTokens.current = initial;
-    setEditTokens(initial);
-    setEditName(appearance.theme.preset === 'custom' ? appearance.theme.customName : 'Моя тема');
-    setEditIssues([]);
-    setEditorOpen(true);
-  };
+  const paletteId = draft.theme.preset[draft.theme.mode];
+  const palettes = PALETTES_BY_MODE[draft.theme.mode];
+  const isCustom = paletteId === (draft.theme.mode === 'light' ? 'customLight' : 'customDark');
+  const seed = draft.theme.custom[draft.theme.mode];
 
-  // Live preview: while editing, the preview applies ONLY to the document
-  // theme variables — never to Pi data (§9.2). On cancel/close/unmount the
-  // cleanup below re-applies the persisted appearance, because App's layout
-  // effect only reacts to CHANGED token references (review P2).
-  useEffect(() => {
-    if (editorOpen && editTokens) {
-      const previewRoot = document.documentElement;
-      applyTheme(previewRoot, editTokens);
-    }
-  }, [editorOpen, editTokens]);
+  const tokens = useMemo(
+    () => resolveThemeTokens(paletteId, draft.theme.mode, draft.theme.custom),
+    [paletteId, draft.theme.mode, draft.theme.custom],
+  );
+  const validation = useMemo(() => validateCustomTokens(tokens), [tokens]);
 
-  useEffect(() => {
-    if (!editorOpen) return undefined;
+  const textOnWindow = contrastRatio(seed.text, seed.window);
+  const textOnPanel = contrastRatio(seed.text, seed.panel);
+  const accentOnWindow = contrastRatio(seed.accent, seed.window);
+
+  const dirty =
+    JSON.stringify(draft.theme) !== JSON.stringify(appearance.theme) ||
+    JSON.stringify(draft.typography) !== JSON.stringify(appearance.typography);
+
+  // Живой предпросмотр: черновик применяется к документу, при отмене/уходе
+  // возвращаются сохранённые значения.
+  useLayoutEffect(() => {
+    if (!ready) return undefined;
+    applyTheme(document.documentElement, resolveThemeTokens(
+      draft.theme.preset[draft.theme.mode],
+      draft.theme.mode,
+      draft.theme.custom,
+    ));
+    applyTypography(document.documentElement, draft.typography);
     return () => {
-      if (skipRestore.current) {
-        skipRestore.current = false;
-        return; // Apply already stored the new theme — App re-applies it.
-      }
-      const a = appearanceRef.current; // CURRENT persisted state at close/unmount
-      const persisted =
-        a.theme.preset === 'custom'
-          ? (a.theme.custom ?? THEME_PRESETS.dark.tokens)
-          : THEME_PRESETS[a.theme.preset].tokens;
-      applyTheme(document.documentElement, persisted);
-      applyTypography(document.documentElement, a.typography);
+      applyTheme(document.documentElement, appearanceThemeTokens(appearance.theme));
+      applyTypography(document.documentElement, appearance.typography);
     };
-  }, [editorOpen]);
+  }, [draft, ready, appearance]);
 
-  const validate = (tokens: ThemeTokens): boolean => {
-    const result = validateCustomTokens(tokens);
-    setEditIssues(result.issues);
-    return result.ok;
+  const setMode = (mode: ThemeMode) => setDraft((prev) => ({ ...prev, theme: { ...prev.theme, mode } }));
+
+  const setPreset = (id: ThemePresetId) =>
+    setDraft((prev) => ({
+      ...prev,
+      theme: {
+        ...prev.theme,
+        preset: { ...prev.theme.preset, [prev.theme.mode]: id },
+      },
+    }));
+
+  const setColor = (key: keyof PaletteSeed, value: string) => {
+    const next = value.toUpperCase();
+    if (!HEX.test(next)) return;
+    setDraft((prev) => ({
+      ...prev,
+      theme: {
+        ...prev.theme,
+        custom: {
+          ...prev.theme.custom,
+          [prev.theme.mode]: { ...prev.theme.custom[prev.theme.mode], [key]: next },
+        },
+      },
+    }));
   };
 
-  const applyCustom = (): void => {
-    if (!editTokens) return;
-    if (!validate(editTokens)) return; // fail-safe: reject invalid contrast/hex
-    onChange({
-      ...appearance,
-      theme: { preset: 'custom', customName: editName.trim() || 'Моя тема', custom: editTokens },
+  const setFont = (slot: FontSlot, fontId: string) =>
+    setDraft((prev) => {
+      const stack = fontStackById(fontId);
+      const typography = { ...prev.typography };
+      for (const area of FONT_SLOT_AREAS[slot]) {
+        typography[area as TypographyArea] = { ...typography[area as TypographyArea], fontFamily: stack };
+      }
+      return { ...prev, typography };
     });
-    skipRestore.current = true; // the NEW theme must survive the close cleanup
-    setSavedAt(new Date().toLocaleTimeString());
-    setEditorOpen(false);
+
+  const setFontSize = (slot: FontSlot, size: number) => {
+    const clamped = Math.min(22, Math.max(10, Math.round(size)));
+    setDraft((prev) => {
+      const typography = { ...prev.typography };
+      for (const area of FONT_SLOT_AREAS[slot]) {
+        typography[area as TypographyArea] = { ...typography[area as TypographyArea], fontSizePx: clamped };
+      }
+      return { ...prev, typography };
+    });
   };
 
-  const cancelEditor = (): void => {
-    setEditTokens(null);
-    setEditIssues([]);
-    setEditorOpen(false);
-    // The close-cleanup restores the document theme; this call only ensures
-    // App observes the same persisted appearance object (no settings change).
-    onChange({ ...appearance });
+  const apply = () => {
+    if (!ready || !dirty || !validation.ok) return;
+    onChange({ ...appearance, theme: structuredClone(draft.theme), typography: structuredClone(draft.typography) });
   };
 
-  const resetEditor = (): void => {
-    if (!startTokens.current) return;
-    setEditTokens(structuredClone(startTokens.current));
-    setEditIssues([]);
-  };
+  const cancel = () => setDraft(draftFrom(appearance));
+
+  const reset = () =>
+    setDraft({
+      theme: structuredClone(DEFAULT_APPEARANCE.theme),
+      typography: structuredClone(DEFAULT_APPEARANCE.typography),
+    });
+
+  const replyFontId = fontIdFromStack(draft.typography.chatResponse.fontFamily);
+  const codeFontId = fontIdFromStack(draft.typography.code.fontFamily);
+  const replySize = draft.typography.chatResponse.fontSizePx;
+  const codeSize = draft.typography.code.fontSizePx;
+  const replyStack = draft.typography.chatResponse.fontFamily;
+  const codeStack = draft.typography.code.fontFamily;
 
   return (
-    <SettingsScreen testid="settings-root">
-      <section className="dl-set-section" data-testid="settings-appearance">
-        <h2>Внешний вид</h2>
-        <p className="dl-set-section-sub">
-            Тема меняет только оформление — сессии, потоки и настройки Pi не затрагиваются.
-            {!ready && ' Загрузка…'}
-          </p>
-          <div className="dl-theme-grid" role="radiogroup" aria-label="Темы">
-            {PRESET_IDS.map((id) => {
-              const preset = THEME_PRESETS[id];
-              const active = appearance.theme.preset === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  data-testid={`theme-card-${id}`}
-                  aria-checked={active}
-                  className={`dl-theme-card${active ? ' dl-theme-card-active' : ''}`}
-                  onClick={() => onChange({ ...appearance, theme: { ...appearance.theme, preset: id } })}
-                >
-                  <span style={{ fontWeight: 600 }}>{preset.label}</span>
-                  <span className="dl-theme-swatches" aria-hidden="true">
-                    <span className="dl-theme-swatch" style={{ background: preset.tokens.windowBackgroundColor }} />
-                    <span className="dl-theme-swatch" style={{ background: preset.tokens.sidebarLeftBackgroundColor }} />
-                    <span className="dl-theme-swatch" style={{ background: preset.tokens.accentColor }} />
-                    <span className="dl-theme-swatch" style={{ background: preset.tokens.bodyTextColor }} />
-                  </span>
-                  {preset.attribution && <span className="dl-theme-card-note muted">inspired-by</span>}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              role="radio"
-              data-testid="theme-card-custom"
-              aria-checked={appearance.theme.preset === 'custom'}
-              className={`dl-theme-card${appearance.theme.preset === 'custom' ? ' dl-theme-card-active' : ''}`}
-              onClick={() => {
-                if (!editorOpen) startEditor('dark');
-                else setEditorOpen((v) => v);
-              }}
-            >
-              <span style={{ fontWeight: 600 }}>Своя тема</span>
-              <span className="dl-theme-swatches" aria-hidden="true">
-                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.windowBackgroundColor ?? '#20221F' }} />
-                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.sidebarLeftBackgroundColor ?? '#191C19' }} />
-                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.accentColor ?? '#78957C' }} />
-                <span className="dl-theme-swatch" style={{ background: appearance.theme.custom?.bodyTextColor ?? '#E7EAE3' }} />
-              </span>
-              <span className="dl-theme-card-note muted">{appearance.theme.customName}</span>
-            </button>
+    <div className="dl2-screen" data-testid="settings-root">
+      <div className="dl2-col" data-testid="settings-col">
+        <header className="dl2-head">
+          <h1 className="dl2-h1">Настройки</h1>
+          <p className="dl2-page-sub">Внешний вид, типографика и подключение Pi в WSL.</p>
+        </header>
+
+        <section className="dl2-section" data-testid="settings-appearance">
+          <div className="dl2-section-head">
+            <h2 className="dl2-h2">Внешний вид</h2>
+            <p className="dl2-section-desc">
+              Светлые и тёмные варианты выбираются отдельно. На карточке четыре цвета: рабочая область, обе боковые
+              панели, акцент и основной текст.
+            </p>
           </div>
 
-          {editorOpen && editTokens && (
-            <div className="theme-editor" data-testid="theme-editor">
-              <div className="theme-editor-head">
-                <h2>Редактор своей темы</h2>
-                <label className="field-inline">
-                  Название
-                  <input
-                    data-testid="theme-name"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    maxLength={60}
-                  />
-                </label>
-                <label className="field-inline">
-                  Основа
-                  <select
-                    data-testid="theme-base"
-                    defaultValue="dark"
-                    onChange={(e) => {
-                      const base = e.target.value as ThemePresetId;
-                      setEditTokens(structuredClone(THEME_PRESETS[base].tokens));
-                      setEditIssues([]);
-                    }}
+          <div className="dl2-group">
+            <div className="dl2-seg" role="radiogroup" aria-label="Режим темы">
+              {(['light', 'dark'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.theme.mode === mode}
+                  className={`dl2-seg-btn${draft.theme.mode === mode ? ' is-active' : ''}`}
+                  data-testid={`theme-mode-${mode}`}
+                  onClick={() => setMode(mode)}
+                >
+                  {mode === 'light' ? 'Light' : 'Dark'}
+                </button>
+              ))}
+            </div>
+
+            <div className="dl2-presets" role="radiogroup" aria-label="Варианты темы">
+              {palettes.map((palette) => {
+                const active = paletteId === palette.id;
+                const paletteSeed = palette.custom ? draft.theme.custom[draft.theme.mode] : palette.seed;
+                const testid = palette.custom ? 'theme-card-custom' : `theme-card-${palette.id}`;
+                return (
+                  <button
+                    key={palette.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`dl2-preset${active ? ' is-active' : ''}${palette.custom ? ' is-custom' : ''}`}
+                    data-testid={testid}
+                    data-preset={palette.id}
+                    onClick={() => setPreset(palette.id as ThemePresetId)}
                   >
-                    {PRESET_IDS.map((id) => (
-                      <option key={id} value={id}>
-                        {THEME_PRESETS[id].label}
+                    <span className="dl2-preset-name">{palette.label}</span>
+                    <span className="dl2-swatches" aria-hidden="true" data-testid={`swatches-${palette.id}`}>
+                      <span className="dl2-swatch" data-swatch="workspace" style={{ background: paletteSeed.window }} />
+                      <span className="dl2-swatch" data-swatch="panels" style={{ background: paletteSeed.panel }} />
+                      <span className="dl2-swatch" data-swatch="accent" style={{ background: paletteSeed.accent }} />
+                      <span className="dl2-swatch" data-swatch="text" style={{ background: paletteSeed.text }} />
+                    </span>
+                    {palette.custom ? <span className="dl2-preset-note">4 цвета</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            {isCustom ? (
+              <div className="dl2-card dl2-editor" data-testid="theme-editor">
+                {COLOR_FIELDS.map((field) => (
+                  <div className="dl2-color-row" key={field.key}>
+                    <span className="dl2-row-label">{field.label}</span>
+                    <input
+                      type="color"
+                      className="dl2-color"
+                      data-testid={field.testid}
+                      value={seed[field.key]}
+                      onChange={(e) => setColor(field.key, e.target.value)}
+                    />
+                    <span className="dl2-hex">{seed[field.key]}</span>
+                    <span className="dl2-color-hint">{field.hint}</span>
+                  </div>
+                ))}
+                <div className="dl2-status" data-ok={validation.ok ? 'true' : 'false'} data-testid="custom-contrast-status">
+                  {validation.ok ? '✓' : '!'} Контраст: текст/область {textOnWindow.toFixed(2)}:1 · текст/панели{' '}
+                  {textOnPanel.toFixed(2)}:1 · акцент/область {accentOnWindow.toFixed(2)}:1
+                  {validation.ok ? '' : ` · пар ниже AA: ${validation.issues.filter((i) => i.kind === 'contrast').length}`}
+                </div>
+              </div>
+            ) : (
+              <p className="dl2-section-desc" data-testid="theme-preset-note">
+                Цвета готового варианта не редактируются: выберите «Свою», чтобы открыть четыре поля.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="dl2-section" data-testid="settings-typography">
+          <div className="dl2-section-head">
+            <h2 className="dl2-h2">Типографика</h2>
+            <p className="dl2-section-desc">
+              Интерфейс использует один системный шрифт. Настраиваются только шрифт ответов и шрифт кода.
+            </p>
+          </div>
+
+          <div className="dl2-group">
+            <div className="dl2-font-block is-system" data-testid="font-block-system">
+              <div className="dl2-font-head">
+                <span className="dl2-font-title">Системный шрифт</span>
+                <span className="dl2-font-hint">меню, панели, ввод чата, статус</span>
+                <span className="dl2-tag">не изменяется</span>
+              </div>
+              <span className="dl2-fixed" data-testid="font-system-value">
+                Segoe UI · {SYSTEM_FONT_SIZE} px
+              </span>
+              <div
+                className="dl2-preview"
+                data-testid="preview-system"
+                style={{ fontFamily: SYSTEM_FONT_STACK, fontSize: previewFontSize(SYSTEM_FONT_SIZE) }}
+              >
+                {SYSTEM_SAMPLE}
+              </div>
+            </div>
+
+            {FONT_SLOT_ORDER.map((slot) => {
+              const family = slot === 'reply' ? replyStack : codeStack;
+              const size = slot === 'reply' ? replySize : codeSize;
+              const fontId = slot === 'reply' ? replyFontId : codeFontId;
+              return (
+                <div className="dl2-font-block" data-testid={`font-block-${slot}`} key={slot}>
+                  <div className="dl2-font-head">
+                    <span className="dl2-font-title">{FONT_SLOT_LABELS[slot]}</span>
+                    <span className="dl2-font-hint">
+                      {slot === 'reply' ? 'только текст ответов Pi, не поле ввода' : 'код, инструменты и терминал'}
+                    </span>
+                  </div>
+                  <div className="dl2-font-controls">
+                    <select
+                      className="dl2-select"
+                      data-testid={`font-${slot}-family`}
+                      aria-label={FONT_SLOT_LABELS[slot]}
+                      value={fontId}
+                      onChange={(e) => setFont(slot, e.target.value)}
+                    >
+                      {FONT_CHOICES.map((choice) => (
+                        <option key={choice.id} value={choice.id}>
+                          {choice.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="dl2-input"
+                      type="number"
+                      min={10}
+                      max={22}
+                      step={1}
+                      aria-label={`${FONT_SLOT_LABELS[slot]}: размер`}
+                      data-testid={`font-${slot}-size`}
+                      value={size}
+                      onChange={(e) => setFontSize(slot, Number(e.target.value))}
+                    />
+                  </div>
+                  <div
+                    className={`dl2-preview is-${slot}`}
+                    data-testid={`preview-${slot}`}
+                    style={{ fontFamily: family, fontSize: previewFontSize(size) }}
+                  >
+                    {slot === 'reply' ? REPLY_SAMPLE : CODE_SAMPLE}
+                  </div>
+                </div>
+              );
+            })}
+            <p className="dl2-section-desc">
+              Закрытый список: Consolas, Courier New, Lucida Console — проверены на кириллицу, французские диакритики и
+              латиницу. Свободный ввод семейства отключён.
+            </p>
+          </div>
+        </section>
+
+        <section className="dl2-section" data-testid="settings-connection">
+          <div className="dl2-section-head">
+            <h2 className="dl2-h2">Подключение</h2>
+            <p className="dl2-section-desc">Состояние моста Pi и дистрибутива WSL.</p>
+          </div>
+          <div className="dl2-card">
+            <div className="dl2-conn">
+              <div className="dl2-conn-row">
+                <span className="dl2-conn-key">Статус</span>
+                <span>
+                  <span
+                    className="dl2-dot"
+                    aria-hidden="true"
+                    data-state={snapshot.phase}
+                    style={{ background: snapshot.phase === 'ready' ? 'var(--pw-success-color)' : 'var(--pw-warning-color)' }}
+                  />
+                  <span data-testid="status-phase">{phaseText(snapshot)}</span>
+                </span>
+              </div>
+              <div className="dl2-conn-row" data-testid="settings-distro-row">
+                <span className="dl2-conn-key">Дистрибутив</span>
+                {snapshot.distros && snapshot.distros.length > 0 ? (
+                  <select
+                    className="dl2-select"
+                    data-testid="distro"
+                    aria-label="Дистрибутив WSL"
+                    value={snapshot.distro ?? snapshot.distros[0] ?? ''}
+                    onChange={(e) => onSelectDistro(e.target.value)}
+                  >
+                    {snapshot.distros.map((distro) => (
+                      <option key={distro} value={distro}>
+                        {distro}
                       </option>
                     ))}
                   </select>
-                </label>
-              </div>
-
-              {editIssues.length > 0 && (
-                <div className="editor-issues" role="alert" data-testid="theme-issues">
-                  <strong>Тема не будет сохранена:</strong>
-                  <ul>
-                    {editIssues.map((issue) => (
-                      <li key={`${issue.key}-${issue.kind}`}>
-                        {TOKEN_LABELS[issue.key] ?? issue.key}: {issue.message}{' '}
-                        {issue.kind === 'contrast' && (
-                          <button
-                            type="button"
-                            data-testid={`fix-${String(issue.key)}`}
-                            onClick={() => {
-                              const fix = suggestFix(issue);
-                              if (fix && editTokens) {
-                                const next = { ...editTokens, [issue.key]: fix };
-                                setEditTokens(next);
-                                validate(next);
-                              }
-                            }}
-                          >
-                            Исправить
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="editor-groups">
-                {TOKEN_GROUPS.map((group) => (
-                  <fieldset key={group.title} className="editor-group">
-                    <legend>{group.title}</legend>
-                    {group.keys.map((key) => (
-                      <label key={key} className="editor-field">
-                        <span>{TOKEN_LABELS[key] ?? key}</span>
-                        <input
-                          type="color"
-                          data-testid={`token-${key}`}
-                          value={String(editTokens[key])}
-                          onChange={(e) => {
-                            const next = { ...editTokens, [key]: e.target.value };
-                            setEditTokens(next);
-                          }}
-                          onBlur={() => validate(editTokens)}
-                        />
-                      </label>
-                    ))}
-                  </fieldset>
-                ))}
-                <fieldset className="editor-group">
-                  <legend>Радиусы и ритм</legend>
-                  {(['radiusSmall', 'radiusMedium', 'radiusLarge'] as const).map((key) => (
-                    <label key={key} className="editor-field">
-                      <span>{TOKEN_LABELS[key]}</span>
-                      <input
-                        data-testid={`token-${key}`}
-                        value={String(editTokens[key])}
-                        onChange={(e) => setEditTokens({ ...editTokens, [key]: e.target.value })}
-                      />
-                    </label>
-                  ))}
-                  <label className="editor-field">
-                    <span>{TOKEN_LABELS.spacingScale}</span>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0.75"
-                      max="1.5"
-                      data-testid="token-spacingScale"
-                      value={String(editTokens.spacingScale)}
-                      onChange={(e) =>
-                        setEditTokens({ ...editTokens, spacingScale: Number(e.target.value) })
-                      }
-                    />
-                  </label>
-                  <label className="editor-field">
-                    <span>{TOKEN_LABELS.animationDurationMs}</span>
-                    <input
-                      type="number"
-                      step="20"
-                      min="0"
-                      max="1000"
-                      data-testid="token-animationDurationMs"
-                      value={String(editTokens.animationDurationMs)}
-                      onChange={(e) =>
-                        setEditTokens({ ...editTokens, animationDurationMs: Number(e.target.value) })
-                      }
-                    />
-                  </label>
-                </fieldset>
-              </div>
-
-              <div className="theme-editor-preview" data-testid="theme-preview">
-                <span className="preview-chip" style={{ background: editTokens.accentColor, color: editTokens.accentTextColor }}>
-                  Акцент
-                </span>
-                <span className="preview-chip" style={{ background: editTokens.surfaceBackgroundColor, color: editTokens.bodyTextColor }}>
-                  Текст
-                </span>
-                <span className="preview-chip" style={{ background: editTokens.errorColor, color: '#ffffff' }}>
-                  Ошибка
-                </span>
-                <span className="preview-chip" style={{ background: editTokens.codeBackgroundColor, color: editTokens.codeForegroundColor, fontFamily: 'monospace' }}>
-                  {'code()'}
-                </span>
-              </div>
-
-              <div className="theme-editor-actions">
-                <button type="button" className="btn-primary" data-testid="theme-apply" onClick={applyCustom}>
-                  Apply
-                </button>
-                <button type="button" data-testid="theme-cancel" onClick={cancelEditor}>
-                  Cancel
-                </button>
-                <button type="button" data-testid="theme-reset" onClick={resetEditor}>
-                  Reset
-                </button>
-                <button type="button" data-testid="settings-reset" onClick={onReset}>
-                  Сбросить все настройки
-                </button>
-                {savedAt && (
-                  <span className="muted" data-testid="theme-saved">
-                    Сохранено в {savedAt}
-                  </span>
+                ) : (
+                  <span data-testid="status-distro">{snapshot.distro ?? '—'}</span>
                 )}
               </div>
+              <div className="dl2-conn-row">
+                <span className="dl2-conn-key">Pi</span>
+                <span data-testid="runtime-pi">
+                  {snapshot.runtime?.pi.version ? `версия ${snapshot.runtime.pi.version}` : '—'}
+                  {snapshot.runtime && !snapshot.runtime.pi.rpcSupported ? ' · RPC не поддерживается' : ''}
+                </span>
+              </div>
+              <div className="dl2-conn-row">
+                <span className="dl2-conn-key">Node.js</span>
+                <span data-testid="runtime-node">{snapshot.runtime?.node.version ?? '—'}</span>
+              </div>
+              {requestError ? (
+                <div className="dl2-status" data-ok="false" role="alert" data-testid="settings-request-error">
+                  ! {requestError}
+                </div>
+              ) : null}
             </div>
-          )}
-
-          {appearance.theme.preset === 'custom' && !editorOpen && (
-            <div className="custom-summary" data-testid="custom-summary">
-              <span>Активна своя тема «{appearance.theme.customName}».</span>
-              <button type="button" data-testid="custom-edit" onClick={() => startEditor('dark')}>
-                Редактировать
+            <div className="dl2-actions">
+              <button type="button" className="dl-btn-ghost" data-testid="settings-refresh" onClick={onRefresh}>
+                Обновить состояние
+              </button>
+              <button type="button" className="dl-btn-ghost" data-testid="settings-retry" onClick={onRetry}>
+                Переподключиться
               </button>
             </div>
-          )}
-          <div className="card-group-note muted">{COLOR_TOKEN_KEYS.length} семантических цветов · 4 пресета + своя</div>
-      </section>
+          </div>
+        </section>
 
-      <section className="dl-set-section" data-testid="settings-typography">
-        <h2>Типографика</h2>
-        <p className="dl-set-section-sub">
-            Шрифты задаются для каждой области отдельно и не сбрасываются при смене темы.
-          </p>
-          {TYPOGRAPHY_AREAS.map((area) => (
-            <TypoRow
-              key={area}
-              area={area}
-              zone={appearance.typography[area]}
-              onChange={(zone) =>
-                onChange({
-                  ...appearance,
-                  typography: { ...appearance.typography, [area]: zone },
-                })
-              }
-            />
-          ))}
-      </section>
-
-      <section className="dl-set-section" data-testid="settings-workspace">
-        <h2>Рабочее пространство</h2>
-          <label className="dl-type-row">
-            <span className="dl-type-name">Ширина левой панели</span>
-            <input
-              type="range"
-              min={200}
-              max={480}
-              step={10}
-              data-testid="left-width"
-              value={layout.leftWidth}
-              onChange={(e) => layout.onLeftWidth(Number(e.target.value))}
-            />
-            <span className="dl-type-spec dl-type-spec-auto">{layout.leftWidth}px</span>
-          </label>
-          <label className="dl-type-row">
-            <span className="dl-type-name">Ширина панели деталей</span>
-            <input
-              type="range"
-              min={240}
-              max={560}
-              step={10}
-              data-testid="right-width"
-              value={layout.rightWidth}
-              onChange={(e) => layout.onRightWidth(Number(e.target.value))}
-            />
-            <span className="dl-type-spec dl-type-spec-auto">{layout.rightWidth}px</span>
-          </label>
-          <label className="dl-type-row">
-            <span className="dl-type-name">Высота слота терминала</span>
-            <input
-              type="range"
-              min={120}
-              max={600}
-              step={20}
-              data-testid="terminal-height"
-              value={appearance.layout.terminalSlotHeight}
-              onChange={(e) => layout.onTerminalHeight(Number(e.target.value))}
-            />
-            <span className="dl-type-spec dl-type-spec-auto">{appearance.layout.terminalSlotHeight}px</span>
-          </label>
-          <label className="dl-type-row">
-            <span className="dl-type-name">Сворачивать левую панель</span>
-            <input
-              type="checkbox"
-              data-testid="left-collapsed"
-              checked={layout.leftCollapsed}
-              onChange={layout.onToggleLeft}
-            />
-          </label>
-          <p className="muted">
-            Состояние и размеры сохраняются; автоподстройка при узком окне сохранённые значения не
-            перезаписывает.
-          </p>
-      </section>
-
-      <section className="dl-set-section" data-testid="settings-connection">
-        <h2>Подключение</h2>
-          <StatusPanel
-            snapshot={props.snapshot}
-            requestError={props.requestError}
-            api={props.api}
-            onRetry={props.onRetry}
-            onRefresh={props.onRefresh}
-            onSelectDistro={props.onSelectDistro}
-          />
-      </section>
-    </SettingsScreen>
-  );
-}
-
-function TypoRow({
-  area,
-  zone,
-  onChange,
-}: {
-  area: TypographyArea;
-  zone: AppearanceSettings['typography'][TypographyArea];
-  onChange: (zone: AppearanceSettings['typography'][TypographyArea]) => void;
-}) {
-  const labels: Record<TypographyArea, string> = {
-    ui: 'Общий интерфейс',
-    sidebar: 'Список проектов и чатов',
-    chatInput: 'Ввод чата',
-    chatResponse: 'Ответы Pi',
-    code: 'Код (fenced и inline)',
-    toolOutput: 'Вывод инструментов',
-    terminal: 'Терминал',
-    statusBar: 'Статус-бар',
-  };
-  const isMonoArea = area === 'code' || area === 'toolOutput' || area === 'terminal';
-  return (
-    <fieldset className="dl-type-group" aria-label={labels[area]}>
-      <div className="dl-type-row" data-testid={`typo-${area}`}>
-        <span className="dl-type-name">{labels[area]}</span>
-        <span className="dl-type-fields">
-      <label className="field-inline">
-        Семейство
-        <input
-          data-testid={`${area}-family`}
-          value={zone.fontFamily}
-          onChange={(e) => onChange({ ...zone, fontFamily: e.target.value })}
-          list={`fonts-${area}`}
-        />
-        <datalist id={`fonts-${area}`}>
-          <option value={'"Segoe UI", system-ui, sans-serif'} />
-          <option value={'"Cascadia Mono", Consolas, monospace'} />
-          <option value={'Consolas, "Liberation Mono", monospace'} />
-          <option value={'"Segoe UI", Tahoma, sans-serif'} />
-          {isMonoArea && <option value={'"Courier New", monospace'} />}
-        </datalist>
-      </label>
-      <label className="field-inline">
-        px
-        <input
-          type="number"
-          min={8}
-          max={40}
-          data-testid={`${area}-size`}
-          value={zone.fontSizePx}
-          onChange={(e) => onChange({ ...zone, fontSizePx: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field-inline">
-        Строка
-        <input
-          type="number"
-          step={0.05}
-          min={1}
-          max={3}
-          data-testid={`${area}-line-height`}
-          value={zone.lineHeight}
-          onChange={(e) => onChange({ ...zone, lineHeight: Number(e.target.value) })}
-        />
-      </label>
-      <label className="field-inline">
-        Насыщенность
-        <select
-          data-testid={`${area}-weight`}
-          value={zone.weight}
-          onChange={(e) => onChange({ ...zone, weight: Number(e.target.value) })}
-        >
-          {[300, 400, 500, 600, 700].map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
-      </label>
-      </span>
-        <span
-          className="dl-type-preview"
-          data-testid={`${area}-preview`}
-          style={{
-            fontFamily: zone.fontFamily,
-            fontSize: `${zone.fontSizePx}px`,
-            lineHeight: String(zone.lineHeight),
-            fontWeight: String(zone.weight),
-          }}
-        >
-          Поиск по истории диалогов · MiMo v2.6 · npm run test
-        </span>
-        <span className="dl-type-spec dl-type-spec-auto">
-          {zone.fontSizePx}px / {zone.lineHeight} · {zone.weight}
-        </span>
+        <div className="dl2-actions dl2-actions-sticky" data-testid="settings-actions">
+          <button
+            type="button"
+            className="dl-btn-primary"
+            data-testid="theme-apply"
+            onClick={apply}
+            disabled={!ready || !dirty || !validation.ok}
+          >
+            <span>Применить</span>
+          </button>
+          <button type="button" className="dl-btn-ghost" data-testid="theme-cancel" onClick={cancel} disabled={!dirty}>
+            Отмена
+          </button>
+          <button type="button" className="dl-btn-ghost" data-testid="theme-reset" onClick={reset}>
+            Сбросить
+          </button>
+          <span className="dl2-color-hint" data-testid="settings-state">
+            {dirty ? 'есть неприменённые изменения' : 'применено'}
+          </span>
+        </div>
       </div>
-    </fieldset>
+    </div>
   );
 }
+

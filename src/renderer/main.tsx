@@ -8,6 +8,9 @@ import { App } from './App';
 import './design/typography.css';
 import './design/layout.css';
 import './design/components.css';
+// UI Integration V1: единый контракт каркаса и скелета страниц (общий с Design Lab)
+import './design/tokens-contract.css';
+import './design/settings-page.css';
 
 const container = document.getElementById('root');
 if (!container) {

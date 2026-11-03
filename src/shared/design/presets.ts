@@ -1,3 +1,6 @@
+import { CUSTOM_PALETTE_ID, DARK_PALETTES, LIGHT_PALETTES, PALETTES_BY_MODE, type ThemePalette } from './palettes';
+import { deriveTheme, type PaletteSeed } from './deriveTheme';
+
 /**
  * Semantic design tokens and immutable theme presets (Issue #21 §9.1/§9.2).
  *
@@ -89,12 +92,37 @@ export interface ThemeTokens {
   animationDurationMs: number;
 }
 
-export type ThemePresetId = 'dark' | 'light' | 'claude' | 'codex';
+/**
+ * Девять палитр контракта: 5 светлых и 4 тёмных, включая «свою» в каждом режиме.
+ * Палитра задаётся четырьмя цветами (см. palettes.ts), полный набор токенов
+ * выводит deriveTheme — поэтому тема меняет весь интерфейс, а не только образцы.
+ */
+export type ThemeMode = 'light' | 'dark';
 
-export const PRESET_IDS: readonly ThemePresetId[] = ['dark', 'light', 'claude', 'codex'] as const;
+export type BuiltinPresetId =
+  | 'light'
+  | 'astra'
+  | 'claudeLight'
+  | 'codexLight'
+  | 'dark'
+  | 'claudeDark'
+  | 'codexDark';
+
+/** Идентификатор выбранной палитры режима: встроенная или «своя». */
+export type ThemePresetId = BuiltinPresetId | 'customLight' | 'customDark';
+
+export const PRESET_IDS: readonly BuiltinPresetId[] = [
+  'light',
+  'astra',
+  'claudeLight',
+  'codexLight',
+  'dark',
+  'claudeDark',
+  'codexDark',
+] as const;
 
 export interface ThemePreset {
-  id: ThemePresetId;
+  id: BuiltinPresetId;
   label: string;
   /** 'inspired-by' presets carry an attribution disclaimer (§9.2). */
   attribution?: string;
@@ -266,172 +294,6 @@ const LIGHT: ThemeTokens = {
   animationDurationMs: 200,
 };
 
-/** Warm light inspired-by preset — NOT an official Claude palette (§9.2). */
-const CLAUDE: ThemeTokens = {
-  windowBackgroundColor: '#F4F1EA',
-  titleBarBackgroundColor: '#EDE9E0',
-  sidebarLeftBackgroundColor: '#EDE9E0',
-  sidebarRightBackgroundColor: '#F1EDE5',
-  statusBarBackgroundColor: '#EDE9E0',
-  surfaceBackgroundColor: '#FBFAF6',
-  elevatedSurfaceBackgroundColor: '#FFFFFF',
-
-  chatInputBackgroundColor: '#FFFFFF',
-  chatBubbleUserBackgroundColor: '#EAE4D7',
-  chatBubbleAssistantBackgroundColor: '#F4F1EA',
-
-  bodyTextColor: '#26241F',
-  mutedTextColor: '#5F5A50',
-  linkColor: '#8A4B2A',
-
-  accentColor: '#B85C38',
-  accentHoverColor: '#A55231',
-  accentActiveColor: '#91482A',
-  accentTextColor: '#050402',
-
-  buttonPrimaryBackgroundColor: '#A55231',
-  buttonPrimaryHoverColor: '#984B2C',
-  buttonPrimaryActiveColor: '#91482A',
-  buttonPrimaryDisabledColor: '#DDD7CB',
-  buttonPrimaryTextColor: '#FAF7F0',
-
-  inputBackgroundColor: '#FFFFFF',
-  inputBorderColor: '#DAD4C7',
-  placeholderColor: '#6E685C',
-  focusRingColor: '#8A4B2A',
-  selectionBackgroundColor: '#EFE3D6',
-  selectionTextColor: '#26241F',
-
-  borderColor: '#DED8CB',
-  dividerColor: '#E7E1D5',
-  hoverBackgroundColor: '#EEEAE0',
-  selectedBackgroundColor: '#EDE6D9',
-
-  warningColor: '#8A6D2F',
-  errorColor: '#B3454C',
-  successColor: '#43754A',
-
-  toolCardBackgroundColor: '#EFEBE1',
-  toolCardBorderColor: '#DED8CB',
-
-  codeBackgroundColor: '#EDE8DD',
-  codeForegroundColor: '#33302A',
-  syntaxKeywordColor: '#8A4B2A',
-  syntaxStringColor: '#7A5A2E',
-  syntaxCommentColor: '#8B8477',
-  syntaxNumberColor: '#7A4E70',
-  syntaxFunctionColor: '#3C6A78',
-
-  terminalBackgroundColor: '#1F1D19',
-  terminalForegroundColor: '#EDE8DD',
-  terminalCursorColor: '#EDE8DD',
-  terminalAnsiBlackColor: '#1F1D19',
-  terminalAnsiRedColor: '#E08B90',
-  terminalAnsiGreenColor: '#87B58C',
-  terminalAnsiYellowColor: '#C7A15A',
-  terminalAnsiBlueColor: '#9FC7D6',
-  terminalAnsiMagentaColor: '#D3A6C6',
-  terminalAnsiCyanColor: '#8FBCBC',
-  terminalAnsiWhiteColor: '#EDE8DD',
-  terminalAnsiBrightBlackColor: '#6B665C',
-  terminalAnsiBrightRedColor: '#F0A7AC',
-  terminalAnsiBrightGreenColor: '#A0CBA5',
-  terminalAnsiBrightYellowColor: '#DCBC79',
-  terminalAnsiBrightBlueColor: '#B8DAE6',
-  terminalAnsiBrightMagentaColor: '#E4C0D8',
-  terminalAnsiBrightCyanColor: '#AED3D3',
-  terminalAnsiBrightWhiteColor: '#F7F4ED',
-
-  radiusSmall: '6px',
-  radiusMedium: '10px',
-  radiusLarge: '14px',
-  spacingScale: 1,
-  animationDurationMs: 200,
-};
-
-/** Cold dark inspired-by preset — NOT an official Codex palette (§9.2). */
-const CODEX: ThemeTokens = {
-  windowBackgroundColor: '#17191C',
-  titleBarBackgroundColor: '#101214',
-  sidebarLeftBackgroundColor: '#101214',
-  sidebarRightBackgroundColor: '#141619',
-  statusBarBackgroundColor: '#101214',
-  surfaceBackgroundColor: '#1F2226',
-  elevatedSurfaceBackgroundColor: '#262A2F',
-
-  chatInputBackgroundColor: '#1F2226',
-  chatBubbleUserBackgroundColor: '#262A2F',
-  chatBubbleAssistantBackgroundColor: '#17191C',
-
-  bodyTextColor: '#E8EAED',
-  mutedTextColor: '#9BA1A8',
-  linkColor: '#7FB3A2',
-
-  accentColor: '#4E8F77',
-  accentHoverColor: '#5AA089',
-  accentActiveColor: '#448069',
-  accentTextColor: '#0F1214',
-
-  buttonPrimaryBackgroundColor: '#4E8F77',
-  buttonPrimaryHoverColor: '#5AA089',
-  buttonPrimaryActiveColor: '#448069',
-  buttonPrimaryDisabledColor: '#2A2E33',
-  buttonPrimaryTextColor: '#0F1214',
-
-  inputBackgroundColor: '#1F2226',
-  inputBorderColor: '#2E3238',
-  placeholderColor: '#868D96',
-  focusRingColor: '#7FB3A2',
-  selectionBackgroundColor: '#27403A',
-  selectionTextColor: '#E8EAED',
-
-  borderColor: '#2E3238',
-  dividerColor: '#2E3238',
-  hoverBackgroundColor: '#23262B',
-  selectedBackgroundColor: '#21252A',
-
-  warningColor: '#C9A55C',
-  errorColor: '#E49198',
-  successColor: '#79B58A',
-
-  toolCardBackgroundColor: '#1B1E22',
-  toolCardBorderColor: '#2E3238',
-
-  codeBackgroundColor: '#101214',
-  codeForegroundColor: '#DADDE2',
-  syntaxKeywordColor: '#7FB3A2',
-  syntaxStringColor: '#CDBB86',
-  syntaxCommentColor: '#767C84',
-  syntaxNumberColor: '#CFA5C4',
-  syntaxFunctionColor: '#93BFD3',
-
-  terminalBackgroundColor: '#0C0D0F',
-  terminalForegroundColor: '#DADDE2',
-  terminalCursorColor: '#E8EAED',
-  terminalAnsiBlackColor: '#0C0D0F',
-  terminalAnsiRedColor: '#E49198',
-  terminalAnsiGreenColor: '#79B58A',
-  terminalAnsiYellowColor: '#C9A55C',
-  terminalAnsiBlueColor: '#93BFD3',
-  terminalAnsiMagentaColor: '#CFA5C4',
-  terminalAnsiCyanColor: '#86B9B9',
-  terminalAnsiWhiteColor: '#E8EAED',
-  terminalAnsiBrightBlackColor: '#565C64',
-  terminalAnsiBrightRedColor: '#F1ABB1',
-  terminalAnsiBrightGreenColor: '#93CBA4',
-  terminalAnsiBrightYellowColor: '#E0C07A',
-  terminalAnsiBrightBlueColor: '#AED4E3',
-  terminalAnsiBrightMagentaColor: '#E1BCDC',
-  terminalAnsiBrightCyanColor: '#A3CDCD',
-  terminalAnsiBrightWhiteColor: '#F2F4F7',
-
-  radiusSmall: '6px',
-  radiusMedium: '10px',
-  radiusLarge: '14px',
-  spacingScale: 1,
-  animationDurationMs: 200,
-};
-
 /** All semantic token keys (drives editor forms and completeness checks). */
 export function semanticTokenKeys(): (keyof ThemeTokens)[] {
   return Object.keys(DARK) as (keyof ThemeTokens)[];
@@ -441,31 +303,57 @@ export const COLOR_TOKEN_KEYS: (keyof ThemeTokens)[] = (
   Object.keys(DARK) as (keyof ThemeTokens)[]
 ).filter((k) => k.endsWith('Color'));
 
-export const THEME_PRESETS: Record<ThemePresetId, ThemePreset> = {
-  dark: {
-    id: 'dark',
-    label: 'Тёмная',
+const FAMILY_BASE: Record<ThemeMode, ThemeTokens> = { light: LIGHT, dark: DARK };
+
+/** Полный набор токенов для палитры-семени (один источник для продукта и Lab). */
+export function deriveTokensForSeed(mode: ThemeMode, seed: PaletteSeed): ThemeTokens {
+  return deriveTheme(FAMILY_BASE[mode], seed);
+}
+
+function toPreset(palette: ThemePalette): ThemePreset | null {
+  if (palette.custom) return null;
+  return {
+    id: palette.id as BuiltinPresetId,
+    label: palette.label,
+    ...(palette.attribution ? { attribution: palette.attribution } : {}),
     immutable: true,
-    tokens: DARK,
-  },
-  light: {
-    id: 'light',
-    label: 'Светлая',
-    immutable: true,
-    tokens: LIGHT,
-  },
-  claude: {
-    id: 'claude',
-    label: 'Claude Code',
-    attribution: 'Вдохновлённый пресет (inspired-by); не является официальной палитрой Claude.',
-    immutable: true,
-    tokens: CLAUDE,
-  },
-  codex: {
-    id: 'codex',
-    label: 'Codex',
-    attribution: 'Вдохновлённый пресет (inspired-by); не является официальной палитрой Codex.',
-    immutable: true,
-    tokens: CODEX,
-  },
-};
+    tokens: deriveTokensForSeed(palette.mode, palette.seed),
+  };
+}
+
+export const THEME_PRESETS: Record<BuiltinPresetId, ThemePreset> = Object.fromEntries(
+  [...LIGHT_PALETTES, ...DARK_PALETTES]
+    .map(toPreset)
+    .filter((p): p is ThemePreset => p !== null)
+    .map((p) => [p.id, p]),
+) as Record<BuiltinPresetId, ThemePreset>;
+
+/** Палитра, выбранная пользователем (встроенная или своя). */
+export function resolvePalette(
+  paletteId: ThemePresetId,
+  mode: ThemeMode,
+  customSeeds: Record<ThemeMode, PaletteSeed>,
+): { mode: ThemeMode; seed: PaletteSeed; label: string } {
+  const customId = CUSTOM_PALETTE_ID[mode];
+  if (paletteId === customId) {
+    const palette = PALETTES_BY_MODE[mode].find((p) => p.id === customId);
+    return { mode, seed: customSeeds[mode], label: palette?.label ?? 'Своя тема' };
+  }
+  const builtin = THEME_PRESETS[paletteId as BuiltinPresetId];
+  if (builtin) {
+    const palette = PALETTES_BY_MODE[mode].find((p) => p.id === builtin.id);
+    return { mode, seed: palette?.seed ?? (builtin.id === 'light' ? LIGHT_PALETTES[0].seed : DARK_PALETTES[0].seed), label: builtin.label };
+  }
+  const fallback = PALETTES_BY_MODE[mode][0];
+  return { mode, seed: fallback.seed, label: fallback.label };
+}
+
+/** Токены для выбранной палитры (продукт и Lab используют этот вызов). */
+export function resolveThemeTokens(
+  paletteId: ThemePresetId,
+  mode: ThemeMode,
+  customSeeds: Record<ThemeMode, PaletteSeed>,
+): ThemeTokens {
+  const resolved = resolvePalette(paletteId, mode, customSeeds);
+  return deriveTokensForSeed(resolved.mode, resolved.seed);
+}

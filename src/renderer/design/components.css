@@ -1910,33 +1910,13 @@ button.dl-theme-card:hover {
   line-height: 1.55;
 }
 
-/* строки/поля сайдбара app — по замеру 01-chat-review-terminal (семейство v3:
- * «Новый диалог» без заливки, поля 38, строки 46, метка строчными). Для
- * ref-состояний (семейство 01-chat) остаются текущие размеры. */
+/* R02 (#6566550672): геометрия строк/полей app-сайдбара живёт ОДНИМ блоком в
+ * design/tokens-contract.css. Здесь остаются только визуальные свойства,
+ * которых нет в контракте («Новый диалог» без заливки, строки строчными). */
 .dl-frame[data-layout="app"] .dl-newchat {
-  height: 40px;
-  gap: 14px;
   background: transparent;
   color: var(--pw-body-text-color);
-  font-size: var(--dl-fs-sidebar);
   font-weight: 400;
-}
-
-.dl-frame[data-layout="app"] .dl-search {
-  height: 38px;
-}
-
-.dl-frame[data-layout="app"] .dl-sidebar-top {
-  padding: 0 15px;
-}
-
-.dl-frame[data-layout="app"] .dl-side-label {
-  margin-top: 20px;
-  padding-left: 24px;
-}
-
-.dl-frame[data-layout="app"] .dl-row {
-  height: 46px;
 }
 
 .dl-frame[data-layout="app"] .dl-status {
@@ -2004,15 +1984,8 @@ button.dl-theme-card:hover {
   color: var(--pw-body-text-color);
 }
 
-/* app-порядок верхних строк сайдбара: поиск → «Новый диалог» (эталонная
- * последовательность 01-chat-review-terminal); для inline-состояний — без изменений. */
-.dl-frame[data-layout="app"] .dl-sidebar-top .dl-search {
-  margin-top: 6px;
-}
-
-.dl-frame[data-layout="app"] .dl-sidebar-top .dl-newchat {
-  margin-top: 14px;
-}
+/* app-порядок верхних строк сайдбара (поиск → «Новый диалог») задаётся в
+ * tokens-contract.css вместе с их высотами и общими отступами. */
 
 /* правая колонка app: шапка-вкладки (49px) + тело с независимой прокруткой */
 .dl-frame[data-layout="app"] .dl-details {
@@ -2402,6 +2375,42 @@ button.dl-theme-card:hover {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* R01 (#6559283775): страница внутри центра — такой же flex-слот, как чат.
+ * Без этого обёртка имела высоту контента, а собственный скролл .dl2-screen
+ * не получал определённой высоты (страница обрезалась .dl-main). */
+.dl-page-slot {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* «Проекты» — кнопка-заголовок группы: та же типографика, что у статичного
+ * заголовка, плюс честные hover/focus-состояния. */
+.dl-side-label-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 24px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dl-side-label-btn:hover {
+  color: var(--pw-body-text-color);
+}
+
+.dl-side-label-btn:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 2px;
+  border-radius: var(--pw-radius-small);
 }
 
 /* ── Review-фиксы D2 (независимое ревью, только app-layout/продукт) ─────── */

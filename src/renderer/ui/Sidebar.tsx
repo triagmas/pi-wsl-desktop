@@ -45,6 +45,17 @@ export interface SidebarProps {
   header?: ReactNode;
   /** app: заголовок раздела (эталон 01-… — «Проекты» строчными + шеврон). */
   projectsTitle?: ReactNode;
+  /**
+   * R01 (#6559283775): «Проекты» — группа. Заголовок со стрелкой сворачивает
+   * ВЕСЬ список проектов; отдельные проекты по-прежнему сворачиваются сами.
+   * Без обработчика (Design Lab board) остаётся статичный заголовок.
+   */
+  projectsExpanded?: boolean;
+  onToggleProjects?: () => void;
+  /** Обновление списка из контекста заголовка (правый клик) — без кнопки в шапке. */
+  onRefreshProjects?: () => void;
+  /** Идёт перечитывание списка (aria-busy у заголовка группы). */
+  projectsBusy?: boolean;
   /** app: порядок верхних строк как в эталоне 01-chat-review-terminal (поиск → новый). */
   searchFirst?: boolean;
   searchPlaceholder?: string;
@@ -87,6 +98,10 @@ export function Sidebar({
   projectsTestId,
   header,
   projectsTitle,
+  projectsExpanded = true,
+  onToggleProjects,
+  onRefreshProjects,
+  projectsBusy = false,
   searchFirst,
   searchPlaceholder = 'Поиск чатов',
   searchValue,
@@ -149,8 +164,32 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="dl-side-label dl-side-label-first">{projectsTitle ?? 'Проекты'}</div>
-      <div className="dl-tree" data-testid={projectsTestId}>
+      {onToggleProjects ? (
+        <button
+          type="button"
+          className="dl-side-label dl-side-label-first dl-side-label-btn"
+          data-testid="projects-toggle"
+          aria-expanded={projectsExpanded}
+          aria-controls="dl-project-tree"
+          aria-busy={projectsBusy}
+          title="Проекты — свернуть или развернуть; правый клик — обновить список"
+          onClick={onToggleProjects}
+          onContextMenu={(e) => {
+            if (!onRefreshProjects) return;
+            e.preventDefault();
+            onRefreshProjects();
+          }}
+        >
+          <span className="dl-side-label-app">
+            {projectsExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+            {projectsTitle ?? 'Проекты'}
+          </span>
+        </button>
+      ) : (
+        <div className="dl-side-label dl-side-label-first">{projectsTitle ?? 'Проекты'}</div>
+      )}
+      {projectsExpanded ? (
+      <div className="dl-tree" id="dl-project-tree" data-testid={projectsTestId}>
         {projects.map((project) => (
           <div key={project.id}>
             <div className="dl-row-slot">
@@ -161,14 +200,18 @@ export function Sidebar({
               data-testid={project.testid}
               onClick={() => onToggleProject?.(project.id)}
             >
-              <IconFolder size={20} />
-              {project.dot ? <span className="dl-row-dot" aria-hidden="true" /> : null}
+              {/* R02: одна колонка иконок 16 px — глиф и статус-точка не
+                  сдвигают текст вправо. */}
+              <span className="dl-row-icon" aria-hidden="true">
+                <IconFolder size={16} />
+                {project.dot ? <span className="dl-row-dot" /> : null}
+              </span>
               <span className="dl-row-text">
                 {project.name}
                 {project.sub ? <span className="dl-row-sub">{project.sub}</span> : null}
               </span>
               <span className="dl-row-chevron" aria-hidden="true">
-                {project.expanded ? <IconChevronDown size={18} /> : <IconChevronRight size={18} />}
+                {project.expanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
               </span>
             </button>
             {onNewChatInProject ? (
@@ -180,7 +223,7 @@ export function Sidebar({
                 title={`Новый диалог в проекте ${project.name}`}
                 onClick={() => onNewChatInProject(project.id)}
               >
-                <IconPlus size={16} strokeWidth={2} />
+                <IconPlus size={14} strokeWidth={2} />
               </button>
             ) : null}
             </div>
@@ -195,8 +238,12 @@ export function Sidebar({
                     aria-current={session.id === activeSessionId}
                     onClick={() => onSelectSession?.(session.id)}
                   >
-                    <IconChatBubble size={20} />
-                    <span className="dl-row-text">{session.title}</span>
+                    <span className="dl-row-icon" aria-hidden="true">
+                      <IconChatBubble size={16} />
+                    </span>
+                    <span className="dl-row-text" title={session.title}>
+                      {session.title}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -204,6 +251,7 @@ export function Sidebar({
           </div>
         ))}
       </div>
+      ) : null}
 
       <div className="dl-side-divider" />
       <div className="dl-nav-rows">
@@ -217,7 +265,7 @@ export function Sidebar({
             aria-current={item.active}
             onClick={() => onNavigate?.(item.id)}
           >
-            <span aria-hidden="true" style={{ display: 'flex' }}>
+            <span className="dl-row-icon" aria-hidden="true">
               {item.icon}
             </span>
             <span className="dl-row-text">{item.label}</span>

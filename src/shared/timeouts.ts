@@ -23,6 +23,49 @@ export const PI_COMMAND_TIMEOUT_MS = 15_000;
  */
 export const PI_PROMPT_ACK_TIMEOUT_MS = 60_000;
 
+/**
+ * R02 (#6566550672): потолок ОДНОЙ команды только что запущенного
+ * `pi --mode rpc`. На реальном WSL-профиле холодный старт (загрузка
+ * расширений, проверка пакетов) занимает 22 848–33 451 мс, поэтому общий
+ * 15 000 мс рубил здоровый `new_session`/`get_state`.
+ *
+ * В R03 это уже не «первая команда», а потолок любого шага запуска; сумму
+ * шагов ограничивает единый PI_START_BUDGET_MS, а не произведение окон.
+ */
+export const PI_COLD_START_TIMEOUT_MS = 40_000;
+
+/**
+ * R03 (#6572954720, P2): ЕДИНЫЙ end-to-end бюджет запуска сессии Pi —
+ * от `spawn` до последней команды старта (`new_session`/`get_state` или
+ * `get_state`/`switch_session`/`get_state`).
+ *
+ * Почему единый: в R02 каждая команда имела своё окно 40 000 мс, а внешний
+ * бюджет операции — своё число (70 000/85 000). Две последовательные допустимо
+ * медленные команды (по 40 000 мс) в такой схеме не помещались: вторая
+ * обрывалась внешним тайм-аутом main, исход операции становился неопределённым.
+ *
+ * Схема (сверху вниз, каждый слой ждёт дольше внутреннего):
+ *   IPC main        methodTimeoutMs('newSession'|'openSession') = 88 000
+ *   bridge handler  bridgeHandlerTimeoutMs(...)                = 83 000
+ *   запуск Pi       PI_START_BUDGET_MS                         = 80 000
+ *   одна команда    min(PI_COLD_START_TIMEOUT_MS, остаток)      = 40 000
+ *   обычная команда PI_COMMAND_TIMEOUT_MS                       = 15 000
+ *   потолок bridge  BRIDGE_MAX_REQUEST_TIMEOUT_MS               = 90 000
+ *
+ * 80 000 = ровно два потолка команды, поэтому две медленные команды подряд
+ * завершаются штатно, а третья получает только реальный остаток и при
+ * исчерпании даёт явную ошибку «бюджет запуска исчерпан», не дожидаясь чужого
+ * тайм-аута.
+ */
+export const PI_START_BUDGET_MS = 80_000;
+
+/**
+ * Запас между внутренним бюджетом запуска и внешним тайм-аутом main:
+ * покрывает сериализацию IPC, kill процесса и запись диагностики, чтобы
+ * ошибку формировал bridge, а не main с неопределённым исходом.
+ */
+export const PI_START_MARGIN_MS = 8_000;
+
 /** Pi отвечает на `abort` только когда сессия стала idle. */
 export const PI_INTERRUPT_TIMEOUT_MS = 30_000;
 
@@ -78,16 +121,23 @@ export const BRIDGE_METHOD_TIMEOUTS: Readonly<Record<string, number>> = {
   getRuntimeInfo: GATE_REQUEST_MS,
   getCapabilities: GATE_REQUEST_MS,
   /**
-   * Холодный старт `pi --mode rpc` + до трёх команд `get_state`/`switch_session`
-   * (по 15 000 мс каждая) на реальном профиле.
+   * R03: запуск сессии — единый бюджет (spawn + get_state [+ switch_session +
+   * get_state]) плюс запас на IPC/отмену. Ниже потолка bridge (90 000 мс).
    */
-  openSession: PI_COMMAND_TIMEOUT_MS * 3 + MUTATION_MARGIN_MS,
+  openSession: PI_START_BUDGET_MS + PI_START_MARGIN_MS,
   /** Только ACK промпта; стриминг идёт событиями и этим тайм-аутом не ограничен. */
   sendPrompt: PI_PROMPT_ACK_TIMEOUT_MS + MUTATION_MARGIN_MS,
   interrupt: PI_INTERRUPT_TIMEOUT_MS + MUTATION_MARGIN_MS,
   // Ниже — операции из трёх последовательных команд Pi (pre-state → мутация →
   // post-state), каждая со своим бюджетом 15 000 мс, плюс запас на подтверждение
   // записи файла и транспорт. Сравнивать их с ОДНОЙ командой нельзя.
+  /**
+   * R02/R03: `newSession` поднимает `pi --mode rpc` в каталоге проекта и ждёт
+   * `new_session` + `get_state`. Замер на реальном Pi без inference:
+   * 22 848–33 451 мс на холодном и уже прогретом профиле. В R03 сумма шагов
+   * ограничена единым PI_START_BUDGET_MS, внешний тайм-аут — он же плюс запас.
+   */
+  newSession: PI_START_BUDGET_MS + PI_START_MARGIN_MS,
   closeSession: PI_COMMAND_TIMEOUT_MS * 3 + MUTATION_MARGIN_MS,
   setModel: PI_COMMAND_TIMEOUT_MS * 3 + MUTATION_MARGIN_MS,
   setThinkingLevel: PI_COMMAND_TIMEOUT_MS * 3 + MUTATION_MARGIN_MS,

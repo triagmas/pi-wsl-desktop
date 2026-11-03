@@ -20,7 +20,7 @@ document.documentElement.dataset.designLab = '1';
 import { applyTheme } from '../src/renderer/design/applyTheme';
 import { applyTypography } from '../src/renderer/design/applyTypography';
 import { defaultTypography } from '../src/shared/appearance';
-import { THEME_PRESETS, type ThemePresetId } from '../src/shared/design/presets';
+import { THEME_PRESETS, type BuiltinPresetId } from '../src/shared/design/presets';
 import { AppFrame } from '../src/renderer/ui/AppFrame';
 import { AppScreenLab as AppScreen, type AppVariant } from './AppScreen';
 import { EmptyChatScreen, ModulesScreen, Showcase, type ShowcaseSection } from './Showcase';
@@ -41,7 +41,7 @@ type StateId = (typeof STATES)[number];
 
 interface StateView {
   label: string;
-  theme: ThemePresetId;
+  theme: BuiltinPresetId;
   node: ReactNode;
 }
 

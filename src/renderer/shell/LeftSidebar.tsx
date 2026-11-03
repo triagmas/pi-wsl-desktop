@@ -15,13 +15,11 @@ import { Sidebar, type SidebarNavItem, type SidebarProject } from '../ui/Sidebar
 import { Rail } from '../ui/Rail';
 import {
   IconChatBubble,
-  IconChevronDown,
   IconCode,
   IconDatabase,
   IconFolder,
   IconGear,
   IconPanelLeft,
-  IconRefresh,
   IconChevronLeft,
   IconPuzzle,
 } from '../ui/icons';
@@ -48,6 +46,11 @@ export interface LeftSidebarProps {
   onWidthCommit?: (width: number) => void;
   /** UI26 R01: перечитать список после materialize новой сессии. */
   sessionsVersion?: number;
+  /**
+   * R02 (#6566550672): пользователь ЯВНО открыл проект (строка проекта или `+`).
+   * Глобальный «Новый диалог» использует именно этот проект, а не projects[0].
+   */
+  onProjectActivated?: (projectPath: string) => void;
   /** UI26 R01: активный черновик (ещё не сессия Pi). */
   activeDraftCwd?: string | null;
 }
@@ -76,10 +79,14 @@ export function LeftSidebar({
   onWidthCommit,
   sessionsVersion = 0,
   activeDraftCwd = null,
+  onProjectActivated,
 }: LeftSidebarProps) {
   const [projects, setProjects] = useState<ProjectInfoT[]>([]);
   const [sessions, setSessions] = useState<SessionInfoT[]>([]);
   const [openProjects, setOpenProjects] = useState<Set<string>>(() => new Set());
+  // R01 (#6559283775): «Проекты» — сворачиваемая группа. Индивидуальное
+  // состояние проектов (openProjects) живёт отдельно и не сбрасывается.
+  const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -172,32 +179,32 @@ export function LeftSidebar({
   }));
 
   const nav: SidebarNavItem[] = [
-    { id: 'chat', label: 'Чат', icon: <IconChatBubble size={20} />, active: view === 'chat', testid: 'nav-chat' },
+    { id: 'chat', label: 'Чат', icon: <IconChatBubble size={16} />, active: view === 'chat', testid: 'nav-chat' },
     ...moduleTabs.map(({ tabKey, title }) => ({
       id: `module:${tabKey}`,
       label: title,
-      icon: <IconCode size={20} />,
+      icon: <IconCode size={16} />,
       active: view === `module:${tabKey}`,
       testid: `tab-module-${tabKey}`,
     })),
     {
       id: 'resources',
       label: 'Ресурсы',
-      icon: <IconDatabase size={20} />,
+      icon: <IconDatabase size={16} />,
       active: view === 'resources',
       testid: 'nav-resources',
     },
     {
       id: 'modules',
       label: 'Модули',
-      icon: <IconPuzzle size={20} />,
+      icon: <IconPuzzle size={16} />,
       active: view === 'modules' || view.startsWith('module:'),
       testid: 'nav-modules',
     },
     {
       id: 'settings',
       label: 'Настройки',
-      icon: <IconGear size={20} />,
+      icon: <IconGear size={16} />,
       active: view === 'settings',
       testid: 'nav-settings',
     },
@@ -283,21 +290,9 @@ export function LeftSidebar({
                 {/* C1/P3: эталонная шапка 01 — статичный span-заголовок
                     (действия открытия проекта в мосту нет — честно) */}
                 <span className="dl-sidebar-head-main">
-                  <IconFolder size={20} />
+                  <IconFolder size={16} />
                   Открыть проект
                 </span>
-                <button
-                  type="button"
-                  className="dl-btn-ghost dl-side-refresh"
-                  data-testid="refresh-sessions"
-                  aria-label={refreshing ? 'Обновление списка…' : 'Обновить проекты и чаты'}
-                  title={refreshing ? 'Обновление списка…' : 'Обновить проекты и чаты'}
-                  aria-busy={refreshing}
-                  disabled={refreshing || !connectionReady}
-                  onClick={refresh}
-                >
-                  <IconRefresh size={18} />
-                </button>
                 {collapseToggle}
               </>
             }
@@ -307,32 +302,40 @@ export function LeftSidebar({
             searchValue={query}
             onSearchChange={setQuery}
             newChatLabel={activeDraftCwd ? 'Новый диалог · ' + (activeDraftCwd.split(/[\\/]/).filter(Boolean).pop() ?? '') : 'Новый диалог'}
-            projectsTitle={
-              <span className="dl-side-label-app">
-                <IconChevronDown size={15} />
-                Проекты
-              </span>
-            }
+            projectsTitle="Проекты"
+            projectsExpanded={projectsExpanded}
+            projectsBusy={refreshing}
+            onToggleProjects={() => setProjectsExpanded((v) => !v)}
+            onRefreshProjects={refresh}
             projects={sidebarProjects}
             activeSessionId={activeSessionId}
             nav={nav}
             onNewChat={onNewChat}
             onNewChatInProject={
               onNewChatInProject
-                ? (projectId) => onNewChatInProject(projects.find((p) => p.id === projectId)?.path ?? projectId)
+                ? (projectId) => {
+                    const project = projects.find((p) => p.id === projectId);
+                    if (project) onProjectActivated?.(project.path);
+                    onNewChatInProject(project?.path ?? projectId);
+                  }
                 : undefined
             }
-            onToggleProject={(id) =>
+            onToggleProject={(id) => {
+              // R02: открытие проекта — это и есть «последний активный проект».
+              const project = projects.find((p) => p.id === id);
+              if (project) onProjectActivated?.(project.path);
               setOpenProjects((prev) => {
                 const next = new Set(prev);
                 if (next.has(id)) next.delete(id);
                 else next.add(id);
                 return next;
-              })
-            }
+              });
+            }}
             onSelectSession={(id) => {
               const session = sessions.find((s) => s.id === id);
-              if (session) onPickSession(session);
+              if (!session) return;
+              onProjectActivated?.(session.projectPath);
+              onPickSession(session);
             }}
             onNavigate={(id) => onView(id)}
           />

@@ -44,6 +44,13 @@ export interface FsLike {
 }
 
 const HEADER_MAX = 64 * 1024;
+/**
+ * R01 (#6559283775): заголовок сессии. Пиковый системный промпт Pi занимает
+ * десятки килобайт, поэтому первое пользовательское сообщение часто лежит
+ * дальше 64 КиБ. Читаем ограниченный префикс до 384 КиБ — только когда у
+ * сессии нет явного имени; дальше лимита остаётся честный короткий id.
+ */
+const TITLE_SCAN_MAX = 384 * 1024;
 
 /** Real fs adapter (POSIX semantics — the bridge runs inside WSL). */
 /**
@@ -240,13 +247,13 @@ function messageContentText(content: unknown): string {
 
 /**
  * UI26 R01: first USER message, used only as a title fallback when Pi has no
- * explicit session name. Read from the head like the header itself — never a
+ * explicit session name. Bounded prefix read (TITLE_SCAN_MAX) — never a
  * full-file scan, and never a write.
  */
 async function readFirstUserText(fs: FsLike, file: string, maxBytes: number): Promise<string | null> {
   let head: string;
   try {
-    head = await fs.readHead(file, maxBytes);
+    head = await fs.readHead(file, Math.max(maxBytes, TITLE_SCAN_MAX));
   } catch {
     return null;
   }

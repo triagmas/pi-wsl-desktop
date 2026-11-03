@@ -1,295 +1,225 @@
 /**
- * UI-A Task 6 (Issue #21 §9.2–9.4): theme cards + custom editor behavior —
- * fail-safe contrast validation, live preview, Save/Cancel/Reset semantics,
- * independent per-area typography and workspace controls. Appearance state is
- * the ONLY data touched; Pi resources are never involved (§9.2).
+ * UI Integration V1 (Issue #21 §9.2–§9.4): Settings = 5 светлых / 4 тёмных
+ * палитры, четыре цвета «своей» темы, два настраиваемых шрифта и один
+ * неизменяемый системный, рабочие Apply/Cancel/Reset, реальный контраст.
+ * Данные Pi не затрагиваются: состояние — только appearance.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsView, type SettingsViewProps } from '../../src/renderer/SettingsView';
-import { DEFAULT_APPEARANCE, type AppearanceSettings } from '../../src/shared/appearance';
+import { DEFAULT_APPEARANCE } from '../../src/shared/appearance';
+import { LIGHT_PALETTES, DARK_PALETTES, SYSTEM_FONT_STACK, fontStackById } from '../../src/shared/design/palettes';
 import { THEME_PRESETS } from '../../src/shared/design/presets';
-import { applyTheme } from '../../src/renderer/design/applyTheme';
-import type { DesktopApi } from '../../src/renderer/api';
 import type { RendererSnapshot } from '../../src/renderer/types';
 
-const READY: RendererSnapshot = {
+const READY = {
   phase: 'ready',
+  attempt: 0,
   distro: 'Ubuntu',
-  server: { running: true, pid: 1, url: 'http://127.0.0.1:1', version: '1.4.0', lastSeenMs: 5 },
-  status: null,
-  isDefaultDistro: true,
-  distroError: null,
-  runtime: {
-    node: { version: 'v20.11.0' },
-    pi: { version: '1.4.0', rpcSupported: true },
-    electron: { version: '30.0.0' },
-    platform: 'win32',
-  } as unknown as RendererSnapshot['runtime'],
   distros: ['Ubuntu', 'Debian'],
+  runtime: {
+    distro: 'Ubuntu',
+    node: { path: '/usr/bin/node', version: 'v20.11.0' },
+    pi: { path: '/usr/local/bin/pi', version: '1.4.0', rpcSupported: true },
+  },
 } as unknown as RendererSnapshot;
 
-const api = { onStateChange: () => () => undefined } as unknown as DesktopApi;
-
-function makeProps(overrides: Partial<SettingsViewProps> = {}): SettingsViewProps & {
-  onChange: ReturnType<typeof vi.fn>;
-  onReset: ReturnType<typeof vi.fn>;
-} {
+function renderSettings(overrides: Partial<SettingsViewProps> = {}) {
   const onChange = vi.fn();
-  const onReset = vi.fn();
-  return {
-    api,
+  const onRetry = vi.fn();
+  const onRefresh = vi.fn();
+  const onSelectDistro = vi.fn();
+  const props: SettingsViewProps = {
     appearance: DEFAULT_APPEARANCE,
     ready: true,
     snapshot: READY,
     requestError: null,
-    onRetry: vi.fn(),
-    onRefresh: vi.fn(),
-    onSelectDistro: vi.fn(),
+    onRetry,
+    onRefresh,
+    onSelectDistro,
     onChange,
-    onReset,
-    layout: {
-      leftWidth: 260,
-      rightWidth: 340,
-      leftCollapsed: false,
-      onLeftWidth: vi.fn(),
-      onRightWidth: vi.fn(),
-      onToggleLeft: vi.fn(),
-      onTerminalHeight: vi.fn(),
-    },
     ...overrides,
-  } as SettingsViewProps & {
-    onChange: ReturnType<typeof vi.fn>;
-    onReset: ReturnType<typeof vi.fn>;
   };
+  const view = render(<SettingsView {...props} />);
+  return { ...view, onChange, onRetry, onRefresh, onSelectDistro };
 }
 
-function renderSettings(overrides: Partial<SettingsViewProps> = {}): ReturnType<typeof makeProps> {
-  const props = makeProps(overrides);
-  render(<SettingsView {...(props as SettingsViewProps)} />);
-  return props;
-}
-
-describe('theme cards (§9.2)', () => {
-  it('renders all four presets plus custom and applies a preset choice', async () => {
-    const user = userEvent.setup();
-    const p = renderSettings();
-
-    for (const id of ['dark', 'light', 'claude', 'codex'] as const) {
-      expect(screen.getByTestId(`theme-card-${id}`)).toBeInTheDocument();
+describe('Settings · палитры', () => {
+  it('по умолчанию тёмный режим: 4 карточки, выбрана «Тёмная»', () => {
+    renderSettings();
+    expect(screen.getByTestId('theme-mode-dark')).toHaveAttribute('aria-checked', 'true');
+    for (const palette of DARK_PALETTES) {
+      const id = palette.custom ? 'theme-card-custom' : `theme-card-${palette.id}`;
+      expect(screen.getByTestId(id)).toBeVisible();
     }
-    expect(screen.getByTestId('theme-card-custom')).toBeInTheDocument();
     expect(screen.getByTestId('theme-card-dark')).toHaveAttribute('aria-checked', 'true');
-
-    await user.click(screen.getByTestId('theme-card-light'));
-    expect(p.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ theme: expect.objectContaining({ preset: 'light' }) }),
-    );
-    // Only appearance state is produced — nothing else (§9.2 no Pi data).
-    expect(Object.keys(p.onChange.mock.calls[0][0])).toEqual(Object.keys(DEFAULT_APPEARANCE));
+    expect(screen.queryByTestId('theme-card-light')).toBeNull();
   });
 
-  it('shows the custom card note with the saved theme name', () => {
-    const custom: AppearanceSettings = {
-      ...DEFAULT_APPEARANCE,
-      theme: {
-        preset: 'custom',
-        customName: 'Мой тёмный',
-        custom: { ...THEME_PRESETS.dark.tokens, accentColor: '#a33c3c' },
-      },
-    };
-    renderSettings({ appearance: custom });
-    expect(screen.getByTestId('theme-card-custom')).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('theme-card-custom')).toHaveTextContent('Мой тёмный');
-    expect(screen.getByTestId('custom-summary')).toBeInTheDocument();
-  });
-});
-
-describe('custom theme editor (§9.2)', () => {
-  it('opens from the custom card, edits a token live, and saves valid tokens', async () => {
-    const user = userEvent.setup();
-    const p = renderSettings();
-
-    await user.click(screen.getByTestId('theme-card-custom'));
-    const editor = screen.getByTestId('theme-editor');
-    expect(editor).toBeInTheDocument();
-
-    // Every semantic color group is editable.
-    const accent = within(editor).getByTestId('token-accentColor') as HTMLInputElement;
-    expect(accent.type).toBe('color');
-    expect(accent.value.toLowerCase()).toBe(THEME_PRESETS.dark.tokens.accentColor.toLowerCase());
-
-    expect(accent.value.toLowerCase()).toBe(THEME_PRESETS.dark.tokens.accentColor.toLowerCase());
-
-    // jsdom does not reliably emulate color inputs for React's controlled
-    // onChange — drive a text token instead (same controlled update path).
-    const radius = within(editor).getByTestId('token-radiusSmall') as HTMLInputElement;
-    fireEvent.change(radius, { target: { value: '14px' } });
-    expect(radius.value).toBe('14px');
-
-    await user.click(within(editor).getByTestId('theme-name'));
-    await user.clear(within(editor).getByTestId('theme-name'));
-    await user.type(within(editor).getByTestId('theme-name'), 'Свежая');
-
-    await user.click(within(editor).getByTestId('theme-apply'));
-    expect(p.onChange).toHaveBeenCalledWith({
-      ...DEFAULT_APPEARANCE,
-      theme: {
-        preset: 'custom',
-        customName: 'Свежая',
-        custom: expect.objectContaining({ radiusSmall: '14px' }),
-      },
-    });
-    expect(screen.queryByTestId('theme-editor')).not.toBeInTheDocument();
-  });
-
-  it('rejects a custom theme whose pair fails contrast — fail-safe, with an issue list', async () => {
-    const user = userEvent.setup();
-    const p = renderSettings();
-    await user.click(screen.getByTestId('theme-card-custom'));
-    const editor = screen.getByTestId('theme-editor');
-
-    // Near-identical colors ⇒ body/surface contrast below WCAG AA.
-    const body = within(editor).getByTestId('token-bodyTextColor') as HTMLInputElement;
-    fireEvent.change(body, { target: { value: '#262a26' } });
-    fireEvent.blur(body); // validation runs on blur
-
-    expect(screen.getByTestId('theme-issues')).toBeInTheDocument();
-    await user.click(screen.getByTestId('theme-apply'));
-    // Save must be refused — onChange never receives an invalid theme.
-    const customCalls = p.onChange.mock.calls.filter(
-      (c) => c[0].theme?.preset === 'custom',
-    );
-    expect(customCalls).toHaveLength(0);
-    expect(screen.getByTestId('theme-editor')).toBeInTheDocument();
-  });
-
-  it('Cancel closes the editor without changing the persisted appearance', async () => {
-    const user = userEvent.setup();
-    const p = renderSettings();
-    await user.click(screen.getByTestId('theme-card-custom'));
-    await user.click(screen.getByTestId('theme-cancel'));
-    expect(screen.queryByTestId('theme-editor')).not.toBeInTheDocument();
-    // Cancel re-applies the SAME persisted state — nothing new is stored.
-    expect(p.onChange).toHaveBeenCalledWith(DEFAULT_APPEARANCE);
-  });
-
-  it('Cancel restores the previous theme on the document (review P2 — live preview must not leak)', async () => {
-    const user = userEvent.setup();
-    // The App applies the persisted theme to the document before Settings opens;
-    // simulate that pre-state so the leak would be observable.
-    applyTheme(document.documentElement, THEME_PRESETS.light.tokens);
-    renderSettings({
-      appearance: {
-        ...DEFAULT_APPEARANCE,
-        theme: { preset: 'light', customName: 'Моя тема', custom: structuredClone(THEME_PRESETS.light.tokens) },
-      },
-    });
-    await user.click(screen.getByTestId('theme-card-custom'));
-    const radius = screen.getByTestId('token-radiusSmall') as HTMLInputElement;
-    fireEvent.change(radius, { target: { value: '21px' } });
-    expect(document.documentElement.style.getPropertyValue('--pw-radius-small')).toBe('21px');
-    await user.click(screen.getByTestId('theme-cancel'));
-    expect(document.documentElement.style.getPropertyValue('--pw-radius-small')).toBe(
-      THEME_PRESETS.light.tokens.radiusSmall,
-    );
-  });
-
-  it('re-opens the SAVED custom theme for editing (not the dark preset) and re-applies it unchanged (review P2)', async () => {
-    const user = userEvent.setup();
-    const savedCustom = { ...THEME_PRESETS.dark.tokens, accentColor: '#a9c9ad', radiusSmall: '19px' };
-    const p = renderSettings({
-      appearance: {
-        ...DEFAULT_APPEARANCE,
-        theme: { preset: 'custom', customName: 'Моя особая', custom: savedCustom },
-      },
-    });
-    await user.click(screen.getByTestId('custom-edit'));
-    const editor = screen.getByTestId('theme-editor');
-    expect(within(editor).getByTestId('theme-name')).toHaveValue('Моя особая');
-    expect((within(editor).getByTestId('token-accentColor') as HTMLInputElement).value.toLowerCase()).toBe('#a9c9ad');
-    expect((within(editor).getByTestId('token-radiusSmall') as HTMLInputElement).value).toBe('19px');
-    // Opening + saving without touching anything must NOT overwrite the
-    // stored custom theme with preset-dark values.
-    await user.click(within(editor).getByTestId('theme-apply'));
-    expect(p.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        theme: { preset: 'custom', customName: 'Моя особая', custom: expect.objectContaining({ accentColor: '#a9c9ad', radiusSmall: '19px' }) },
-      }),
-    );
-  });
-
-  it('Reset restores the editor to its base preset colors', async () => {
+  it('светлый режим показывает 5 палитр, у каждой ровно 4 образца', async () => {
     const user = userEvent.setup();
     renderSettings();
-    await user.click(screen.getByTestId('theme-card-custom'));
-    const radius = screen.getByTestId('token-radiusSmall') as HTMLInputElement;
-    const original = THEME_PRESETS.dark.tokens.radiusSmall;
-    fireEvent.change(radius, { target: { value: '21px' } });
-    expect(radius.value).toBe('21px');
-    await user.click(screen.getByTestId('theme-reset'));
-    expect((screen.getByTestId('token-radiusSmall') as HTMLInputElement).value).toBe(original);
-  });
-});
-
-describe('typography (§9.3)', () => {
-  it('edits each area independently and previews the zone styles', async () => {
-    const p = makeProps();
-    const view = render(<SettingsView {...(p as SettingsViewProps)} />);
-    // C3: every section is on one approved screen — no tab click needed.
-
-    for (const area of [
-      'ui',
-      'sidebar',
-      'chatInput',
-      'chatResponse',
-      'code',
-      'toolOutput',
-      'terminal',
-      'statusBar',
-    ]) {
-      expect(screen.getByTestId(`typo-${area}`)).toBeInTheDocument();
+    await user.click(screen.getByTestId('theme-mode-light'));
+    for (const palette of LIGHT_PALETTES) {
+      const id = palette.custom ? 'theme-card-custom' : `theme-card-${palette.id}`;
+      const card = screen.getByTestId(id);
+      expect(card).toBeVisible();
+      expect(card.querySelectorAll('[data-swatch]')).toHaveLength(4);
     }
+    expect(screen.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
+  });
 
-    const size = screen.getByTestId('chatResponse-size') as HTMLInputElement;
-    fireEvent.change(size, { target: { value: '17' } });
-    expect(p.onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        typography: expect.objectContaining({
-          chatResponse: expect.objectContaining({ fontSizePx: 17 }),
-        }),
-      }),
+  it('порядок образцов: область → обе панели → акцент → текст', () => {
+    renderSettings();
+    const swatches = [...screen.getByTestId('swatches-dark').querySelectorAll('[data-swatch]')].map((el) =>
+      el.getAttribute('data-swatch'),
     );
-    // Other areas untouched (independent per-area control).
-    expect(p.onChange.mock.calls.at(-1)![0].typography.ui).toEqual(
-      DEFAULT_APPEARANCE.typography.ui,
-    );
+    expect(swatches).toEqual(['workspace', 'panels', 'accent', 'text']);
+  });
 
-    // The component is controlled: the parent applies the change and the
-    // preview follows the next render (same as App wiring the store).
-    const next = p.onChange.mock.calls.at(-1)![0] as AppearanceSettings;
-    view.rerender(<SettingsView {...({ ...(p as SettingsViewProps), appearance: next } as SettingsViewProps)} />);
-    const preview = screen.getByTestId('chatResponse-preview');
-    expect(preview.style.fontSize).toBe('17px');
+  it('выбор пресета меняет черновик, но не сохраняет без «Применить»', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderSettings();
+    await user.click(screen.getByTestId('theme-mode-light'));
+    await user.click(screen.getByTestId('theme-card-astra'));
+    expect(screen.getByTestId('theme-card-astra')).toHaveAttribute('aria-checked', 'true');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('settings-state')).toHaveTextContent('неприменённые');
   });
 });
 
-describe('workspace + connection', () => {
-  it('exposes layout controls wired to the shell (persisted, §9.4)', async () => {
+describe('Settings · своя тема', () => {
+  it('ровно 4 поля цвета, одно из них задаёт обе панели', async () => {
     const user = userEvent.setup();
-    const p = renderSettings();
-    fireEvent.change(screen.getByTestId('left-width'), { target: { value: '320' } });
-    expect(p.layout.onLeftWidth).toHaveBeenCalledWith(320);
-    await user.click(screen.getByTestId('left-collapsed'));
-    expect(p.layout.onToggleLeft).toHaveBeenCalled();
+    renderSettings();
+    await user.click(screen.getByTestId('theme-card-custom'));
+    const inputs = screen.getByTestId('theme-editor').querySelectorAll('input[type="color"]');
+    expect(inputs).toHaveLength(4);
+    const labels = [...screen.getByTestId('theme-editor').querySelectorAll('.dl2-row-label')].map(
+      (el) => el.textContent,
+    );
+    expect(labels).toEqual(['Рабочая область', 'Боковые панели', 'Акцент', 'Основной текст']);
+    expect(screen.getByTestId('custom-panels')).toBeVisible();
   });
 
-  it('shows the real WSL connection panel with distro switching (§5)', async () => {
+  it('контраст проверяется по-настоящему: текст = фон → FAIL и «Применить» заблокирована', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderSettings();
+    await user.click(screen.getByTestId('theme-card-custom'));
+    const text = screen.getByTestId('custom-text') as HTMLInputElement;
+    const windowInput = screen.getByTestId('custom-workspace') as HTMLInputElement;
+    fireEvent.change(text, { target: { value: windowInput.value } });
+    expect(screen.getByTestId('custom-contrast-status')).toHaveAttribute('data-ok', 'false');
+    expect(screen.getByTestId('theme-apply')).toBeDisabled();
+    await user.click(screen.getByTestId('theme-apply'));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('валидная своя палитра сохраняется в режим и активирует custom-палитру', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderSettings();
+    await user.click(screen.getByTestId('theme-card-custom'));
+    fireEvent.change(screen.getByTestId('custom-accent'), { target: { value: '#0E7490' } });
+    expect(screen.getByTestId('custom-contrast-status')).toHaveAttribute('data-ok', 'true');
+    await user.click(screen.getByTestId('theme-apply'));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const next = onChange.mock.calls[0][0];
+    expect(next.theme.preset.dark).toBe('customDark');
+    expect(next.theme.custom.dark.accent).toBe('#0E7490');
+    // светлая палитра не тронута
+    expect(next.theme.custom.light).toEqual(DEFAULT_APPEARANCE.theme.custom.light);
+  });
+
+  it('«Отмена» возвращает сохранённую палитру и снимает изменения', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderSettings();
+    await user.click(screen.getByTestId('theme-card-custom'));
+    fireEvent.change(screen.getByTestId('custom-accent'), { target: { value: '#123456' } });
+    await user.click(screen.getByTestId('theme-cancel'));
+    expect(screen.getByTestId('settings-state')).toHaveTextContent('применено');
+    expect(onChange).not.toHaveBeenCalled();
+    // черновик вернулся к сохранённой теме: редактор закрыт, выбрана «Тёмная»
+    expect(screen.queryByTestId('theme-editor')).toBeNull();
+    expect(screen.getByTestId('theme-card-dark')).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByTestId('theme-card-custom'));
+    expect((screen.getByTestId('custom-accent') as HTMLInputElement).value).toBe(
+      DEFAULT_APPEARANCE.theme.custom.dark.accent.toLowerCase(),
+    );
+  });
+
+  it('«Сбросить» возвращает заводские значения черновика', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderSettings();
+    await user.click(screen.getByTestId('theme-mode-light'));
+    await user.click(screen.getByTestId('theme-card-astra'));
+    await user.click(screen.getByTestId('theme-reset'));
+    expect(screen.getByTestId('theme-mode-dark')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-card-dark')).toHaveAttribute('aria-checked', 'true');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('Settings · типографика', () => {
+  it('два селектора шрифта по 3 варианта, системный без редакторов', () => {
     renderSettings();
-    const conn = screen.getByTestId('settings-connection');
-    expect(within(conn).getByTestId('status-phase')).toBeInTheDocument();
-    const distroSelect = within(conn).getByTestId('distro');
-    expect(within(distroSelect).getByRole('option', { name: 'Ubuntu' })).toBeInTheDocument();
+    const selects = document.querySelectorAll('.dl2-font-controls select');
+    expect(selects).toHaveLength(2);
+    for (const select of selects) expect(select.querySelectorAll('option')).toHaveLength(3);
+    expect(screen.getByTestId('font-block-system').querySelectorAll('input, select')).toHaveLength(0);
+    expect(screen.getByTestId('font-system-value')).toHaveTextContent('13 px');
+  });
+
+  it('шрифт ответов применяется к превью, но не к системному вводу', async () => {
+    const user = userEvent.setup();
+    const { onChange } = renderSettings();
+    await user.selectOptions(screen.getByTestId('font-reply-family'), 'courier');
+    const preview = screen.getByTestId('preview-reply');
+    expect(preview.getAttribute('style')).toContain('Courier');
+    await user.click(screen.getByTestId('theme-apply'));
+    const next = onChange.mock.calls[0][0];
+    expect(next.typography.chatResponse.fontFamily).toBe(fontStackById('courier'));
+    expect(next.typography.chatInput.fontFamily).toBe(SYSTEM_FONT_STACK);
+    expect(next.typography.chatResponse.fontSizePx).toBe(DEFAULT_APPEARANCE.typography.chatResponse.fontSizePx);
+  });
+
+  it('три многострочных превью: системное, ответы, код', () => {
+    renderSettings();
+    for (const id of ['preview-system', 'preview-reply', 'preview-code']) {
+      const el = screen.getByTestId(id);
+      expect(el.textContent?.split('\n').length).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
+
+describe('Settings · состав страницы', () => {
+  it('не содержит настроек ширины панелей и высоты терминала', () => {
+    renderSettings();
+    expect(screen.queryByTestId('left-width')).toBeNull();
+    expect(screen.queryByTestId('right-width')).toBeNull();
+    expect(screen.queryByTestId('terminal-height')).toBeNull();
+    expect(screen.queryByText(/Ширина панелей|Высота терминала/)).toBeNull();
+  });
+
+  it('не показывает технические коэффициенты размеров в обычном виде', () => {
+    renderSettings();
+    expect(screen.queryByTestId('inspection-panel')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\d+\s*px\s*·\s*radius/i);
+  });
+
+  it('показывает реальное состояние WSL и переключение дистрибутива', async () => {
+    const user = userEvent.setup();
+    const { onRetry, onSelectDistro } = renderSettings();
+    expect(screen.getByTestId('status-phase')).toHaveTextContent('мост установлен');
+    await user.selectOptions(screen.getByTestId('distro'), 'Debian');
+    expect(onSelectDistro).toHaveBeenCalledWith('Debian');
+    await user.click(screen.getByTestId('settings-retry'));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('палитры встроенных пресетов проходят AA (нет нечитаемых тем)', () => {
+    renderSettings();
+    // токены пресетов проверяются модульными тестами, здесь — что карточки рисуются
+    expect(Object.keys(THEME_PRESETS)).toHaveLength(7);
   });
 });

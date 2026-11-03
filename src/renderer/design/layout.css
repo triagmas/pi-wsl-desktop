@@ -39,7 +39,7 @@
   --dl-app-details-w: 385px;
   --dl-app-dhead-h: 49px;
   --dl-app-sidehead-h: 62px;
-  --dl-app-status-h: 48px;
+  --dl-app-status-h: var(--shell-status-h, 26px);
 }
 
 .dl-frame,

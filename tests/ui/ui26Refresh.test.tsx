@@ -5,7 +5,7 @@
  * проекты и сессии из Pi. Проверяется, что обновляются И названия, И порядок
  * (сортировка по последней активности), а старые данные не «залипают».
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
@@ -80,13 +80,13 @@ const titles = (): string[] =>
 describe('#26 явный Refresh', () => {
   it('перечитывает названия и порядок сессий после внешнего изменения', async () => {
     const h = harness();
-    const user = userEvent.setup();
     render(<App api={h.api} moduleDefinitions={[]} />);
     await screen.findByTestId('session-old');
     expect(titles()).toEqual(['Старое имя', 'Второй']);
 
     h.externalCliTouch();
-    await user.click(await screen.findByTestId('refresh-sessions'));
+    // R01 (#6559283775): обновление переехало из шапки в контекст «Проекты».
+    fireEvent.contextMenu(await screen.findByTestId('projects-toggle'));
 
     await waitFor(() => expect(titles()).toContain('Переименовано в Pi CLI'));
     // Название обновилось…
@@ -96,15 +96,16 @@ describe('#26 явный Refresh', () => {
     expect(h.calls()).toBeGreaterThanOrEqual(2);
   });
 
-  it('Refresh доступен по имени и с клавиатуры, не ломая поиск', async () => {
+  it('Refresh доступен из контекста заголовка и не ломает поиск', async () => {
     const h = harness();
     const user = userEvent.setup();
     render(<App api={h.api} moduleDefinitions={[]} />);
     h.externalCliTouch();
-    const refresh = await screen.findByTestId('refresh-sessions');
-    expect(refresh).toHaveAccessibleName(/обновить/i);
-    refresh.focus();
-    await user.keyboard('{Enter}');
+    const toggle = await screen.findByTestId('projects-toggle');
+    // обещание доступности: заголовок — настоящая кнопка, контекст — правый клик
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).toHaveAccessibleName(/проекты/i);
+    fireEvent.contextMenu(toggle);
     await waitFor(() => expect(h.calls()).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(titles()).toContain('Переименовано в Pi CLI'));
     // Поиск по-прежнему работает по обновлённым названиям.

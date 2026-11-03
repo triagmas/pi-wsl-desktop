@@ -31,6 +31,8 @@
 import { PiRpcClient, RpcCommandError, RpcDisconnectedError, RpcTimeoutError, type RpcProcess, type PiRpcClientOptions } from './piRpcClient';
 import { buildProbePath } from './probe';
 import { BridgeError } from '../shared/errors';
+import { StartBudget } from './startBudget';
+import { PI_COLD_START_TIMEOUT_MS, PI_START_BUDGET_MS } from '../shared/timeouts';
 import type { ChatEventT, ModelInfoT, RpcStateT } from '../shared/m1Protocol';
 import path from 'node:path';
 
@@ -63,6 +65,19 @@ export interface ChatSessionManagerDeps {
   onEvent?: (ev: ChatEventT) => void;
   rpcOptions?: Partial<PiRpcClientOptions>;
   headerMaxBytes?: number;
+  /**
+   * R03: потолок ОДНОЙ команды запуска. По умолчанию PI_COLD_START_TIMEOUT_MS
+   * (реальный холодный старт Pi 22–33 с); тесты подставляют короткое значение,
+   * чтобы проверять поведение при зависании, а не ждать 40 секунд.
+   */
+  startCommandTimeoutMs?: number;
+  /**
+   * R03: единый бюджет запуска (spawn + все команды старта). По умолчанию
+   * PI_START_BUDGET_MS. Тесты уменьшают его, чтобы проверить исчерпание.
+   */
+  startBudgetMs?: number;
+  /** Часы бюджета (по умолчанию Date.now); отдельно от `now` — mtime-окна. */
+  clock?: () => number;
 }
 
 export function mapRpcState(raw: unknown): RpcStateT {
@@ -166,6 +181,30 @@ export class ChatSessionManager {
     this.deps.onEvent?.({ ...ev, key } as ChatEventT);
   }
 
+  /**
+   * R03: один бюджет на весь запуск. Создаётся ДО spawn, поэтому стоимость
+   * подъёма процесса тоже входит в него.
+   */
+  private startBudget(): StartBudget {
+    return new StartBudget(this.deps.startBudgetMs ?? PI_START_BUDGET_MS, this.deps.clock ?? Date.now);
+  }
+
+  /**
+   * Окно следующей команды старта: min(потолок команды, остаток бюджета).
+   * Исчерпание — явная ошибка сразу, без ожидания чужого тайм-аута; это
+   * гарантирует, что исход операции известен, а не «подвис».
+   */
+  private startSlice(budget: StartBudget, stage: string): number {
+    const slice = budget.slice(this.deps.startCommandTimeoutMs ?? PI_COLD_START_TIMEOUT_MS);
+    if (!slice.ok) {
+      throw new BridgeError(
+        'BRIDGE_TIMEOUT',
+        `Бюджет запуска Pi исчерпан на шаге «${stage}» (осталось ${slice.remainingMs} мс) — повторите подключение`,
+      );
+    }
+    return slice.timeoutMs;
+  }
+
   private emit(ev: ChatEventT): void {
     const conn = this.conn;
     if (!conn) return;
@@ -253,14 +292,16 @@ export class ChatSessionManager {
     });
     conn = { client, key: null };
     client.connect();
+    // R03: единый бюджет запуска вместо «своего окна у каждой команды».
+    const budget = this.startBudget();
 
     let state: RpcStateT;
     try {
-      const raw = await client.request('get_state');
+      const raw = await client.request('get_state', {}, { timeoutMs: this.startSlice(budget, 'get_state') });
       state = mapRpcState(raw);
       if (state.sessionFile !== file) {
-        await client.request('switch_session', { sessionPath: file });
-        state = mapRpcState(await client.request('get_state'));
+        await client.request('switch_session', { sessionPath: file }, { timeoutMs: this.startSlice(budget, 'switch_session') });
+        state = mapRpcState(await client.request('get_state', {}, { timeoutMs: this.startSlice(budget, 'get_state после switch_session') }));
         if (state.sessionFile !== file) {
           throw new BridgeError('SESSION_CONFLICT', `Pi did not switch to the requested session (${state.sessionFile ?? 'none'})`);
         }
@@ -332,18 +373,21 @@ export class ChatSessionManager {
     });
     conn = { client, key: null };
     client.connect();
+    // R03: единый бюджет запуска (spawn + команды), см. PI_START_BUDGET_MS.
+    const budget = this.startBudget();
 
     let state: RpcStateT;
     try {
-      // 1) confirm the RPC handshake, 2) ask Pi for a fresh session — the
-      // official command (an extension may cancel it; that is not a session).
-      await client.request('get_state');
-      const created = await client.request('new_session');
+      // `new_session` — официальная команда и одновременно проверка протокола:
+      // если Pi не поднялся, ответа не будет и сработает явный тайм-аут. Отдельный
+      // подтверждающий `get_state` убран — он съедал второе окно холодного старта,
+      // из-за чего два допустимых медленных шага не помещались в бюджет.
+      const created = await client.request('new_session', {}, { timeoutMs: this.startSlice(budget, 'new_session') });
       const cancelled = (created as { cancelled?: unknown } | null)?.cancelled === true;
       if (cancelled) {
         throw new BridgeError('SESSION_CONFLICT', 'Pi отклонил создание новой сессии (расширение отменило new_session)');
       }
-      state = mapRpcState(await client.request('get_state'));
+      state = mapRpcState(await client.request('get_state', {}, { timeoutMs: this.startSlice(budget, 'get_state после new_session') }));
       if (!state.sessionFile) {
         throw new BridgeError('SESSION_CONFLICT', 'Pi не назначил файл новой сессии — создание отменено');
       }

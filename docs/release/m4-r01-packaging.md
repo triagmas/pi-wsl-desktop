@@ -139,7 +139,10 @@ no network updates; the file is inert. Disclosed here for the security review.
 
 ## Rollback
 
-- App-level: reinstall the previous archived installer (userData is
-  version-independent).
+- App-level: reinstall the previous installer — one you saved yourself, since
+  the application archives none (the userData **folder** is not version-bound,
+  but a downgrade is not guaranteed to read state written by a newer version;
+  take a copy of `%APPDATA%\pi-wsl-desktop` first). See
+  [1.0.0-install-rollback.md](1.0.0-install-rollback.md).
 - Change-level: this R01 lands as one PR; reverting it restores the dev-only
   build (`npm run build`/`npm start`), which is unaffected by packaging.

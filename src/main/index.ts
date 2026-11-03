@@ -8,6 +8,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { WslConnection } from './connection';
+import { spawn } from 'node:child_process';
+import { TerminalManager } from './terminal';
+import { SystemMetricsSampler } from './systemMetrics';
 import { resolveBridgeWinPath } from './paths';
 import { registerIpc } from './ipc';
 import { loadSettings, saveSettings } from './settings';
@@ -42,6 +45,7 @@ export function createWindow(): BrowserWindow {
 }
 
 let connection: WslConnection | null = null;
+let terminals: TerminalManager | null = null;
 
 // Test isolation (review P2): E2E runs must not mutate the working profile's
 // appearance/settings — only an explicit env hook can redirect userData, and
@@ -86,6 +90,20 @@ app.whenReady().then(() => {
   });
   connection = conn;
 
+  // UI-B: терминал и метрики. Терминал — отдельный процесс wsl.exe на сессию,
+  // Pi RPC не затрагивается; метрики считаются здесь же через node:os.
+  const terminalManager = new TerminalManager({
+    spawn: (command, args, spawnOptions) => spawn(command, args, spawnOptions),
+    wslPath: process.env.PI_WS_DESKTOP_WSL_PATH || DEFAULT_WSL_PATH,
+    onEvent: (event) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('terminal:event', event);
+      }
+    },
+  });
+  terminals = terminalManager;
+  const metricsSampler = new SystemMetricsSampler();
+
   registerIpc(
     ipcMain,
     conn,
@@ -103,6 +121,13 @@ app.whenReady().then(() => {
           // persistence is best-effort; the live connection is unaffected
         }
       },
+      terminal: {
+        open: (request) => terminalManager.open(request),
+        write: (id, dataB64) => terminalManager.write(id, dataB64),
+        resize: (id, cols, rows) => terminalManager.resize(id, cols, rows),
+        close: (id) => terminalManager.close(id),
+      },
+      metrics: { sample: () => metricsSampler.sample() },
       // D2 frameless: lazy resolution — ipc registers before the window exists.
       windowControls: {
         minimize: () => {
@@ -159,5 +184,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Только собственные процессы терминала; никаких глобальных команд WSL.
+  terminals?.disposeAll();
   connection?.close();
 });

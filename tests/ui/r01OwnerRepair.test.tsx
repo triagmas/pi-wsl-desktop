@@ -120,7 +120,9 @@ describe('R01 · терминал: закрытие, повторное откр
     render(<App api={api} moduleDefinitions={[]} />);
     expect(await screen.findByTestId('terminal-dock')).toBeVisible();
     await user.click(screen.getByTestId('terminal-close'));
-    await waitFor(() => expect(screen.queryByTestId('terminal-dock')).toBeNull());
+    // UI-B R01: док скрывается, но остаётся смонтированным (внутри живёт PTY).
+    await waitFor(() => expect(screen.getByTestId('terminal-dock-host')).toHaveAttribute('hidden'));
+    expect(screen.getByTestId('terminal-dock')).not.toBeVisible();
     expect(api._saveAppearance).toHaveBeenCalledWith(
       expect.objectContaining({ layout: expect.objectContaining({ terminalVisible: false }) }),
     );
@@ -130,8 +132,9 @@ describe('R01 · терминал: закрытие, повторное откр
     const user = userEvent.setup();
     render(<App api={harness()} moduleDefinitions={[]} />);
     await user.click(await screen.findByTestId('terminal-close'));
-    await waitFor(() => expect(screen.queryByTestId('terminal-dock')).toBeNull());
+    await waitFor(() => expect(screen.getByTestId('terminal-dock-host')).toHaveAttribute('hidden'));
     await user.click(screen.getByTestId('status-terminal-btn'));
+    expect(screen.getByTestId('terminal-dock-host')).not.toHaveAttribute('hidden');
     expect(await screen.findByTestId('terminal-dock')).toBeVisible();
   });
 

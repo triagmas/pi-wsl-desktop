@@ -24,6 +24,8 @@ import { LeftSidebar } from './shell/LeftSidebar';
 import { draftKey, fileKey, restorableKey } from './sessionChat';
 import { RightSidebar, RightSidebarHead, RightSidebarResize } from './shell/RightSidebar';
 import { TerminalDock } from './shell/TerminalDock';
+import { useMetrics } from './useMetrics';
+import { formatMetrics } from '../shared/terminalMetrics';
 import { AppScreen } from './ui/AppScreen';
 import { ChatView } from './ui/ChatView';
 import { IconChevronRight } from './ui/icons';
@@ -289,6 +291,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const rightWidth = layoutPreview.rightWidth ?? appearance.layout.rightWidth;
   const terminalHeight = layoutPreview.terminalSlotHeight ?? appearance.layout.terminalSlotHeight;
   const terminalVisible = appearance.layout.terminalVisible;
+  // UI-B: реальные CPU/RAM Windows-хоста (main отдаёт снимок, renderer — только рисует).
+  const metrics = useMetrics(effectiveApi);
+  const metricsText = formatMetrics(metrics);
   /**
    * R01 (#6559283775): «развернуть терминал» — увеличивает док и запоминает
    * прежнюю высоту, повторный клик возвращает её. Высота остаётся единым
@@ -1092,8 +1097,15 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             }
           />
         )}
-        {terminalVisible ? (
+        {/* UI-B R01: док терминала остаётся смонтированным и при скрытии.
+            Иначе вместе с ним терялось состояние вкладок, а живой PTY в
+            main-процессе оставался сиротой: его нельзя было ни увидеть,
+            ни закрыть. Скрытие дока не убивает процесс терминала. */}
+        <div className="dl-terminal-dock-host" hidden={!terminalVisible} data-testid="terminal-dock-host">
           <TerminalDock
+            api={effectiveApi}
+            distro={snapshot.distro ?? null}
+            cwd={activeDraft?.cwd ?? activeSession?.projectPath ?? null}
             height={terminalHeight}
             expanded={terminalExpanded}
             onToggleExpand={toggleTerminalExpanded}
@@ -1108,7 +1120,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
               commitLayout({ terminalSlotHeight: h });
             }}
           />
-        ) : null}
+        </div>
       </div>
     );
   } else if (view === 'resources') {
@@ -1295,8 +1307,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           },
           distro: `${snapshot.distro ?? '—'} · WSL`,
           distroTestId: 'status-distro',
-          // B1: фейковые CPU/RAM удалены; остаётся достоверный OS-индикатор.
-          right: [{ id: 'status-os', text: 'Windows', mute: true }],
+          // UI-B: CPU/RAM считает main-процесс из node:os (Windows-хост);
+          // недоступное значение — «—», а не выдуманный ноль.
+          right: [
+            { id: 'status-os', text: 'Windows', mute: true },
+            { id: 'status-cpu', text: `CPU ${metricsText.cpu}`, mute: metrics.cpuPercent === null },
+            { id: 'status-ram', text: `RAM ${metricsText.ram}`, mute: metrics.memTotalBytes === null },
+          ],
           terminalLabel: 'Терминал',
           terminalTestId: 'status-terminal-btn',
           terminalActive: terminalVisible,

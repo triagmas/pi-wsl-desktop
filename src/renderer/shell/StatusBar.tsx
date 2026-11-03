@@ -6,6 +6,7 @@
  * тумблер нижнего дока (aria-pressed), а не декоративная disabled-кнопка.
  */
 import { StatusBar as DesignStatusBar } from '../ui/StatusBar';
+import { formatMetrics, EMPTY_METRICS, type MetricsSample } from '../../shared/terminalMetrics';
 
 export interface StatusBarProps {
   phase: string;
@@ -15,6 +16,8 @@ export interface StatusBarProps {
   onTerminalToggle: () => void;
   /** D2: проброс продуктовых testid (e2e-контракты UI-A/M1) на элементы. */
   testids?: { connection?: string; distro?: string };
+  /** UI-B: реальные метрики Windows-хоста; undefined — честные «—». */
+  metrics?: MetricsSample;
 }
 
 function connectionLabel(phase: string): { text: string; kind: 'ok' | 'wait' | 'bad' } {
@@ -29,8 +32,10 @@ export function StatusBar({
   terminalVisible,
   onTerminalToggle,
   testids,
+  metrics = EMPTY_METRICS,
 }: StatusBarProps) {
   const conn = connectionLabel(phase);
+  const metricsText = formatMetrics(metrics);
   return (
     <div data-testid="status-bar" className="dl-status-inner status-bar">
       <DesignStatusBar
@@ -39,8 +44,8 @@ export function StatusBar({
         distroTestId={testids?.distro}
         right={[
           { id: 'status-os', text: 'Windows', mute: true },
-          { id: 'status-cpu', text: 'CPU —', mute: true },
-          { id: 'status-ram', text: 'RAM —', mute: true },
+          { id: 'status-cpu', text: `CPU ${metricsText.cpu}`, mute: metrics.cpuPercent === null },
+          { id: 'status-ram', text: `RAM ${metricsText.ram}`, mute: metrics.memTotalBytes === null },
         ]}
         terminalLabel="Терминал"
         terminalTestId="status-terminal-btn"

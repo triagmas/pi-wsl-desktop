@@ -154,10 +154,11 @@ describe('TerminalManager: открытие сессии', () => {
 });
 
 describe('TerminalManager: кадры и ввод', () => {
-  it('forwards ready/data/notice frames as typed events', () => {
+  it('forwards ready/data/notice frames as typed events after attach', () => {
     const { manager, children, events } = harness();
     const handle = manager.open(OPEN);
     const child = children[0];
+    manager.attach(handle.id);
     child.emitFrame({ t: 'ready', pid: 777, cwd: '/home/u/proj' });
     child.emitFrame({ t: 'out', d: Buffer.from('hi\n').toString('base64') });
     child.emitFrame({ t: 'notice', code: 'CWD_FALLBACK', message: 'открыт домашний каталог' });
@@ -291,5 +292,69 @@ describe('TerminalManager: завершение процессов и адрес
     expect(children[0].written.some((w) => w.includes('"in"'))).toBe(true);
     manager.close(handle.id);
     expect(children[0].stdin.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Гонка старта PTY: процесс печатает приглашение раньше, чем renderer
+ * подписался на события. Ранние кадры нельзя терять — до `attach` они
+ * копятся в main, после attach отдаются по порядку.
+ */
+describe('TerminalManager: ранние события до attach', () => {
+  it('does not drop frames emitted before the renderer attaches', () => {
+    const { manager, children, events } = harness();
+    const handle = manager.open(OPEN);
+    const child = children[0];
+    child.emitFrame({ t: 'ready', pid: 4242, cwd: '/home/u/p' });
+    child.emitFrame({ t: 'out', d: Buffer.from('prompt$ ').toString('base64') });
+    expect(events, 'до подписки события не отправляются').toEqual([]);
+
+    expect(manager.attach(handle.id)).toBe(true);
+    expect(events.map((e) => e.type)).toEqual(['ready', 'data']);
+    expect(events[1]).toMatchObject({ b64: Buffer.from('prompt$ ').toString('base64') });
+  });
+
+  it('streams immediately after attach and never replays twice', () => {
+    const { manager, children, events } = harness();
+    const handle = manager.open(OPEN);
+    manager.attach(handle.id);
+    manager.attach(handle.id); // повторная подписка — no-op
+    children[0].emitFrame({ t: 'out', d: Buffer.from('a').toString('base64') });
+    expect(events).toHaveLength(1);
+    expect(manager.attach('нет-такой')).toBe(false);
+  });
+
+  it('keeps the newest output when the early backlog overflows', () => {
+    const children: FakeChild[] = [];
+    const events: TerminalEvent[] = [];
+    const manager = new TerminalManager({
+      spawn: (() => {
+        const child = new FakeChild();
+        children.push(child);
+        return child;
+      }) as never,
+      onEvent: (event) => events.push(event),
+      killGraceMs: 5,
+      backlogBytes: 100,
+    });
+    const handle = manager.open(OPEN);
+    const frame = (text: string) => Buffer.from(text).toString('base64');
+    children[0].emitFrame({ t: 'out', d: frame('A'.repeat(80)) });
+    children[0].emitFrame({ t: 'out', d: frame('B'.repeat(80)) });
+    children[0].emitFrame({ t: 'out', d: frame('C'.repeat(80)) });
+    manager.attach(handle.id);
+    const text = events
+      .filter((e) => e.type === 'data')
+      .map((e) => Buffer.from(e.b64, 'base64').toString('utf8'))
+      .join('');
+    expect(text).toContain('C');
+    expect(text.length).toBeLessThanOrEqual(160);
+  });
+
+  it('returns false for a session that ended before attach (no silent empty terminal)', () => {
+    const { manager, children } = harness();
+    const handle = manager.open(OPEN);
+    children[0].emitFrame({ t: 'exit', code: 0 });
+    expect(manager.attach(handle.id)).toBe(false);
   });
 });

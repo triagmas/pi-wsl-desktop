@@ -32,6 +32,8 @@ export interface ConnectionLike {
 /** Терминальный хост main-процесса: только эти четыре операции доступны renderer. */
 export interface TerminalHost {
   open(request: TerminalOpenRequest): TerminalSession;
+  /** Renderer подключил обработчик событий этой сессии (ранний буфер). */
+  attach(id: string): boolean;
   write(id: string, dataB64: string): boolean;
   resize(id: string, cols: number, rows: number): void;
   close(id: string): void;
@@ -155,6 +157,10 @@ export function registerIpc(
       } catch (err) {
         rethrow(err);
       }
+    });
+    ipc.handle('terminal:attach', (_e, id) => {
+      if (typeof id !== 'string' || id.length === 0) fail('terminal:attach', 'некорректный id сессии');
+      return terminal.attach(id);
     });
     ipc.handle('terminal:write', (_e, id, dataB64) => {
       if (typeof id !== 'string' || id.length === 0) fail('terminal:write', 'некорректный id сессии');

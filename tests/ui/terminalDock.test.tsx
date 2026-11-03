@@ -74,6 +74,7 @@ function makeTerminalApi() {
         seq += 1;
         return { id: `t${seq}`, distro: 'Ubuntu', cwd: '/home/u/p', cols: 100, rows: 30, pid: null };
       }),
+      attach: vi.fn(async (_id: string) => true),
       write: vi.fn(async () => true),
       resize: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
@@ -227,5 +228,84 @@ describe('terminal dock: данные и жизненный цикл', () => {
       message: 'Проект недоступен: терминал открыт в домашнем каталоге',
     });
     expect(await screen.findByTestId('terminal-notice')).toHaveTextContent(/домашнем каталоге/);
+  });
+});
+
+/**
+ * P1 (независимое ревью): закрытие вкладки, пока `terminal.open()` ещё не
+ * завершился. Раньше закрытие не отправлялось, а созданный позже PTY
+ * оставался сиротой в main-процессе.
+ */
+describe('terminal dock: отмена открытия', () => {
+  function deferredApi() {
+    const api = makeTerminalApi();
+    let resolve!: (value: { id: string; distro: string; cwd: string; cols: number; rows: number; pid: number | null }) => void;
+    let reject!: (reason: unknown) => void;
+    api.terminal.open = vi.fn(
+      () =>
+        new Promise((res, rej) => {
+          resolve = res;
+          reject = rej;
+        }),
+    ) as unknown as typeof api.terminal.open;
+    return { api, resolve: () => resolve, reject: () => reject };
+  }
+
+  it('закрывает созданную сессию компенсационно, если вкладку закрыли во время open()', async () => {
+    const user = userEvent.setup();
+    const { api, resolve } = deferredApi();
+    renderDock(api);
+
+    await user.click(screen.getByTestId('terminal-launch'));
+    await waitFor(() => expect(api.terminal.open).toHaveBeenCalledTimes(1));
+    // сессия ещё не создана, вкладку закрываем «в полёте»
+    expect(screen.getByTestId('terminal-status')).toHaveTextContent(/Запуск PTY/);
+    await user.click(screen.getByRole('button', { name: /Закрыть вкладку/ }));
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(api.terminal.close).not.toHaveBeenCalled();
+
+    resolve()({ id: 'late-1', distro: 'Ubuntu', cwd: '/home/u/p', cols: 100, rows: 30, pid: null });
+    await waitFor(() => expect(api.terminal.close).toHaveBeenCalledWith('late-1'));
+    // повторного закрытия и «ожившей» вкладки нет
+    expect(api.terminal.close).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.getByTestId('terminal-launch')).toBeInTheDocument();
+  });
+
+  it('не дублирует закрытие: крестик по живой сессии отправляет close один раз', async () => {
+    const user = userEvent.setup();
+    const api = makeTerminalApi();
+    renderDock(api);
+    await user.click(screen.getByTestId('terminal-launch'));
+    expect(await screen.findByTestId('terminal-xterm')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Закрыть вкладку/ }));
+    await waitFor(() => expect(api.terminal.close).toHaveBeenCalledTimes(1));
+    expect(api.terminal.close).toHaveBeenCalledWith('t1');
+  });
+});
+
+describe('terminal dock: окружение своей вкладки', () => {
+  it('подпись вкладки берётся из session.distro, а не из текущего выбора', async () => {
+    const user = userEvent.setup();
+    const api = makeTerminalApi();
+    const { rerender } = renderDock(api, { distro: 'Ubuntu' });
+    await user.click(screen.getByTestId('terminal-launch'));
+    expect(await screen.findByRole('tab', { name: /Ubuntu · bash/ })).toBeInTheDocument();
+
+    // Пользователь переключил дистрибутив в настройках — вкладка не переименовывается.
+    rerender(
+      <TerminalDock
+        api={(api as unknown) as DesktopApi}
+        distro="Debian"
+        cwd="/home/u/p"
+        height={240}
+        onHeightPreview={() => undefined}
+        onHeightCommit={() => undefined}
+        onToggleExpand={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('tab', { name: /Ubuntu · bash/ })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Debian/ })).not.toBeInTheDocument();
   });
 });

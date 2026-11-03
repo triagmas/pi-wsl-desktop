@@ -518,3 +518,32 @@ describe('App shell — док терминала при скрытии', () => 
     expect(screen.getByTestId('terminal-dock')).toBe(dockNode);
   });
 });
+
+/**
+ * P1 (независимое ревью): переход между экранами не должен размонтировать док
+ * терминала. Иначе терялись вкладки, а PTY в main оставался запущенным без
+ * возможности его закрыть. Физически док виден только в области чата.
+ */
+describe('App shell — док терминала при переходе между экранами', () => {
+  it('переключение Chat → Resources → Chat сохраняет смонтированный док', async () => {
+    const user = userEvent.setup();
+    render(<App api={makeApi()} moduleDefinitions={[]} />);
+    const host = () => screen.getByTestId('terminal-dock-host');
+    if (host().hasAttribute('hidden')) await user.click(screen.getByTestId('status-terminal-btn'));
+    expect(host()).not.toHaveAttribute('hidden');
+    const dockNode = screen.getByTestId('terminal-dock');
+
+    await user.click(screen.getByTestId('nav-resources'));
+    expect(screen.getByTestId('view-resources')).toBeInTheDocument();
+    expect(host()).toHaveAttribute('hidden'); // вне чата терминала не видно
+    expect(screen.getByTestId('terminal-dock'), 'док должен остаться смонтированным').toBe(dockNode);
+
+    await user.click(screen.getByTestId('nav-settings'));
+    expect(host()).toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock')).toBe(dockNode);
+
+    await user.click(screen.getByTestId('nav-chat'));
+    expect(host()).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('terminal-dock')).toBe(dockNode);
+  });
+});

@@ -1097,30 +1097,6 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             }
           />
         )}
-        {/* UI-B R01: док терминала остаётся смонтированным и при скрытии.
-            Иначе вместе с ним терялось состояние вкладок, а живой PTY в
-            main-процессе оставался сиротой: его нельзя было ни увидеть,
-            ни закрыть. Скрытие дока не убивает процесс терминала. */}
-        <div className="dl-terminal-dock-host" hidden={!terminalVisible} data-testid="terminal-dock-host">
-          <TerminalDock
-            api={effectiveApi}
-            distro={snapshot.distro ?? null}
-            cwd={activeDraft?.cwd ?? activeSession?.projectPath ?? null}
-            height={terminalHeight}
-            expanded={terminalExpanded}
-            onToggleExpand={toggleTerminalExpanded}
-            onClose={() => {
-              setTerminalExpanded(false);
-              commitLayout({ terminalVisible: false });
-            }}
-            onHeightPreview={(h) => setLayoutPreview((p) => ({ ...p, terminalSlotHeight: h }))}
-            onHeightCommit={(h) => {
-              terminalRestoreHeightRef.current = null;
-              setTerminalExpanded(false);
-              commitLayout({ terminalSlotHeight: h });
-            }}
-          />
-        </div>
       </div>
     );
   } else if (view === 'resources') {
@@ -1175,6 +1151,44 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     // Unreachable view union member — fall back to chat rather than blank.
     centerBody = <div data-testid="view-chat" />;
   }
+
+  // UI-B R01: док терминала живёт ВНЕ ветки `view`. Иначе переход
+  // Chat → Resources/Settings/Modules размонтировал компонент: вкладки
+  // терялись, а PTY в main оставался сиротой без возможности его закрыть.
+  // Процесс и вкладки живут, пока живо приложение; физически док виден
+  // только в центральной области чата и только если не скрыт пользователем.
+  const terminalHost = (
+    <div
+      className="dl-terminal-dock-host"
+      hidden={!terminalVisible || view !== 'chat'}
+      data-testid="terminal-dock-host"
+    >
+      <TerminalDock
+        api={effectiveApi}
+        distro={snapshot.distro ?? null}
+        cwd={activeDraft?.cwd ?? activeSession?.projectPath ?? null}
+        height={terminalHeight}
+        expanded={terminalExpanded}
+        onToggleExpand={toggleTerminalExpanded}
+        onClose={() => {
+          setTerminalExpanded(false);
+          commitLayout({ terminalVisible: false });
+        }}
+        onHeightPreview={(h) => setLayoutPreview((p) => ({ ...p, terminalSlotHeight: h }))}
+        onHeightCommit={(h) => {
+          terminalRestoreHeightRef.current = null;
+          setTerminalExpanded(false);
+          commitLayout({ terminalSlotHeight: h });
+        }}
+      />
+    </div>
+  );
+  centerBody = (
+    <>
+      {centerBody}
+      {terminalHost}
+    </>
+  );
 
   const modulePanelsSection =
     panels.length > 0 ? (

@@ -22,6 +22,13 @@ export const TERMINAL_LIMITS = {
   maxWriteBytes: 64 * 1024,
   maxCwdLength: 4096,
   maxIdLength: 64,
+  /**
+   * Сколько событий сессии main держит, пока renderer не подключился
+   * (`terminal:attach`). Иначе самые первые кадры PTY (приглашение, баннер
+   * профиля) терялись: процесс стартует раньше, чем появляется обработчик.
+   */
+  maxBacklogBytes: 64 * 1024,
+  maxBacklogFrames: 512,
 } as const;
 
 export type TerminalErrorCode =

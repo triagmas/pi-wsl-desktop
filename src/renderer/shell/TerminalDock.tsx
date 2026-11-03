@@ -8,7 +8,7 @@
  * — закрывает только свою вкладку/процесс, не трогая Pi-сессию и WSL целиком;
  * — при недоступном дистрибутиве честно объясняет, почему терминал не открыт.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { TerminalPane } from '../ui/TerminalPane';
 import { TerminalView } from '../terminal/TerminalView';
 import { useResizeHandle } from './useResizeHandle';
@@ -67,6 +67,23 @@ export function TerminalDock({
   const [tabs, setTabs] = useState<DockTab[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /**
+   * Отменённые открытия: пользователь нажал «Открыть терминал» и сразу закрыл
+   * вкладку, пока `terminal.open()` ещё не вернул сессию. Без этого созданный
+   * позже PTY становился сиротой — его нельзя было ни увидеть, ни закрыть.
+   */
+  const cancelledRef = useRef(new Set<string>());
+  /** Уже закрытые сессии: повторное закрытие того же id не отправляется. */
+  const closedIdsRef = useRef(new Set<string>());
+
+  const closeSessionOnce = useCallback(
+    (id: string) => {
+      if (closedIdsRef.current.has(id)) return;
+      closedIdsRef.current.add(id);
+      void api?.terminal?.close(id);
+    },
+    [api],
+  );
 
   // Причина недоступности выводится из props, а не хранится в состоянии:
   // одно и то же условие не должно попадать в state через эффект.
@@ -96,6 +113,7 @@ export function TerminalDock({
     }
     setActionError(null);
     const key = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    cancelledRef.current.delete(key);
     setTabs((prev) => [...prev, { key, status: 'opening', session: null }]);
     setActiveKey(key);
     try {
@@ -105,24 +123,35 @@ export function TerminalDock({
         cols: TERMINAL_LIMITS.defaultCols,
         rows: TERMINAL_LIMITS.defaultRows,
       });
+      if (cancelledRef.current.has(key)) {
+        // Вкладку закрыли до готовности сессии — компенсационное закрытие.
+        cancelledRef.current.delete(key);
+        closeSessionOnce(session.id);
+        return;
+      }
       patchTab(key, { status: 'live', session });
     } catch (err) {
+      cancelledRef.current.delete(key);
+      if (cancelledRef.current.has(key)) return;
       const message = err instanceof Error ? err.message : String(err);
       patchTab(key, { status: 'error', error: message });
     }
-  }, [api, distro, cwd, tabs.length, patchTab]);
+  }, [api, distro, cwd, tabs.length, patchTab, closeSessionOnce]);
 
   const closeTab = useCallback(
     (key: string) => {
       const tab = tabs.find((item) => item.key === key);
-      if (tab?.session) void api?.terminal?.close(tab.session.id);
+      if (tab?.session) closeSessionOnce(tab.session.id);
+      // Сессии ещё нет — помечаем открытие отменённым: когда промис
+      // разрешится, сессия будет закрыта компенсационно (см. openTab).
+      if (!tab?.session) cancelledRef.current.add(key);
       setTabs((prev) => {
         const next = prev.filter((item) => item.key !== key);
         if (activeKey === key) setActiveKey(next[next.length - 1]?.key ?? null);
         return next;
       });
     },
-    [api, tabs, activeKey],
+    [tabs, activeKey, closeSessionOnce],
   );
 
   const selectTab = useCallback((key: string) => setActiveKey(key), []);
@@ -134,7 +163,9 @@ export function TerminalDock({
       live={tabs.length > 0}
       tabs={tabs.map((tab) => ({
         id: tab.key,
-        label: `${distro ?? 'WSL'} · bash`,
+        // Каждая вкладка показывает СВОЁ окружение: смена дистрибутива в
+        // настройках не переименовывает уже запущенный терминал (§7 Issue #21).
+        label: `${tab.session?.distro ?? distro ?? 'WSL'} · bash`,
         active: tab.key === activeKey,
         closable: true,
       }))}

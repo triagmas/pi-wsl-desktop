@@ -123,6 +123,7 @@ app.whenReady().then(() => {
       },
       terminal: {
         open: (request) => terminalManager.open(request),
+        attach: (id) => terminalManager.attach(id),
         write: (id, dataB64) => terminalManager.write(id, dataB64),
         resize: (id, cols, rows) => terminalManager.resize(id, cols, rows),
         close: (id) => terminalManager.close(id),

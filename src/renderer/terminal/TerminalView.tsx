@@ -104,6 +104,7 @@ export function TerminalView({ api, session, active, onExit, onNotice }: Termina
     });
     setReady(true);
 
+    let disposed = false;
     const offEvent = api.terminal?.onEvent((event: TerminalEvent) => {
       if (event.id !== session.id) return;
       if (event.type === 'data') {
@@ -114,6 +115,20 @@ export function TerminalView({ api, session, active, onExit, onNotice }: Termina
         exitRef.current(event.code, event.lost, event.message);
       }
     });
+
+    // Подписка уже стоит — теперь просим main отдать накопленные ранние кадры
+    // (приглашение/баннер) и стримить дальше без потерь.
+    void Promise.resolve(api.terminal?.attach?.(session.id))
+      .then((ok) => {
+        // false — сессия уже завершилась, пока renderer подключался: честно
+        // показываем это, а не пустой экран.
+        if (ok === false && !disposed) {
+          exitRef.current(null, true, 'сессия уже завершилась до подключения вывода');
+        }
+      })
+      .catch(() => {
+        // main недоступен — общий канал ошибок уже сообщит о разрыве
+      });
 
     const observer =
       typeof ResizeObserver === 'undefined'
@@ -136,6 +151,7 @@ export function TerminalView({ api, session, active, onExit, onNotice }: Termina
     window.addEventListener('resize', onWindowResize);
 
     return () => {
+      disposed = true;
       clearTimeout(retryFit);
       clearTimeout(retryFitLate);
       if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);

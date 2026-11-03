@@ -22,6 +22,7 @@ export interface DesktopApi {
    */
   terminal?: {
     open(request: TerminalOpenRequest): Promise<TerminalSession>;
+    attach?(id: string): Promise<boolean>;
     write(id: string, dataB64: string): Promise<boolean>;
     resize(id: string, cols: number, rows: number): Promise<void>;
     close(id: string): Promise<void>;

@@ -23,6 +23,8 @@ export interface DesktopApi {
    */
   terminal: {
     open(request: TerminalOpenRequest): Promise<TerminalSession>;
+    /** Подписка renderer на события сессии: отдаёт накопленные ранние кадры. */
+    attach(id: string): Promise<boolean>;
     write(id: string, dataB64: string): Promise<boolean>;
     resize(id: string, cols: number, rows: number): Promise<void>;
     close(id: string): Promise<void>;
@@ -64,6 +66,7 @@ const api: DesktopApi = {
   },
   terminal: {
     open: (request) => ipcRenderer.invoke('terminal:open', request) as Promise<TerminalSession>,
+    attach: (id) => ipcRenderer.invoke('terminal:attach', id) as Promise<boolean>,
     write: (id, dataB64) => ipcRenderer.invoke('terminal:write', id, dataB64) as Promise<boolean>,
     resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows).then(() => undefined),
     close: (id) => ipcRenderer.invoke('terminal:close', id).then(() => undefined),

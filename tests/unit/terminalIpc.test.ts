@@ -26,6 +26,7 @@ function harness(options: Parameters<typeof registerIpc>[3] = {}) {
 function terminalHost() {
   return {
     open: vi.fn(() => ({ id: 't1', distro: 'Ubuntu', cwd: '/home/u/p', cols: 80, rows: 24, pid: null })),
+    attach: vi.fn(() => true),
     write: vi.fn(() => true),
     resize: vi.fn(),
     close: vi.fn(),
@@ -36,6 +37,7 @@ describe('terminal IPC (fail closed)', () => {
   it('registers no terminal or metrics channels when no host is provided', () => {
     const { handlers } = harness();
     expect(handlers.has('terminal:open')).toBe(false);
+    expect(handlers.has('terminal:attach')).toBe(false);
     expect(handlers.has('terminal:write')).toBe(false);
     expect(handlers.has('terminal:resize')).toBe(false);
     expect(handlers.has('terminal:close')).toBe(false);
@@ -64,6 +66,8 @@ describe('terminal IPC (fail closed)', () => {
     expect(() => handlers.get('terminal:write')!(null, '', 'YWJj')).toThrow(/terminal:write/);
     expect(() => handlers.get('terminal:resize')!(null, 't1', 'x', 24)).toThrow(/terminal:resize/);
     expect(() => handlers.get('terminal:close')!(null, 5)).toThrow(/terminal:close/);
+    expect(() => handlers.get('terminal:attach')!(null, '')).toThrow(/terminal:attach/);
+    expect(host.attach).not.toHaveBeenCalled();
     expect(host.open).not.toHaveBeenCalled();
     expect(host.write).not.toHaveBeenCalled();
     expect(host.resize).not.toHaveBeenCalled();
@@ -81,9 +85,11 @@ describe('terminal IPC (fail closed)', () => {
     );
   });
 
-  it('forwards write/resize/close to the host', () => {
+  it('forwards attach/write/resize/close to the host', () => {
     const host = terminalHost();
     const { handlers } = harness({ terminal: host });
+    expect(handlers.get('terminal:attach')!(null, 't1')).toBe(true);
+    expect(host.attach).toHaveBeenCalledWith('t1');
     handlers.get('terminal:write')!(null, 't1', 'YWJj');
     handlers.get('terminal:resize')!(null, 't1', 120, 40);
     handlers.get('terminal:close')!(null, 't1');

@@ -47,6 +47,8 @@ export interface TerminalManagerOptions {
   /** Сколько ждать добровольного выхода после close, прежде чем убить процесс. */
   killGraceMs?: number;
   idFactory?: () => string;
+  /** Предел раннего буфера до `attach` (байты; 0 — не буферизовать). */
+  backlogBytes?: number;
 }
 
 interface Entry {
@@ -56,6 +58,11 @@ interface Entry {
   closing: boolean;
   finished: boolean;
   killTimer: ReturnType<typeof setTimeout> | null;
+  /** Renderer уже подписался на события этой сессии (terminal:attach). */
+  attached: boolean;
+  /** Ранние события до подписки — иначе они теряются в IPC. */
+  backlog: TerminalEvent[];
+  backlogBytes: number;
 }
 
 const DEFAULT_KILL_GRACE_MS = 1500;
@@ -70,6 +77,7 @@ export class TerminalManager {
   private readonly maxSessions: number;
   private readonly killGraceMs: number;
   private readonly idFactory: () => string;
+  private readonly backlogBytes: number;
 
   constructor(options: TerminalManagerOptions) {
     this.spawn = options.spawn;
@@ -80,6 +88,7 @@ export class TerminalManager {
     this.maxSessions = options.maxSessions ?? TERMINAL_LIMITS.maxSessions;
     this.killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
     this.idFactory = options.idFactory ?? (() => randomUUID().slice(0, 8));
+    this.backlogBytes = options.backlogBytes ?? TERMINAL_LIMITS.maxBacklogBytes;
   }
 
   sessions(): TerminalSession[] {
@@ -132,7 +141,17 @@ export class TerminalManager {
       );
     }
 
-    const entry: Entry = { session, child, decoder: new FrameDecoder(), closing: false, finished: false, killTimer: null };
+    const entry: Entry = {
+      session,
+      child,
+      decoder: new FrameDecoder(),
+      closing: false,
+      finished: false,
+      killTimer: null,
+      attached: false,
+      backlog: [],
+      backlogBytes: 0,
+    };
     this.entries.set(session.id, entry);
 
     child.stdout.setEncoding?.('utf8');
@@ -158,6 +177,22 @@ export class TerminalManager {
     });
 
     return session;
+  }
+
+  /**
+   * Renderer подключил обработчик событий: отдаём накопленные ранние события
+   * по порядку и дальше стримим сразу. Повторный attach — no-op.
+   */
+  attach(id: string): boolean {
+    const entry = this.entries.get(id);
+    if (!entry || entry.finished) return false;
+    if (entry.attached) return true;
+    entry.attached = true;
+    const pending = entry.backlog;
+    entry.backlog = [];
+    entry.backlogBytes = 0;
+    for (const event of pending) this.onEvent(event);
+    return true;
   }
 
   write(id: string, dataB64: string): boolean {
@@ -252,17 +287,17 @@ export class TerminalManager {
       case 'ready': {
         const pid = typeof frame.pid === 'number' && Number.isFinite(frame.pid) ? frame.pid : null;
         entry.session = { ...entry.session, pid };
-        this.onEvent({ type: 'ready', id, pid, cwd: typeof frame.cwd === 'string' ? frame.cwd : entry.session.cwd });
+        this.emit(entry, { type: 'ready', id, pid, cwd: typeof frame.cwd === 'string' ? frame.cwd : entry.session.cwd });
         return;
       }
       case 'out': {
         if (typeof frame.d !== 'string' || frame.d.length === 0) return;
-        this.onEvent({ type: 'data', id, b64: frame.d });
+        this.emit(entry, { type: 'data', id, b64: frame.d });
         return;
       }
       case 'notice': {
         const code = frame.code === 'CWD_FALLBACK' || frame.code === 'SHELL_FALLBACK' ? frame.code : 'CWD_FALLBACK';
-        this.onEvent({
+        this.emit(entry, {
           type: 'notice',
           id,
           code,
@@ -289,7 +324,28 @@ export class TerminalManager {
       entry.killTimer = null;
     }
     this.entries.delete(entry.session.id);
+    entry.backlog = [];
+    entry.backlogBytes = 0;
     this.onEvent(event);
+  }
+
+  /** Событие либо уходит в renderer, либо ждёт в раннем буфере (см. attach). */
+  private emit(entry: Entry, event: TerminalEvent): void {
+    if (entry.attached) {
+      this.onEvent(event);
+      return;
+    }
+    const size = event.type === 'data' ? event.b64.length : 64;
+    entry.backlog.push(event);
+    entry.backlogBytes += size;
+    // Держим хвост вывода: приглашение и свежий вывод важнее старых кадров.
+    while (
+      entry.backlog.length > 1 &&
+      (entry.backlogBytes > this.backlogBytes || entry.backlog.length > TERMINAL_LIMITS.maxBacklogFrames)
+    ) {
+      const dropped = entry.backlog.shift();
+      entry.backlogBytes -= dropped && dropped.type === 'data' ? dropped.b64.length : 64;
+    }
   }
 
   private killEntry(entry: Entry): void {

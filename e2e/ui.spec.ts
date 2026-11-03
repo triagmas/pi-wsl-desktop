@@ -555,9 +555,13 @@ test.describe('R01 owner acceptance repair', () => {
       await expect(page.getByTestId('terminal-expand')).toHaveAttribute('aria-pressed', 'false');
       expect((await dock.boundingBox())!.height).toBeCloseTo(h0, 0);
 
+      // UI-B R01: док скрывается, но остаётся смонтированным — внутри живёт
+      // настоящий PTY, поэтому проверяем видимость, а не удаление из DOM.
       await page.getByTestId('terminal-close').click();
-      await expect(dock).toHaveCount(0);
+      await expect(page.getByTestId('terminal-dock-host')).toHaveAttribute('hidden', '');
+      await expect(dock).toBeHidden();
       await page.getByTestId('status-terminal-btn').click();
+      await expect(page.getByTestId('terminal-dock-host')).not.toHaveAttribute('hidden');
       await expect(dock).toBeVisible();
     } finally {
       await app.close();

@@ -40,10 +40,10 @@ describe('applyTheme (tokens → CSS custom properties, §9.1 item 1)', () => {
     const el = document.createElement('div');
     const typo = defaultTypography();
     applyTypography(el, typo);
-    applyTheme(el, THEME_PRESETS.claude.tokens);
-    expect(el.style.getPropertyValue('--pw-font-code-family')).toContain('Cascadia Mono');
-    applyTheme(el, THEME_PRESETS.codex.tokens);
-    expect(el.style.getPropertyValue('--pw-font-code-family')).toContain('Cascadia Mono');
+    applyTheme(el, THEME_PRESETS.claudeDark.tokens);
+    expect(el.style.getPropertyValue('--pw-font-code-family')).toContain('Consolas');
+    applyTheme(el, THEME_PRESETS.codexDark.tokens);
+    expect(el.style.getPropertyValue('--pw-font-code-family')).toContain('Consolas');
     expect(el.style.getPropertyValue('--pw-font-ui-size')).toContain('px');
   });
 });
@@ -59,23 +59,23 @@ describe('applyTypography', () => {
         expect(value.length, `${area}.${field}`).toBeGreaterThan(0);
       }
     }
-    expect(el.style.getPropertyValue('--pw-font-terminal-family')).toContain('Cascadia Mono');
+    expect(el.style.getPropertyValue('--pw-font-terminal-family')).toContain('Consolas');
     // D3 (owner #6398531407): дефолты = канон typography.css (canonical scale)
-    expect(el.style.getPropertyValue('--pw-font-chat-response-size')).toBe('20px');
-    expect(el.style.getPropertyValue('--pw-font-ui-weight')).toBe('500');
+    expect(el.style.getPropertyValue('--pw-font-chat-response-size')).toBe('14px');
+    expect(el.style.getPropertyValue('--pw-font-ui-weight')).toBe('400');
   });
 
   it('D3: writes Design Lab --dl-fs-*/--dl-font-* from the same source (single typography source)', () => {
     const el = document.createElement('div');
     const typo = defaultTypography();
     applyTypography(el, typo);
-    expect(el.style.getPropertyValue('--dl-fs-ui')).toBe('18px');
-    expect(el.style.getPropertyValue('--dl-fs-sidebar')).toBe('17px');
-    expect(el.style.getPropertyValue('--dl-fs-chat-response')).toBe('20px');
-    expect(el.style.getPropertyValue('--dl-fs-terminal')).toBe('17px');
-    expect(el.style.getPropertyValue('--dl-fs-status')).toBe('16px');
+    expect(el.style.getPropertyValue('--dl-fs-ui')).toBe('13px');
+    expect(el.style.getPropertyValue('--dl-fs-sidebar')).toBe('13px');
+    expect(el.style.getPropertyValue('--dl-fs-chat-response')).toBe('14px');
+    expect(el.style.getPropertyValue('--dl-fs-terminal')).toBe('13px');
+    expect(el.style.getPropertyValue('--dl-fs-status')).toBe('12px');
     expect(el.style.getPropertyValue('--dl-font-stack')).toContain('Segoe UI');
-    expect(el.style.getPropertyValue('--dl-font-mono')).toContain('Cascadia Mono');
+    expect(el.style.getPropertyValue('--dl-font-mono')).toContain('Consolas');
     // пользовательский кегль продолжает управлять lab-переменной
     const custom = defaultTypography();
     custom.ui.fontSizePx = 14;

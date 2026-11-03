@@ -5,16 +5,31 @@
  * writes to `~/.pi`, Pi sessions, `auth.json` or module-state. Every field is
  * validated independently and repaired to its default on corruption; an
  * unknown FUTURE version falls back to defaults instead of crashing.
+ *
+ * v2 (UI Integration): тема описывается режимом (light/dark), палитрой этого
+ * режима и четырьмя цветами «своей» палитры на режим. Миграция из v1
+ * неразрушающая: выбранная тема, свои цвета и раскладка сохраняются.
  */
 import {
-  PRESET_IDS,
   THEME_PRESETS,
+  resolveThemeTokens,
+  type BuiltinPresetId,
+  type ThemeMode,
   type ThemePresetId,
   type ThemeTokens,
 } from './design/presets';
 import { COLOR_TOKEN_KEYS } from './design/presets';
+import {
+  DEFAULT_CUSTOM_SEEDS,
+  FONT_CHOICES,
+  SYSTEM_FONT_AREAS,
+  SYSTEM_FONT_STACK,
+  fontIdFromStack,
+  fontStackById,
+  type PaletteSeed,
+} from './design/palettes';
 
-export const APPEARANCE_VERSION = 1;
+export const APPEARANCE_VERSION = 2;
 
 export type TypographyArea =
   | 'ui'
@@ -34,10 +49,12 @@ export interface TypographyZone {
 }
 
 export interface AppearanceTheme {
-  preset: ThemePresetId | 'custom';
-  customName: string;
-  /** Last cloned custom tokens; null only until the user first opens the editor. */
-  custom: ThemeTokens | null;
+  /** Активный режим: определяет, какие пять/четыре палитры показывать. */
+  mode: ThemeMode;
+  /** Выбранная палитра на каждый режим (независимо). */
+  preset: Record<ThemeMode, ThemePresetId>;
+  /** Четыре цвета «своей» палитры на каждый режим. */
+  custom: Record<ThemeMode, PaletteSeed>;
 }
 
 export interface AppearanceLayout {
@@ -57,26 +74,23 @@ export interface AppearanceSettings {
   layout: AppearanceLayout;
 }
 
-const UI_STACK =
-  '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif';
-const MONO_STACK =
-  '"Cascadia Mono", "Consolas", ui-monospace, monospace';
+/** Системные области: шрифт неизменяем, размер фиксирован контрактом. */
+const SYSTEM_ZONE_SIZES: Partial<Record<TypographyArea, { size: number; lineHeight: number; weight: number }>> = {
+  ui: { size: 13, lineHeight: 1.4, weight: 400 },
+  sidebar: { size: 13, lineHeight: 1.45, weight: 400 },
+  chatInput: { size: 14, lineHeight: 1.5, weight: 400 },
+  statusBar: { size: 12, lineHeight: 1.4, weight: 400 },
+};
 
-/**
- * D3 (owner #6398531407): дефолты = канон Design Lab typography.css
- * (--dl-fs-* и стеки --dl-font-stack/--dl-font-mono). Настройка поверх
- * дефолта продолжает работать; сохранённые пользовательские значения
- * не мигрируются.
- */
 const DEFAULT_TYPOGRAPHY: Record<TypographyArea, TypographyZone> = {
-  ui: { fontFamily: UI_STACK, fontSizePx: 18, lineHeight: 1.4, weight: 500 },
-  sidebar: { fontFamily: UI_STACK, fontSizePx: 17, lineHeight: 1.5, weight: 400 },
-  chatInput: { fontFamily: UI_STACK, fontSizePx: 20, lineHeight: 1.45, weight: 400 },
-  chatResponse: { fontFamily: UI_STACK, fontSizePx: 20, lineHeight: 1.55, weight: 400 },
-  code: { fontFamily: MONO_STACK, fontSizePx: 17, lineHeight: 1.5, weight: 500 },
-  toolOutput: { fontFamily: MONO_STACK, fontSizePx: 16, lineHeight: 1.5, weight: 400 },
-  terminal: { fontFamily: MONO_STACK, fontSizePx: 17, lineHeight: 1.5, weight: 400 },
-  statusBar: { fontFamily: UI_STACK, fontSizePx: 16, lineHeight: 1.4, weight: 400 },
+  ui: { fontFamily: SYSTEM_FONT_STACK, fontSizePx: 13, lineHeight: 1.4, weight: 400 },
+  sidebar: { fontFamily: SYSTEM_FONT_STACK, fontSizePx: 13, lineHeight: 1.45, weight: 400 },
+  chatInput: { fontFamily: SYSTEM_FONT_STACK, fontSizePx: 14, lineHeight: 1.5, weight: 400 },
+  chatResponse: { fontFamily: fontStackById('consolas'), fontSizePx: 14, lineHeight: 1.55, weight: 400 },
+  code: { fontFamily: fontStackById('consolas'), fontSizePx: 13, lineHeight: 1.5, weight: 400 },
+  toolOutput: { fontFamily: fontStackById('consolas'), fontSizePx: 13, lineHeight: 1.5, weight: 400 },
+  terminal: { fontFamily: fontStackById('consolas'), fontSizePx: 13, lineHeight: 1.5, weight: 400 },
+  statusBar: { fontFamily: SYSTEM_FONT_STACK, fontSizePx: 12, lineHeight: 1.4, weight: 400 },
 };
 
 export const TYPOGRAPHY_AREAS = Object.keys(DEFAULT_TYPOGRAPHY) as TypographyArea[];
@@ -87,9 +101,20 @@ export function defaultTypography(): Record<TypographyArea, TypographyZone> {
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: APPEARANCE_VERSION,
-  theme: { preset: 'dark', customName: 'Моя тема', custom: structuredClone(THEME_PRESETS.dark.tokens) },
+  theme: {
+    mode: 'dark',
+    preset: { light: 'light', dark: 'dark' },
+    custom: { light: { ...DEFAULT_CUSTOM_SEEDS.light }, dark: { ...DEFAULT_CUSTOM_SEEDS.dark } },
+  },
   typography: DEFAULT_TYPOGRAPHY,
-  layout: { leftWidth: 321, rightWidth: 340, /* leftWidth = канон лабы --dl-app-side-w (321px, замер эталона) */ leftCollapsed: false, rightVisible: false, terminalSlotHeight: 240, terminalVisible: true },
+  layout: {
+    leftWidth: 321,
+    rightWidth: 385,
+    leftCollapsed: false,
+    rightVisible: false,
+    terminalSlotHeight: 231,
+    terminalVisible: true,
+  },
 };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -114,28 +139,153 @@ function repairBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function repairTokens(value: unknown): ThemeTokens {
-  const fallback = DEFAULT_APPEARANCE.theme.custom as ThemeTokens;
-  if (!isRecord(value)) return structuredClone(fallback);
-  const out: Record<string, string> = {};
-  for (const key of COLOR_TOKEN_KEYS) {
-    const candidate = value[key as string];
-    out[key as string] =
-      typeof candidate === 'string' && HEX.test(candidate)
-        ? candidate
-        : (fallback[key as keyof ThemeTokens] as string);
-  }
-  // Non-color metrics ride along with the token set.
-  const source = value as Partial<ThemeTokens>;
-  const radius = (v: unknown, fb: string): string =>
-    typeof v === 'string' && /^\d+(\.\d+)?px$/.test(v) ? v : fb;
+function repairHex(value: unknown, fallback: string): string {
+  return typeof value === 'string' && HEX.test(value) ? value.toUpperCase() : fallback;
+}
+
+function repairSeed(value: unknown, fallback: PaletteSeed): PaletteSeed {
+  if (!isRecord(value)) return { ...fallback };
   return {
-    ...(out as unknown as ThemeTokens),
-    radiusSmall: radius(source.radiusSmall, fallback.radiusSmall),
-    radiusMedium: radius(source.radiusMedium, fallback.radiusMedium),
-    radiusLarge: radius(source.radiusLarge, fallback.radiusLarge),
-    spacingScale: repairNumber(source.spacingScale, 0.75, 1.5, fallback.spacingScale),
-    animationDurationMs: repairNumber(source.animationDurationMs, 0, 1000, fallback.animationDurationMs),
+    window: repairHex(value.window, fallback.window),
+    panel: repairHex(value.panel, fallback.panel),
+    accent: repairHex(value.accent, fallback.accent),
+    text: repairHex(value.text, fallback.text),
+  };
+}
+
+const ALL_PRESET_IDS: ThemePresetId[] = [
+  ...(Object.keys(THEME_PRESETS) as BuiltinPresetId[]),
+  'customLight',
+  'customDark',
+];
+
+const LEGACY_PRESET_MAP: Record<string, { mode: ThemeMode; preset: ThemePresetId }> = {
+  dark: { mode: 'dark', preset: 'dark' },
+  light: { mode: 'light', preset: 'light' },
+  claude: { mode: 'dark', preset: 'claudeDark' },
+  codex: { mode: 'dark', preset: 'codexDark' },
+  claudeLight: { mode: 'light', preset: 'claudeLight' },
+  codexLight: { mode: 'light', preset: 'codexLight' },
+};
+
+function seedFromLegacyTokens(value: unknown): PaletteSeed | null {
+  if (!isRecord(value)) return null;
+  const window = value.windowBackgroundColor;
+  const panel = value.sidebarLeftBackgroundColor ?? value.sidebarRightBackgroundColor;
+  const accent = value.accentColor;
+  const text = value.bodyTextColor;
+  if (typeof window !== 'string' || typeof panel !== 'string' || typeof accent !== 'string' || typeof text !== 'string') {
+    return null;
+  }
+  if (!HEX.test(window) || !HEX.test(panel) || !HEX.test(accent) || !HEX.test(text)) return null;
+  return { window: window.toUpperCase(), panel: panel.toUpperCase(), accent: accent.toUpperCase(), text: text.toUpperCase() };
+}
+
+function isDarkHex(hex: string): boolean {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 <= 0.5;
+}
+
+/** v1: одна тема (preset + custom tokens) — переносим в режим без потери выбора. */
+function migrateThemeV1(themeRaw: Record<string, unknown>): AppearanceTheme {
+  const theme: AppearanceTheme = {
+    mode: 'dark',
+    preset: { ...DEFAULT_APPEARANCE.theme.preset },
+    custom: {
+      light: { ...DEFAULT_APPEARANCE.theme.custom.light },
+      dark: { ...DEFAULT_APPEARANCE.theme.custom.dark },
+    },
+  };
+  const legacy = typeof themeRaw.preset === 'string' ? themeRaw.preset : 'dark';
+  if (legacy === 'custom') {
+    const seed = seedFromLegacyTokens(themeRaw.custom);
+    if (seed) {
+      const mode: ThemeMode = isDarkHex(seed.window) ? 'dark' : 'light';
+      theme.mode = mode;
+      theme.custom[mode] = seed;
+      theme.preset[mode] = mode === 'light' ? 'customLight' : 'customDark';
+    }
+    return theme;
+  }
+  const mapped = LEGACY_PRESET_MAP[legacy];
+  if (mapped) {
+    theme.mode = mapped.mode;
+    theme.preset[mapped.mode] = mapped.preset;
+  }
+  return theme;
+}
+
+function repairThemeV2(themeRaw: Record<string, unknown>): AppearanceTheme {
+  const mode: ThemeMode = themeRaw.mode === 'light' ? 'light' : themeRaw.mode === 'dark' ? 'dark' : 'dark';
+  const presetRaw = isRecord(themeRaw.preset) ? themeRaw.preset : {};
+  const customRaw = isRecord(themeRaw.custom) ? themeRaw.custom : {};
+  const presetFor = (m: ThemeMode, fallback: ThemePresetId): ThemePresetId => {
+    const candidate = presetRaw[m];
+    if (typeof candidate === 'string' && ALL_PRESET_IDS.includes(candidate as ThemePresetId)) {
+      return candidate as ThemePresetId;
+    }
+    return fallback;
+  };
+  return {
+    mode,
+    preset: {
+      light: presetFor('light', DEFAULT_APPEARANCE.theme.preset.light),
+      dark: presetFor('dark', DEFAULT_APPEARANCE.theme.preset.dark),
+    },
+    custom: {
+      light: repairSeed(customRaw.light, DEFAULT_APPEARANCE.theme.custom.light),
+      dark: repairSeed(customRaw.dark, DEFAULT_APPEARANCE.theme.custom.dark),
+    },
+  };
+}
+
+/** Системные области всегда системным шрифтом и контрактным кеглем. */
+function normalizeZone(area: TypographyArea, zone: TypographyZone): TypographyZone {
+  const fixed = SYSTEM_ZONE_SIZES[area];
+  if (fixed) {
+    return { fontFamily: SYSTEM_FONT_STACK, fontSizePx: fixed.size, lineHeight: fixed.lineHeight, weight: fixed.weight };
+  }
+  const family = FONT_CHOICES.some((f) => f.stack === zone.fontFamily)
+    ? zone.fontFamily
+    : fontStackById(fontIdFromStack(zone.fontFamily));
+  return { ...zone, fontFamily: family };
+}
+
+function repairTypography(raw: unknown): Record<TypographyArea, TypographyZone> {
+  const source = isRecord(raw) ? raw : {};
+  return (Object.keys(DEFAULT_TYPOGRAPHY) as TypographyArea[]).reduce(
+    (acc, area) => {
+      const zone = isRecord(source[area]) ? source[area] : {};
+      const fallback = DEFAULT_TYPOGRAPHY[area];
+      acc[area] = normalizeZone(area, {
+        fontFamily: repairString(zone.fontFamily, fallback.fontFamily),
+        fontSizePx: repairNumber(zone.fontSizePx, 8, 40, fallback.fontSizePx),
+        lineHeight: repairNumber(zone.lineHeight, 1, 3, fallback.lineHeight),
+        weight: repairNumber(zone.weight, 100, 900, fallback.weight),
+      });
+      return acc;
+    },
+    {} as Record<TypographyArea, TypographyZone>,
+  );
+}
+
+function repairLayout(raw: unknown): AppearanceLayout {
+  const layoutRaw = isRecord(raw) ? raw : {};
+  return {
+    leftWidth: repairNumber(layoutRaw.leftWidth, 200, 480, DEFAULT_APPEARANCE.layout.leftWidth),
+    rightWidth: repairNumber(layoutRaw.rightWidth, 240, 560, DEFAULT_APPEARANCE.layout.rightWidth),
+    leftCollapsed: repairBool(layoutRaw.leftCollapsed, DEFAULT_APPEARANCE.layout.leftCollapsed),
+    rightVisible: repairBool(layoutRaw.rightVisible, DEFAULT_APPEARANCE.layout.rightVisible),
+    terminalSlotHeight: repairNumber(
+      layoutRaw.terminalSlotHeight,
+      120,
+      600,
+      DEFAULT_APPEARANCE.layout.terminalSlotHeight,
+    ),
+    terminalVisible: repairBool(layoutRaw.terminalVisible, DEFAULT_APPEARANCE.layout.terminalVisible),
   };
 }
 
@@ -143,7 +293,7 @@ function repairTokens(value: unknown): ThemeTokens {
  * Per-field migration/repair. Order matters: an unknown future version is not
  * something we can interpret, so it falls back to full defaults (§9.1
  * «миграцией/сбросом» — forward incompatibility must never crash or render
- * garbage).
+ * garbage). Unknown/older versions are migrated field by field.
  */
 export function migrateAppearance(raw: unknown): AppearanceSettings {
   if (!isRecord(raw)) return structuredClone(DEFAULT_APPEARANCE);
@@ -152,45 +302,35 @@ export function migrateAppearance(raw: unknown): AppearanceSettings {
     return structuredClone(DEFAULT_APPEARANCE);
   }
   const themeRaw = isRecord(raw.theme) ? raw.theme : {};
-  const preset = themeRaw.preset;
-  const typographyRaw = isRecord(raw.typography) ? raw.typography : {};
-  const layoutRaw = isRecord(raw.layout) ? raw.layout : {};
+  // v2 узнаётся по объектной форме preset; отсутствующий custom чинится дефолтами.
+  const isV2 = version === APPEARANCE_VERSION && isRecord(themeRaw.preset);
   return {
     version: APPEARANCE_VERSION,
-    theme: {
-      preset:
-        typeof preset === 'string' && ([...PRESET_IDS, 'custom'] as string[]).includes(preset)
-          ? (preset as AppearanceTheme['preset'])
-          : DEFAULT_APPEARANCE.theme.preset,
-      customName: repairString(themeRaw.customName, DEFAULT_APPEARANCE.theme.customName),
-      custom: repairTokens(themeRaw.custom),
-    },
-    typography: (Object.keys(DEFAULT_TYPOGRAPHY) as TypographyArea[]).reduce(
-      (acc, area) => {
-        const zone = isRecord(typographyRaw[area]) ? typographyRaw[area] : {};
-        const fallback = DEFAULT_TYPOGRAPHY[area];
-        acc[area] = {
-          fontFamily: repairString(zone.fontFamily, fallback.fontFamily),
-          fontSizePx: repairNumber(zone.fontSizePx, 8, 40, fallback.fontSizePx),
-          lineHeight: repairNumber(zone.lineHeight, 1, 3, fallback.lineHeight),
-          weight: repairNumber(zone.weight, 100, 900, fallback.weight),
-        };
-        return acc;
-      },
-      {} as Record<TypographyArea, TypographyZone>,
-    ),
-    layout: {
-      leftWidth: repairNumber(layoutRaw.leftWidth, 200, 480, DEFAULT_APPEARANCE.layout.leftWidth),
-      rightWidth: repairNumber(layoutRaw.rightWidth, 240, 560, DEFAULT_APPEARANCE.layout.rightWidth),
-      leftCollapsed: repairBool(layoutRaw.leftCollapsed, DEFAULT_APPEARANCE.layout.leftCollapsed),
-      rightVisible: repairBool(layoutRaw.rightVisible, DEFAULT_APPEARANCE.layout.rightVisible),
-      terminalSlotHeight: repairNumber(
-        layoutRaw.terminalSlotHeight,
-        120,
-        600,
-        DEFAULT_APPEARANCE.layout.terminalSlotHeight,
-      ),
-      terminalVisible: repairBool(layoutRaw.terminalVisible, DEFAULT_APPEARANCE.layout.terminalVisible),
-    },
+    theme: isV2 ? repairThemeV2(themeRaw) : migrateThemeV1(themeRaw),
+    typography: repairTypography(raw.typography),
+    layout: repairLayout(raw.layout),
   };
 }
+
+/** Токены выбранной палитры — единственный путь от настроек к CSS-переменным. */
+export function appearanceThemeTokens(theme: AppearanceTheme): ThemeTokens {
+  return resolveThemeTokens(theme.preset[theme.mode], theme.mode, theme.custom);
+}
+
+/** Настраиваемый слот шрифта: семейство берётся из выбранного моношрифта. */
+export function setSlotFont(
+  typography: AppearanceSettings['typography'],
+  areas: readonly TypographyArea[],
+  fontId: string,
+): Record<TypographyArea, TypographyZone> {
+  const stack = fontStackById(fontId);
+  const next = { ...typography };
+  for (const area of areas) next[area] = { ...next[area], fontFamily: stack };
+  return next;
+}
+
+export function isSystemArea(area: TypographyArea): boolean {
+  return (SYSTEM_FONT_AREAS as readonly TypographyArea[]).includes(area);
+}
+
+export { COLOR_TOKEN_KEYS };

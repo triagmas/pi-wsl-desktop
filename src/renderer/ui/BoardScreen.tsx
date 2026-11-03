@@ -47,8 +47,13 @@ const CUSTOM_BASE: ThemeTokens = { ...THEME_PRESETS.dark.tokens };
 const CUSTOM_LABELS: Record<PresetId, string> = {
   dark: 'Тёмная',
   light: 'Светлая',
-  claude: 'Claude',
-  codex: 'Codex',
+  claudeDark: 'Claude Dark',
+  claudeLight: 'Claude Light',
+  codexDark: 'Codex Dark',
+  codexLight: 'Codex Light',
+  astra: 'Astra',
+  customLight: 'Своя светлая',
+  customDark: 'Своя тёмная',
   custom: 'Своя тема',
 };
 
@@ -87,7 +92,7 @@ const BOARD_CELLS: { id: string; n: string; title: string; sub: string }[] = [
 const MODEL_OPTIONS = ['MiMo v2.6', 'GPT-5.2', 'Claude 4.7'];
 
 function presetTokens(id: PresetId, hue: number): ThemeTokens {
-  if (id !== 'custom') return THEME_PRESETS[id].tokens;
+  if (id !== 'custom' && id in THEME_PRESETS) return THEME_PRESETS[id as keyof typeof THEME_PRESETS].tokens;
   const hueColor = `hsl(${hue} 14% 47%)`;
   return {
     ...CUSTOM_BASE,

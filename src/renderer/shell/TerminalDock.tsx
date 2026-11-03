@@ -14,12 +14,24 @@ export interface TerminalDockProps {
   height: number;
   onHeightPreview?: (height: number) => void;
   onHeightCommit?: (height: number) => void;
+  /** R01 (#6559283775): разворот дока на большую высоту и возврат прежней. */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  /** R01: крестик закрывает док (persist terminalVisible=false). */
+  onClose?: () => void;
 }
 
 const TERM_MIN = 120;
 const TERM_MAX = 600;
 
-export function TerminalDock({ height, onHeightPreview, onHeightCommit }: TerminalDockProps) {
+export function TerminalDock({
+  height,
+  onHeightPreview,
+  onHeightCommit,
+  expanded = false,
+  onToggleExpand,
+  onClose,
+}: TerminalDockProps) {
   const resize = useResizeHandle({
     axis: 'y',
     value: height,
@@ -51,6 +63,9 @@ export function TerminalDock({ height, onHeightPreview, onHeightCommit }: Termin
           onKeyDown={resize.onKeyDown}
         />
       }
+      expanded={expanded}
+      onToggleExpand={onToggleExpand}
+      onClose={onClose}
       body={
         <span className="dl-term-note muted">
           Реальный PTY подключается в UI-B — строк терминала пока нет

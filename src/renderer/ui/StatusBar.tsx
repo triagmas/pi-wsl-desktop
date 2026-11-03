@@ -1,8 +1,8 @@
 /**
- * Design Lab — глобальный статус-бар (Issue #21, D1; ref5).
- * Только представление. Слева — подключение/дистрибутив, справа — фикстурные
- * элементы ( OS / CPU / RAM / терминал ). Реальные метрики UI-B в лабораторию
- * не подключаются: значения в fixtures.ts помечены как DEMO.
+ * Глобальный статус-бар (Issue #21, D1; B1 #6552873415).
+ * Только представление: слева подключение/дистрибутив, справа — реальные
+ * элементы страницы (достоверные индикаторы, переключатель терминала).
+ * Терминал — иконка 24×22 с доступным именем, без длинной подписи.
  */
 import { Fragment, type ReactNode } from 'react';
 import { IconGitBranch, IconTerminalGlyph } from './icons';
@@ -91,10 +91,14 @@ export function StatusBar({
               className="dl-status-term"
               data-testid={terminalTestId ?? undefined}
               onClick={onTerminalToggle}
+              aria-label={terminalLabel}
+              title={terminalLabel}
               aria-pressed={onTerminalToggle ? terminalActive : undefined}
             >
-              <IconTerminalGlyph size={16} />
-              {terminalLabel}
+              <IconTerminalGlyph size={14} />
+              {/* B1 (#6552873415): компактная иконочная кнопка 24×22;
+                  подпись остаётся доступным именем для скринридера */}
+              <span className="dl-sr-only">{terminalLabel}</span>
             </button>
           </>
         ) : null}

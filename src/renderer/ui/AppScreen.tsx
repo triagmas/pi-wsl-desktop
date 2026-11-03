@@ -16,6 +16,8 @@ export interface AppScreenProps {
   /** D2/D3 продуктовый контракт testid (app-shell). */
   testid?: string;
   windowControls?: AppFrameProps['windowControls'];
+  /** UI26-A2: ref на колонку деталей (фокус при открытии/Escape). */
+  detailsRef?: AppFrameProps['detailsRef'];
   /** Левая панель: approved-узел <Sidebar> или <Rail>. */
   side: ReactNode;
   /** Прозрачный resize-handle левой панели (данные/функция; лаба не передаёт). */
@@ -41,6 +43,7 @@ export function AppScreen({
   side,
   sideHandle,
   details,
+  detailsRef,
   header,
   guard,
   panels,
@@ -61,6 +64,7 @@ export function AppScreen({
         </>
       }
       details={details}
+      detailsRef={detailsRef}
       statusbarTestId="status-bar"
       statusBar={<StatusBar {...statusBar} />}
     >

@@ -1,116 +1,105 @@
 /**
- * UI21 C3 (P1): утверждённая презентация маршрута «Настройки».
- * RED: продукт рендерит legacy SettingsView (settings-title, nav-разделы,
- * секции скрыты по одной) вместо контура ui/SettingsScreen.
- * Функциональные контракты (5 радио-карточек тем, aria-checked, рабочие
- * секции) сохраняются и проверяются здесь же.
+ * UI Integration V1: утверждённый контур «Настроек» из Design Lab Stage 2 R01 —
+ * одна страница, колонка 760 px, разделы «Внешний вид» / «Типографика» /
+ * «Подключение». Пять светлых и четыре тёмных палитры, четыре образца на
+ * карточке, два настраиваемых шрифтовых слота и один системный.
  */
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../../src/renderer/App';
-import { TYPOGRAPHY_AREAS } from '../../src/shared/appearance';
 import { makeApi } from './helpers/shellApi';
 
-describe('UI21 C3 — approved settings contour (App route)', () => {
-  it('nav-settings shows the approved contour with every section visible', async () => {
+describe('Settings — контур Stage 2 R01 (маршрут App)', () => {
+  it('показывает одну страницу с тремя разделами и колонкой 760 px', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);
-
     await user.click(await screen.findByTestId('nav-settings'));
+
     const root = await screen.findByTestId('settings-root');
+    expect(root.classList.contains('dl2-screen')).toBe(true);
+    const col = screen.getByTestId('settings-col');
+    expect(col.classList.contains('dl2-col')).toBe(true);
 
     const heading = within(root).getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Настройки');
-    expect(heading.classList.contains('dl-h1')).toBe(true);
+    expect(heading.classList.contains('dl2-h1')).toBe(true);
     expect(within(root).getByText(/внешний вид, типографика и подключение pi/i)).toBeInTheDocument();
 
-    // Approved flow: all four sections live on one screen (not one at a time).
-    for (const id of ['settings-appearance', 'settings-typography', 'settings-workspace', 'settings-connection']) {
+    for (const id of ['settings-appearance', 'settings-typography', 'settings-connection']) {
       expect(screen.getByTestId(id)).toBeVisible();
+      expect(screen.getByTestId(id).classList.contains('dl2-section')).toBe(true);
     }
-
-    // Approved section chrome: h2 heading + dl-set-section class.
-    const appearance = screen.getByTestId('settings-appearance');
-    expect(within(appearance).getByRole('heading', { level: 2 })).toHaveTextContent('Внешний вид');
-    expect(appearance.classList.contains('dl-set-section')).toBe(true);
-
-    // The legacy one-section-at-a-time nav is gone.
+    // Ширины панелей и высота терминала больше не настройки страницы.
+    expect(screen.queryByTestId('settings-workspace')).toBeNull();
     expect(document.querySelector('.settings-tabs')).toBeNull();
   });
 
-  it('keeps the theme contract: radio cards with aria-checked and a working switch', async () => {
+  it('тёмный режим — 4 палитры, светлый — 5; переключение режима работает', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);
-
     await user.click(await screen.findByTestId('nav-settings'));
-    expect(await screen.findByTestId('theme-card-dark')).toHaveAttribute('aria-checked', 'true');
-    await user.click(await screen.findByTestId('theme-card-light'));
+
+    const dark = await screen.findByTestId('theme-card-dark');
+    expect(dark).toHaveAttribute('aria-checked', 'true');
+    for (const id of ['theme-card-dark', 'theme-card-claudeDark', 'theme-card-codexDark', 'theme-card-custom']) {
+      expect(screen.getByTestId(id)).toBeVisible();
+    }
+    expect(screen.queryByTestId('theme-card-light')).toBeNull();
+
+    await user.click(screen.getByTestId('theme-mode-light'));
+    for (const id of ['theme-card-light', 'theme-card-astra', 'theme-card-claudeLight', 'theme-card-codexLight', 'theme-card-custom']) {
+      expect(screen.getByTestId(id)).toBeVisible();
+    }
     expect(screen.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'true');
+
+    await user.click(screen.getByTestId('theme-card-astra'));
+    expect(screen.getByTestId('theme-card-astra')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-card-light')).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('follows the approved card anatomy: label above the swatches (C5.2 parity)', async () => {
+  it('анатомия карточки: имя сверху, четыре образца в порядке контракта', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);
-
     await user.click(await screen.findByTestId('nav-settings'));
+
     const card = await screen.findByTestId('theme-card-dark');
+    expect(card.classList.contains('dl2-preset')).toBe(true);
+    expect(card.classList.contains('is-active')).toBe(true);
     expect(card.firstElementChild).toHaveTextContent('Тёмная');
-    // C5.2: продукт использует одобренный контур карточек (dl-theme-*),
-    // legacy-полоса .theme-swatch убрана.
-    expect(card.classList.contains('dl-theme-card')).toBe(true);
-    expect(card.parentElement?.classList.contains('dl-theme-grid')).toBe(true);
-    expect(card.querySelectorAll('.dl-theme-swatch')).toHaveLength(4);
-    expect(card.querySelector('.theme-swatch')).toBeNull();
-    // active card styling = approved (border accent, без legacy ring).
-    expect(card.classList.contains('dl-theme-card-active')).toBe(true);
+    const swatches = [...card.querySelectorAll('[data-swatch]')];
+    expect(swatches.map((el) => el.getAttribute('data-swatch'))).toEqual(['workspace', 'panels', 'accent', 'text']);
   });
 
-  it('keeps every typography zone as an approved compact row with all controls (C5.2)', async () => {
+  it('типографика: один системный блок без контролов + два слота с превью', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);
-
     await user.click(await screen.findByTestId('nav-settings'));
-    // Каждая из 8 зон (не только ui): одобренная строка + доступная группа.
-    for (const area of TYPOGRAPHY_AREAS) {
-      const row = await screen.findByTestId(`typo-${area}`);
-      // P2: обычный flex-ряд (div), без fieldset-специфики/легенды сверху;
-      // имя группы сохранено на обёртке (fieldset aria-label).
-      expect(row.tagName).toBe('DIV');
-      expect(row.classList.contains('dl-type-row')).toBe(true);
-      expect(row.querySelector('legend')).toBeNull();
-      expect(row.querySelector('.dl-type-name')).not.toBeNull();
-      const group = row.closest('fieldset');
-      expect(group?.classList.contains('dl-type-group')).toBe(true);
-      expect(group?.getAttribute('aria-label')).toBeTruthy();
-      // legacy stacked fields are gone …
-      expect(row.querySelector('.field-block')).toBeNull();
-      expect(row.querySelector('.typo-preview')).toBeNull();
-      // … все четыре контрола зоны сохранены и видимы.
-      for (const t of [`${area}-family`, `${area}-size`, `${area}-line-height`, `${area}-weight`]) {
-        expect(screen.getByTestId(t)).toBeInTheDocument();
-      }
-      // spec-slot shows the current zone values (approved row anatomy).
-      expect(row.querySelector('.dl-type-spec')?.textContent).toMatch(/\d+px \/ [\d.]+ · \d+/);
-      // P1: живое превью зоны (approved .dl-type-preview) со всеми4 свойствами.
-      const preview = within(row).getByTestId(`${area}-preview`);
-      expect(preview.classList.contains('dl-type-preview')).toBe(true);
-      expect(preview.style.fontFamily).toBeTruthy();
-      expect(preview.style.fontSize).toBeTruthy();
-      expect(preview.style.lineHeight).toBeTruthy();
-      expect(preview.style.fontWeight).toBeTruthy();
-      expect(preview.textContent?.length).toBeGreaterThan(0);
+
+    const system = await screen.findByTestId('font-block-system');
+    expect(system.querySelectorAll('input, select')).toHaveLength(0);
+    expect(screen.getByTestId('font-system-value')).toHaveTextContent('13 px');
+
+    for (const slot of ['reply', 'code']) {
+      const block = screen.getByTestId(`font-block-${slot}`);
+      expect(block.querySelectorAll('select')).toHaveLength(1);
+      expect(block.querySelectorAll('input[type="number"]')).toHaveLength(1);
+      const preview = screen.getByTestId(`preview-${slot}`);
+      expect(preview.getAttribute('style')).toMatch(/font-family/);
+      expect(preview.getAttribute('style')).toMatch(/font-size/);
     }
+    // Старые восемь зон больше не редактируются.
+    expect(screen.queryByTestId('typo-ui')).toBeNull();
   });
 
-  it('keeps workspace layout controls as compact rows (C5.2)', async () => {
+  it('нижняя панель: Apply / Cancel / Reset и состояние черновика', async () => {
     const user = userEvent.setup();
     render(<App api={makeApi()} moduleDefinitions={[]} />);
-
     await user.click(await screen.findByTestId('nav-settings'));
-    for (const t of ['left-width', 'right-width', 'terminal-height', 'left-collapsed']) {
-      expect(screen.getByTestId(t)).toBeInTheDocument();
-      expect(screen.getByTestId(t).closest('.dl-type-row')).not.toBeNull();
-    }
+    expect(screen.getByTestId('settings-state')).toHaveTextContent('применено');
+    expect(screen.getByTestId('theme-apply')).toBeDisabled();
+    await user.click(screen.getByTestId('theme-card-claudeDark'));
+    expect(screen.getByTestId('settings-state')).toHaveTextContent('неприменённые');
+    expect(screen.getByTestId('theme-apply')).toBeEnabled();
   });
 });

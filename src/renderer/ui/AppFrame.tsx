@@ -3,7 +3,7 @@
  * TitleBar (+Toolbar в split), левая панель (Sidebar/Rail), main, DetailsPanel,
  * StatusBar. Никаких API/IPC/bridge-импортов — только React-пропсы.
  */
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { TitleBar } from './TitleBar';
 
 export type AppLayout = 'inline' | 'split' | 'app';
@@ -21,6 +21,8 @@ export interface AppFrameProps {
   /** split: правая панель; header рендерится в Toolbar, body — в колонке details.
    * app (D1-этап 2): header — строка колонки (вкладки), body — под ней. */
   details?: { header: ReactNode; body: ReactNode; handle?: ReactNode } | null;
+  /** UI26-A2: ссылка на колонку деталей — фокус при открытии и Escape-закрытии. */
+  detailsRef?: React.Ref<HTMLElement>;
   statusBar?: ReactNode | null;
   /** D3: testid футура статус-бара (продуктовый контракт e2e/тестов). */
   statusbarTestId?: string;
@@ -46,6 +48,7 @@ export function AppFrame({
   railToggle,
   toolbarActions,
   details,
+  detailsRef,
   statusBar,
   statusbarTestId,
   theme,
@@ -96,7 +99,7 @@ export function AppFrame({
         </div>
       </main>
       {details ? (
-        <aside className="dl-details">
+        <aside className="dl-details" ref={detailsRef as Ref<HTMLElement>} tabIndex={-1}>
           {layout === 'app' ? (
             <>
               <div className="dl-details-head">{details.header}</div>

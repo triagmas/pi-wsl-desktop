@@ -40,6 +40,8 @@ let sessionFile = null;
 }
 let lastEntryId = 'seed';
 const { appendFileSync } = require('node:fs');
+const os = require('node:os');
+const fspath = require('node:path');
 const appendRow = (row) => {
   if (!sessionFile) return;
   lastEntryId = `fx-${Math.random().toString(36).slice(2, 10)}`;
@@ -180,6 +182,13 @@ function handle(cmd) {
         appendRow({ type: 'thinking_level_change', timestamp: new Date().toISOString(), thinkingLevel: String(cmd.level) });
       }
       send({ id: cmd.id, type: 'response', command: 'set_thinking_level', success: true, data: {} });
+      return;
+    }
+    case 'new_session': {
+      // R02 e2e: официальный новый диалог. Pi не материализует JSONL до первой
+      // записи — файл только назначается, поэтому мост видит пустой черновик.
+      sessionFile = fspath.join(os.tmpdir(), `fake-new-${process.pid}.jsonl`);
+      send({ id: cmd.id, type: 'response', command: 'new_session', success: true, data: { cancelled: false } });
       return;
     }
     case 'switch_session': {

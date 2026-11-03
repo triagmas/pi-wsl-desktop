@@ -1,0 +1,443 @@
+/*
+ * Скелет страницы Settings — общий слой продукта и Design Lab.
+ * Колонка 760 px, отступы 24, зазоры разделов 24 / групп 12.
+ * Геометрия оболочки — в tokens-contract.css (единый каркас всех страниц).
+ * Классы dl2-* — публичный API скелета страницы.
+ */
+
+:root {
+  /* скелет страницы */
+  --set-max: 760px;
+  --set-pad-x: var(--sp-5);
+  --set-pad-top: var(--sp-5);
+  --set-pad-bottom: var(--sp-5);
+  --sec-gap: var(--sp-5);
+  --grp-gap: var(--sp-3);
+  --row-gap: var(--sp-2);
+  --label-w: 180px;
+}
+
+/* ── Скелет страницы: одна сетка на все экраны ────────────────────────── */
+/* Единственный скролл-контейнер страницы: высота приходит от flex-слота
+ * (.dl-page-slot), а не от неопределённого height:100% у auto-родителя. */
+.dl2-screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--set-pad-top) var(--set-pad-x) var(--set-pad-bottom);
+}
+.dl2-col {
+  width: 100%;
+  max-width: var(--set-max);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sec-gap);
+}
+
+/* заголовок страницы */
+.dl2-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.dl2-h1 {
+  font-size: var(--fs-h1);
+  line-height: 1.25;
+  font-weight: 600;
+}
+.dl2-page-sub {
+  font-size: var(--fs-ui);
+  line-height: 1.45;
+  color: var(--pw-muted-text-color);
+}
+
+/* смысловой раздел: заголовок + описание + тело, единый вертикальный ритм */
+.dl2-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grp-gap);
+}
+.dl2-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.dl2-h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.3;
+  font-weight: 600;
+}
+.dl2-section-desc {
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--pw-muted-text-color);
+}
+.dl2-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grp-gap);
+}
+.dl2-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grp-gap);
+  padding: var(--sp-3);
+  background: var(--pw-surface-background-color);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+}
+
+/* строка настройки: подпись / контрол */
+.dl2-row {
+  display: grid;
+  grid-template-columns: var(--label-w) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--ctl-md);
+}
+.dl2-row-label {
+  font-size: var(--fs-ui);
+  color: var(--pw-body-text-color);
+}
+.dl2-row-hint {
+  font-size: var(--fs-meta);
+  color: var(--pw-muted-text-color);
+}
+
+/* сегмент Light | Dark */
+.dl2-seg {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 56px);
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+  background: var(--pw-input-background-color);
+}
+.dl2-seg-btn {
+  width: 100%;
+  height: var(--ctl-sm);
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--pw-muted-text-color);
+  font-size: var(--fs-ui);
+  cursor: pointer;
+}
+.dl2-seg-btn.is-active {
+  background: var(--pw-accent-color);
+  color: var(--pw-accent-text-color);
+  font-weight: 600;
+}
+
+/* карточки тем: 4 свотча в инвариантном порядке */
+.dl2-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+.dl2-preset {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-height: 64px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--pw-surface-background-color);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+  color: var(--pw-body-text-color);
+  text-align: left;
+  cursor: pointer;
+}
+/* «Своя тема» занимает всю строку только когда она последняя и количество нечётное:
+   при 5 светлых карточках это убирает пустую ячейку, при 4 тёмных — сохраняет сетку 2×2. */
+.dl2-preset.is-custom:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+/* Активная палитра = тот же контур, что у dl-theme-card-active: одна граница
+ * акцентом, без второй декоративной рамки. */
+.dl2-preset.is-active {
+  border-color: var(--pw-accent-color);
+}
+.dl2-preset-name {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+.dl2-preset-note {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-3);
+  font-size: 11px;
+  color: var(--pw-muted-text-color);
+}
+.dl2-swatches {
+  display: flex;
+  gap: var(--sp-1);
+}
+.dl2-swatch {
+  width: 18px;
+  height: 12px;
+  border-radius: var(--r-1);
+  /* как в утверждённом dl-theme-swatch: тонкий разделитель, а не яркая рамка */
+  border: 1px solid var(--pw-divider-color);
+}
+
+/* редактор своей темы: ровно 4 поля */
+.dl2-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grp-gap);
+}
+.dl2-color-row {
+  display: grid;
+  grid-template-columns: var(--label-w) 28px 84px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--ctl-md);
+}
+.dl2-color {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-1);
+  background: var(--pw-input-background-color);
+}
+.dl2-hex {
+  font-family: var(--dl-font-mono);
+  font-size: var(--fs-meta);
+  color: var(--pw-muted-text-color);
+}
+.dl2-color-hint {
+  font-size: var(--fs-meta);
+  color: var(--pw-muted-text-color);
+}
+.dl2-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  align-self: flex-start;
+  height: var(--ctl-sm);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-2);
+  font-size: var(--fs-meta);
+  color: var(--pw-muted-text-color);
+}
+.dl2-status[data-ok='false'] {
+  border-color: var(--pw-danger-color, #d9534f);
+  color: var(--pw-danger-color, #d9534f);
+}
+.dl2-actions {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+/* типографика: системный блок + два настраиваемых */
+.dl2-font-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--pw-surface-background-color);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+}
+.dl2-font-block.is-system {
+  background: color-mix(in srgb, var(--pw-surface-background-color) 65%, transparent);
+}
+.dl2-font-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.dl2-font-title {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+.dl2-font-hint {
+  font-size: var(--fs-meta);
+  color: var(--pw-muted-text-color);
+}
+.dl2-font-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) 88px;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.dl2-select,
+.dl2-input {
+  height: var(--ctl-md);
+  padding: 0 var(--sp-2);
+  background: var(--pw-input-background-color);
+  border: 1px solid var(--pw-input-border-color);
+  border-radius: var(--r-2);
+  color: var(--pw-body-text-color);
+  font-size: var(--fs-ui);
+  min-width: 0;
+}
+.dl2-preview {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-2);
+  background: var(--pw-code-background-color);
+  color: var(--pw-body-text-color);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dl2-preview.is-reply {
+  font-size: var(--fs-chat);
+}
+.dl2-preview.is-code {
+  font-size: var(--fs-code);
+  font-family: var(--dl-font-mono);
+  white-space: pre;
+  overflow-x: auto;
+}
+.dl2-fixed {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ctl-md);
+  padding: 0 var(--sp-2);
+  background: var(--pw-input-background-color);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-2);
+  font-size: var(--fs-ui);
+  color: var(--pw-muted-text-color);
+}
+.dl2-tag {
+  font-size: 11px;
+  padding: 1px var(--sp-1);
+  border-radius: var(--r-1);
+  border: 1px solid var(--pw-border-color);
+  color: var(--pw-muted-text-color);
+}
+
+/* подключение */
+.dl2-conn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--row-gap);
+}
+.dl2-conn-row {
+  display: grid;
+  grid-template-columns: var(--label-w) minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: center;
+  min-height: var(--ctl-md);
+  font-size: var(--fs-ui);
+}
+.dl2-conn-key {
+  color: var(--pw-muted-text-color);
+}
+.dl2-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--pw-accent-color);
+  display: inline-block;
+  margin-right: var(--sp-1);
+}
+
+/* фокус — единый для всех контролов */
+.dl2-screen :focus-visible,
+.dl-frame .dl-search:focus-within {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 1px;
+}
+
+/* ── Анатомия компонентов (демо-лист) ─────────────────────────────────── */
+.dl2-anatomy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.dl2-anatomy-block {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--pw-surface-background-color);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+}
+.dl2-anatomy-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dl2-anatomy-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+  overflow: hidden;
+}
+.dl2-anatomy-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.dl2-anatomy-sidebar {
+  width: 260px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+}
+.dl2-anatomy-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.dl2-anatomy-pane .dl-msgs {
+  padding: 0 var(--sp-4) var(--sp-2);
+}
+.dl2-anatomy-pane .dl-composer {
+  margin: var(--sp-2) var(--sp-3) var(--sp-2);
+}
+/* вложенная «рамка» продукта для панели деталей: блок вместо grid */
+.dl-frame-nested {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* кнопки: контрактные размеры внутри демонстрационных экранов Stage 2 */
+.dl2-screen .dl-btn-primary,
+.dl2-screen .dl-btn-ghost {
+  height: var(--ctl-lg);
+  padding: 0 var(--sp-3);
+  gap: var(--sp-2);
+  font-size: var(--fs-ui);
+  border-radius: var(--r-3);
+}
+.dl2-screen .dl-btn-dots {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--r-2);
+}
+
+/* Нижняя панель действий — в обычном потоке колонки, как в утверждённом
+   Design Lab. R01: sticky-вариант перекрывал контент (обрезал блок типографики
+   на середине прокрутки), поэтому панель просто завершает страницу. */
+.dl2-actions-sticky {
+  padding: var(--sp-3) 0 var(--sp-2);
+  background: var(--pw-window-background-color);
+  border-top: 1px solid var(--pw-divider-color);
+}

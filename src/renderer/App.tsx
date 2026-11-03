@@ -29,10 +29,14 @@ import { ChatView } from './ui/ChatView';
 import { IconChevronRight } from './ui/icons';
 import { applyTheme } from './design/applyTheme';
 import { applyTypography } from './design/applyTypography';
-import { THEME_PRESETS } from '../shared/design/presets';
-import { DEFAULT_APPEARANCE, migrateAppearance, type AppearanceSettings } from '../shared/appearance';
+import {
+  DEFAULT_APPEARANCE,
+  appearanceThemeTokens,
+  migrateAppearance,
+  type AppearanceSettings,
+} from '../shared/appearance';
 import { m1 } from './m1api';
-import type { SessionInfoT } from './types';
+import type { ProjectInfoT, SessionInfoT } from './types';
 
 export interface AppProps {
   /** Injectable for tests; by default the preload contextBridge API is used. */
@@ -47,17 +51,81 @@ export interface AppProps {
 
 type View = 'chat' | 'resources' | 'modules' | 'settings' | `module:${string}`;
 
-const RIGHT_PANEL_MIN = 240;
-const RIGHT_PANEL_MAX = 560;
-const LEFT_MIN = 200;
-const LEFT_MAX = 480;
-
 /**
  * UI26 R01: последний выбранный диалог. Восстанавливается только если файл
  * реально есть в списке Pi — иначе честное пустое состояние (никаких
  * пересозданных сессий и записей).
  */
 const LAST_SESSION_KEY = 'pi-desktop:last-session';
+/**
+ * R02 (#6566550672): последний ЯВНО открытый проект. Глобальный «Новый диалог»
+ * больше не берёт projects[0]: произвольный первый проект мог быть вообще не
+ * тем, в котором работает человек. Хранится путь, который реально пришёл из Pi;
+ * при чтении он сверяется со списком проектов (устаревший путь не используется).
+ */
+const LAST_PROJECT_KEY = 'pi-desktop:last-project';
+
+function readStoredProject(): string | null {
+  try {
+    return localStorage.getItem(LAST_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberProject(path: string | null | undefined): void {
+  if (!path) return;
+  try {
+    localStorage.setItem(LAST_PROJECT_KEY, path);
+  } catch {
+    /* private mode / no storage — запоминание best-effort, не зависимость */
+  }
+}
+
+/**
+ * R03-1 (#26, #6572954720, P1) — приоритет контекста нового диалога.
+ *
+ * Порядок из R02 (`activeSession ?? activeDraft ?? stored`) отдавал открытый чат
+ * проекта A выше ЯВНОГО выбора проекта B: «чат A → выбрать B → Новый диалог»
+ * создавал черновик снова в A. Правильный приоритет:
+ *   1. последний явно выбранный пользователем проект (persisted);
+ *   2. черновик, с которым сейчас работают;
+ *   3. проект активной сессии — только когда явного выбора ещё не было.
+ * Явный `+` у проекта приходит как override и главнее всего (обрабатывается выше).
+ */
+export function newChatCandidate(args: {
+  stored: string | null;
+  activeDraftCwd: string | null;
+  activeSessionProject: string | null;
+}): { path: string | null; explicit: boolean } {
+  if (args.stored) return { path: args.stored, explicit: true };
+  const fallback = args.activeDraftCwd ?? args.activeSessionProject;
+  return { path: fallback, explicit: false };
+}
+
+/**
+ * R03-1: какой cwd получит новый черновик из реального списка проектов Pi.
+ *
+ * `null` означает «однозначного проекта нет» → вызывающий обязан показать
+ * явный chooser. Скрытая подмена (первый проект, домашний каталог, `/`)
+ * запрещена: она пишет диалог не туда, где пользователь ожидает.
+ */
+export function resolveNewChatProject(args: {
+  override: string | null;
+  known: readonly { path: string }[];
+  candidate: { path: string | null; explicit: boolean };
+}): string | null {
+  const { override, known, candidate } = args;
+  // Явный `+`/прямой вызов — только если такой проект реально есть в Pi.
+  if (override) return known.some((p) => p.path === override) ? override : null;
+  if (candidate.path && known.some((p) => p.path === candidate.path)) return candidate.path;
+  // Устаревший/удалённый явный выбор НЕ разменивается на другой проект, даже
+  // если он единственный: пользователь выбрал конкретный, его больше нет.
+  if (candidate.explicit) return null;
+  // Явного выбора не было вовсе — единственный проект однозначен.
+  if (known.length === 1) return known[0].path;
+  return null;
+}
 
 /** Заглушка-запись для черновика, которому Pi уже назначил файл. */
 function draftAsSession(file: string, cwd: string): SessionInfoT {
@@ -79,6 +147,23 @@ function draftAsSession(file: string, cwd: string): SessionInfoT {
     activeWrite: false,
     diagnostics: null,
   };
+}
+
+/**
+ * R02: id черновика — только ключ стора (файл назначает Pi официальным
+ * new_session). Вынесен из тела компонента, чтобы не нарушать правило
+ * чистоты рендера.
+ *
+ * CodeQL js/insecure-randomness: id не является секретом, но `Math.random()`
+ * для него всё равно непригоден — берём криптостойкий источник, а при его
+ * отсутствии — монотонный счётчик (уникальность внутри сеанса достаточна).
+ */
+let draftIdSeq = 0;
+function newDraftId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `d${uuid.replace(/-/g, '').slice(0, 12)}`;
+  draftIdSeq += 1;
+  return `d${Date.now().toString(36)}${draftIdSeq.toString(36)}`;
 }
 
 export function App({ api, moduleDefinitions }: AppProps = {}) {
@@ -175,9 +260,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     };
   }, [effectiveApi]);
 
-  const themeTokens = appearance.theme.preset === 'custom' && appearance.theme.custom
-    ? appearance.theme.custom
-    : THEME_PRESETS[appearance.theme.preset === 'custom' ? 'dark' : appearance.theme.preset].tokens;
+  // UI Integration V1: тема = режим + палитра режима + четыре цвета «своей».
+  // Один путь от настроек к токенам, общий с Design Lab.
+  const themeTokens = appearanceThemeTokens(appearance.theme);
 
   useLayoutEffect(() => {
     applyTheme(document.documentElement, themeTokens);
@@ -204,8 +289,18 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const rightWidth = layoutPreview.rightWidth ?? appearance.layout.rightWidth;
   const terminalHeight = layoutPreview.terminalSlotHeight ?? appearance.layout.terminalSlotHeight;
   const terminalVisible = appearance.layout.terminalVisible;
+  /**
+   * R01 (#6559283775): «развернуть терминал» — увеличивает док и запоминает
+   * прежнюю высоту, повторный клик возвращает её. Высота остаётся единым
+   * persisted-значением, поэтому drag верхней границы работает в любом режиме.
+   */
+  const [terminalExpanded, setTerminalExpanded] = useState(false);
+  const terminalRestoreHeightRef = useRef<number | null>(null);
+  const TERM_EXPANDED_H = 520;
   const detailsOpen = appearance.layout.rightVisible;
   const detailsRef = useRef<HTMLButtonElement | null>(null);
+  /** UI26-A2: сама колонка деталей — фокус при открытии и Escape. */
+  const rightPanelRef = useRef<HTMLElement | null>(null);
 
   const commitLayout = (patch: Partial<AppearanceSettings['layout']>): void => {
     setLayoutPreview({});
@@ -227,8 +322,54 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     // §8: focus returns to the button that opened the panel (it stays mounted).
     detailsRef.current?.focus();
   };
+
+  /* UI26-A2 (P2): на узком окне правая панель — overlay. Пока она открыта,
+   * фокус должен уходить внутрь неё, а Escape — закрывать панель и возвращать
+   * фокус на единственный тумблер (R07 §1: второго тумблера не добавляем). */
+  useEffect(() => {
+    if (!detailsOpen) return;
+    rightPanelRef.current?.focus();
+  }, [detailsOpen]);
+
+  /* UI26-A2: Escape закрывает открытую панель деталей (dismissal без второго
+   * тумблера). Обработчик пересоздаётся только при изменении detailsOpen. */
+  const closeDetailsRef = useRef<() => void>(() => {});
+  // Синхронизация без deps: нужен самый свежий closeDetails, но не
+  // пересоздание подписки на Escape.
+  useEffect(() => {
+    closeDetailsRef.current = closeDetails;
+  });
+  useEffect(() => {
+    if (!detailsOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeDetailsRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [detailsOpen]);
   const toggleTerminal = (): void => {
+    if (terminalVisible) setTerminalExpanded(false);
     commitLayout({ terminalVisible: !terminalVisible });
+  };
+  const toggleTerminalExpanded = (): void => {
+    if (!terminalVisible) {
+      commitLayout({ terminalVisible: true, terminalSlotHeight: TERM_EXPANDED_H });
+      setTerminalExpanded(true);
+      terminalRestoreHeightRef.current = null;
+      return;
+    }
+    if (terminalExpanded) {
+      const restore = terminalRestoreHeightRef.current ?? DEFAULT_APPEARANCE.layout.terminalSlotHeight;
+      commitLayout({ terminalSlotHeight: restore });
+      setTerminalExpanded(false);
+      terminalRestoreHeightRef.current = null;
+    } else {
+      terminalRestoreHeightRef.current = terminalHeight;
+      commitLayout({ terminalSlotHeight: Math.max(terminalHeight, TERM_EXPANDED_H) });
+      setTerminalExpanded(true);
+    }
   };
 
   /* ------------------------------------------------------------------ *
@@ -253,6 +394,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
    * — приложение говорит об этом прямо и не создаёт «безымянную» сессию.
    */
   const [noProjectNotice, setNoProjectNotice] = useState(false);
+  /** R02: проекты для явного выбора, когда достоверного «последнего» нет. */
+  const [projectChooser, setProjectChooser] = useState<ProjectInfoT[]>([]);
   const sessionKey = activeDraft
     ? activeDraft.file !== null
       ? fileKey(activeDraft.file)
@@ -283,6 +426,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         if (!closed) return; // fail-closed: остаёмся там, где были
         setActiveDraft(null);
         setActiveSession(session);
+        rememberProject(session.projectPath);
         setPendingSession(null);
         setView('chat');
       })();
@@ -296,6 +440,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     }
     setActiveDraft(null);
     setActiveSession(session);
+    rememberProject(session.projectPath);
     setView('chat');
   };
 
@@ -309,17 +454,18 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     }
     setActiveDraft(null);
     setActiveSession(pendingSession);
+    rememberProject(pendingSession.projectPath);
     setPendingSession(null);
     setView('chat');
   };
 
   /**
-   * UI26 R01 — «Новый диалог».
+   * UI26 R01 / R03-1 — «Новый диалог».
    *
-   * cwd берётся из реального проекта Pi: текущий диалог → последний проект из
-   * списка Pi. Ничего не выдумывается: если проект неизвестен, честно
-   * остаёмся на пустом состоянии. Файл сессии появится только после первого
-   * сообщения (Pi materializes the JSONL on first write).
+   * cwd берётся только из реального списка проектов Pi: явный `+` → последний
+   * явно выбранный проект → текущий черновик → проект активной сессии. Если
+   * однозначного проекта нет, показывается явный chooser. Ничего не
+   * выдумывается; файл сессии появится только после первого сообщения.
    */
   const newChat = (cwdOverride?: string): void => {
     if (!effectiveApi) return;
@@ -331,38 +477,64 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         setConflict('Сначала дождитесь ответа или прервите генерацию — Pi ведёт один диалог за раз.');
         return;
       }
-      setPendingDraftCwd(cwdOverride ?? activeSession?.projectPath ?? '');
+      // R03-1: в диалог уходит тот же кандидат, что и без открытого чата —
+      // иначе подтверждение возвращало черновик в проект случайного чата.
+      setPendingDraftCwd(cwdOverride ?? newChatCandidate({
+        stored: readStoredProject(),
+        activeDraftCwd: activeDraft?.cwd ?? null,
+        activeSessionProject: activeSession?.projectPath ?? null,
+      }).path ?? '');
       return;
     }
+    void startNewChat(cwdOverride);
+  };
+
+  /**
+   * Создать черновик по проверенному cwd либо показать chooser. Общий путь для
+   * свободного слота и для подтверждения после закрытия живого чата (R03-1).
+   */
+  const startNewChat = async (cwdOverride?: string): Promise<void> => {
+    if (!effectiveApi) return;
     setConflict(null);
-    void (async () => {
-      let cwd = cwdOverride ?? activeSession?.projectPath ?? null;
-      if (!cwd) {
-        try {
-          const { projects } = await m1.listProjects(effectiveApi);
-          cwd = projects[0]?.path ?? null;
-        } catch {
-          cwd = null;
-        }
+    // Список проектов Pi — единственный источник допустимых cwd; ошибка
+    // чтения не даёт права угадывать каталог.
+    const known: ProjectInfoT[] = await (async () => {
+      try {
+        const r = await m1.listProjects(effectiveApi);
+        return Array.isArray(r.projects) ? r.projects : [];
+      } catch {
+        return [];
       }
-      if (!cwd) {
-        // UI26 R03 (P1-5): cwd не подтверждён — никакого fallback `/`.
-        setNoProjectNotice(true);
-        setView('chat');
-        return;
-      }
-      createDraftNow(cwd);
     })();
+    const cwd = resolveNewChatProject({
+      override: cwdOverride ?? null,
+      known,
+      candidate: newChatCandidate({
+        stored: readStoredProject(),
+        activeDraftCwd: activeDraft?.cwd ?? null,
+        activeSessionProject: activeSession?.projectPath ?? null,
+      }),
+    });
+    if (!cwd) {
+      // Достоверного проекта нет — только явный выбор из реального списка.
+      setProjectChooser(known);
+      setNoProjectNotice(true);
+      setView('chat');
+      return;
+    }
+    createDraftNow(cwd);
   };
 
   /** Создать новый черновик с известным cwd (после явного закрытия слота). */
   const createDraftNow = (cwd: string): void => {
     setConflict(null);
     setNoProjectNotice(false);
+    setProjectChooser([]);
+    rememberProject(cwd);
     setPendingSession(null);
     setPendingDraftCwd(null);
     setActiveSession(null);
-    setActiveDraft({ id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, cwd, file: null });
+    setActiveDraft({ id: newDraftId(), cwd, file: null });
     setView('chat');
   };
 
@@ -374,13 +546,9 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     if (!closed) return; // fail-closed: слот мог остаться занятым
     setPendingDraftCwd(null);
     setActiveDraft(null);
-    if (requested !== '') {
-      createDraftNow(requested);
-      return;
-    }
-    const fallback = activeSession?.projectPath ?? null;
-    if (fallback) createDraftNow(fallback);
-    else setNoProjectNotice(true);
+    // R03-1: после закрытия cwd снова сверяется с реальными проектами —
+    // выбранный проект мог исчезнуть, пока был открыт другой чат.
+    await startNewChat(requested === '' ? undefined : requested);
   };
 
   /**
@@ -755,11 +923,42 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           </div>
         )}
         {noProjectNotice && (
-          <div className="switch-guard" role="alert" data-testid="new-chat-no-project">
-            <span>Не удалось определить проект Pi для нового диалога — выберите проект в списке слева.</span>
+          <div className="switch-guard project-chooser" role="alert" data-testid="new-chat-no-project">
+            {projectChooser.length > 0 ? (
+              <>
+                <span>
+                  Выберите проект для нового диалога: приложение не подставляет произвольный
+                  каталог вместо последнего открытого.
+                </span>
+                {/* Явный выбор из РЕАЛЬНОГО списка Pi — без выдуманных cwd. */}
+                <div className="project-chooser-list" data-testid="project-chooser">
+                  {projectChooser.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="project-chooser-item"
+                      data-testid={`project-chooser-${p.id}`}
+                      title={p.path}
+                      onClick={() => newChat(p.path)}
+                    >
+                      <strong>{p.path.split(/[\\/]/).filter(Boolean).pop() ?? p.path}</strong>
+                      <span className="muted">{p.path}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <span data-testid="project-chooser-empty">
+                В Pi пока нет проектов — новый диалог не может быть создан. Откройте проект в Pi и
+                обновите список.
+              </span>
+            )}
             <div className="switch-guard-actions">
+              <button type="button" data-testid="project-chooser-retry" onClick={() => newChat()}>
+                Обновить список
+              </button>
               <button type="button" data-testid="no-project-dismiss" onClick={() => setNoProjectNotice(false)}>
-                Понятно
+                Закрыть
               </button>
             </div>
           </div>
@@ -896,56 +1095,41 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         {terminalVisible ? (
           <TerminalDock
             height={terminalHeight}
+            expanded={terminalExpanded}
+            onToggleExpand={toggleTerminalExpanded}
+            onClose={() => {
+              setTerminalExpanded(false);
+              commitLayout({ terminalVisible: false });
+            }}
             onHeightPreview={(h) => setLayoutPreview((p) => ({ ...p, terminalSlotHeight: h }))}
-            onHeightCommit={(h) => commitLayout({ terminalSlotHeight: h })}
+            onHeightCommit={(h) => {
+              terminalRestoreHeightRef.current = null;
+              setTerminalExpanded(false);
+              commitLayout({ terminalSlotHeight: h });
+            }}
           />
         ) : null}
       </div>
     );
   } else if (view === 'resources') {
-    centerBody = <div data-testid="view-resources"><ResourcesView api={effectiveApi} /></div>;
+    centerBody = (
+      <div className="dl-page-slot" data-testid="view-resources">
+        <ResourcesView api={effectiveApi} />
+      </div>
+    );
   } else if (view === 'settings') {
     centerBody = (
-      <div data-testid="view-settings">
+      <div className="dl-page-slot" data-testid="view-settings">
         {appearanceReady ? (
         <SettingsView
-          api={effectiveApi}
           appearance={appearance}
           ready={appearanceReady}
           onChange={persistAppearance}
-          onReset={() => {
-            if (!effectiveApi) {
-              setAppearance(DEFAULT_APPEARANCE);
-              return;
-            }
-            void effectiveApi.resetAppearance().then((raw) => setAppearance(migrateAppearance(raw)));
-          }}
           snapshot={snapshot}
           requestError={requestError}
           onRetry={() => void retry()}
           onRefresh={() => void refreshRuntime()}
           onSelectDistro={(d) => void selectDistro(d)}
-          layout={{
-            leftWidth,
-            rightWidth,
-            leftCollapsed: appearance.layout.leftCollapsed,
-            onLeftWidth: (w) => {
-              const width = Math.min(LEFT_MAX, Math.max(LEFT_MIN, w));
-              persistAppearance({ ...appearance, layout: { ...appearance.layout, leftWidth: width } });
-            },
-            onRightWidth: (w) => {
-              const width = Math.min(RIGHT_PANEL_MAX, Math.max(RIGHT_PANEL_MIN, w));
-              persistAppearance({ ...appearance, layout: { ...appearance.layout, rightWidth: width } });
-            },
-            onToggleLeft: () => {
-              const next = !appearance.layout.leftCollapsed;
-              persistAppearance({ ...appearance, layout: { ...appearance.layout, leftCollapsed: next } });
-            },
-            onTerminalHeight: (h) => {
-              const height = Math.min(600, Math.max(120, h));
-              persistAppearance({ ...appearance, layout: { ...appearance.layout, terminalSlotHeight: height } });
-            },
-          }}
         />
         ) : (
           <div className="loading-row" data-testid="settings-loading">
@@ -965,7 +1149,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     );
   } else if (view === 'modules') {
     centerBody = (
-      <div data-testid="view-modules">
+      <div className="dl-page-slot" data-testid="view-modules">
         <ModulesView
           entries={moduleEntries}
           diagnostics={loadDiagnostics}
@@ -1034,7 +1218,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           разница только в данных и callback-биндингах. */}
       <AppScreen
         testid="app-shell"
-        theme={appearance.theme.preset === 'light' ? 'light' : 'dark'}
+        theme={appearance.theme.mode}
+        detailsRef={rightPanelRef}
         windowControls={{
           onMinimize: () => {
             void effectiveApi?.windowControls?.minimize();
@@ -1056,6 +1241,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
             onToggleCollapsed={() => commitLayout({ leftCollapsed: !appearance.layout.leftCollapsed })}
             onNewChat={() => newChat()}
             onNewChatInProject={(cwd) => newChat(cwd)}
+            onProjectActivated={rememberProject}
             sessionsVersion={sessionsVersion}
             activeDraftCwd={activeDraft?.cwd ?? null}
             connectionReady={snapshot.phase === 'ready'}
@@ -1074,7 +1260,12 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
                   <RightSidebar
                     tools={chat.state.tools}
                     streaming={chat.state.status === 'sending'}
-                    title={activeSession ? (activeSession.name ?? activeSession.id.slice(0, 8)) : undefined}
+                    title={
+                      activeSession
+                        ? activeSession.displayName ||
+                          (activeSession.name ?? activeSession.id.slice(0, 8))
+                        : undefined
+                    }
                   />
                 ),
                 handle: (
@@ -1104,11 +1295,8 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
           },
           distro: `${snapshot.distro ?? '—'} · WSL`,
           distroTestId: 'status-distro',
-          right: [
-            { id: 'status-os', text: 'Windows', mute: true },
-            { id: 'status-cpu', text: 'CPU —', mute: true },
-            { id: 'status-ram', text: 'RAM —', mute: true },
-          ],
+          // B1: фейковые CPU/RAM удалены; остаётся достоверный OS-индикатор.
+          right: [{ id: 'status-os', text: 'Windows', mute: true }],
           terminalLabel: 'Терминал',
           terminalTestId: 'status-terminal-btn',
           terminalActive: terminalVisible,

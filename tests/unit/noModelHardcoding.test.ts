@@ -28,6 +28,8 @@ const EXCLUDED = [
   'src/renderer/ui/BoardScreen.tsx',
   'src/renderer/ui/SettingsScreen.tsx',
   'src/renderer/SettingsView.tsx', // mock settings row text in the design composition
+  'src/shared/design/palettes.ts', // названия палитр claude/light (одобрены §9.2), не модели
+  'src/shared/appearance.ts', // LEGACY_PRESET_MAP: старые id тем claude/codex, не модели
 ];
 
 /** Provider/model identifiers that must never appear in production source. */

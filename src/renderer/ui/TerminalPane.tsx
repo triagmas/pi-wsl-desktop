@@ -39,6 +39,13 @@ export interface TerminalPaneProps {
   onAddTab?: () => void;
   /** board: закрыть вкладку (крестик кликабелен только при обработчике). */
   onCloseTab?: (id: string) => void;
+  /**
+   * R01 (#6559283775): реальные действия дока. Без обработчиков (Design Lab
+   * board / демо-лист) кнопки остаются декоративными, как раньше.
+   */
+  onToggleExpand?: () => void;
+  expanded?: boolean;
+  onClose?: () => void;
 }
 
 export function TerminalPane({
@@ -51,6 +58,9 @@ export function TerminalPane({
   onSelectTab,
   onAddTab,
   onCloseTab,
+  onToggleExpand,
+  expanded = false,
+  onClose,
 }: TerminalPaneProps) {
   return (
     <section
@@ -96,10 +106,23 @@ export function TerminalPane({
           </button>
         ) : null}
         <div className="dl-term-actions">
-          <button type="button" className="dl-term-iconbtn" aria-label="Развернуть терминал">
+          <button
+            type="button"
+            className="dl-term-iconbtn"
+            aria-label={expanded ? 'Вернуть прежнюю высоту' : 'Развернуть терминал'}
+            aria-pressed={onToggleExpand ? expanded : undefined}
+            data-testid={onToggleExpand ? 'terminal-expand' : undefined}
+            onClick={onToggleExpand}
+          >
             <IconExpandArrows size={19} />
           </button>
-          <button type="button" className="dl-term-iconbtn" aria-label="Закрыть терминал">
+          <button
+            type="button"
+            className="dl-term-iconbtn"
+            aria-label="Закрыть терминал"
+            data-testid={onClose ? 'terminal-close' : undefined}
+            onClick={onClose}
+          >
             <IconClose size={19} />
           </button>
         </div>

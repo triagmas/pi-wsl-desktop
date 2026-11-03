@@ -151,6 +151,8 @@ function makeHarness(
     },
     onEvent: (ev) => events.push(ev),
     rpcOptions: { commandTimeoutMs: 500, settleTimeoutMs: 500, exitWaitMs: 20 },
+    // R02: проверяем поведение при зависании, а не ждём реальный холодный старт
+    startCommandTimeoutMs: 120, startBudgetMs: 600,
   });
   return { manager, pi, events, files };
 }

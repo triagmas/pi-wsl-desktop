@@ -1045,6 +1045,75 @@ input[type="range"] {
   color: var(--pw-muted-text-color);
 }
 
+/* UI26-A2: guard-баннеры единственного writer'а. До этого классы
+ * `.switch-guard` / `.switch-guard-actions` использовались в разметке без
+ * каких-либо правил, из-за чего текст и кнопки шли одной строкой без
+ * отступов и иерархии. Стили продуктовые (не Design Lab) и используют те же
+ * токены темы, поэтому работают в light и dark. */
+.switch-guard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--pw-border-color);
+  border-left: 3px solid var(--pw-accent-color);
+  border-radius: var(--pw-radius-small, 6px);
+  background: var(--pw-elevated-surface-background-color);
+  color: var(--pw-body-text-color);
+}
+
+.switch-guard > span {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.switch-guard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.switch-guard-actions button {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 7px 12px;
+  border: 1px solid var(--pw-border-color);
+  border-radius: var(--pw-radius-small, 6px);
+  background: transparent;
+  color: var(--pw-body-text-color);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.switch-guard-actions button:hover {
+  border-color: var(--pw-accent-color);
+}
+
+.switch-guard-actions button:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 2px;
+}
+
+/* Подтверждающее действие — единственное акцентное в баннере. */
+.switch-guard-actions button[data-testid$='-confirm'],
+.switch-guard-actions button.primary {
+  background: var(--pw-button-primary-background-color);
+  border-color: var(--pw-button-primary-background-color);
+  color: var(--pw-button-primary-text-color);
+}
+
+.switch-guard-actions button[data-testid$='-confirm']:hover,
+.switch-guard-actions button.primary:hover {
+  background: var(--pw-button-primary-hover-color);
+  border-color: var(--pw-button-primary-hover-color);
+}
+
 .error-box {
   border: 1px solid var(--pw-error-color);
   border-radius: var(--pw-radius-small, 6px);

@@ -178,7 +178,12 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '', dr
   // Only entries read for THIS file are ever displayed (never the previous one).
   const savedEntries = saved.file === file ? saved.entries : [];
   const visibleHistoryError = historyError && historyError.file === file ? historyError : null;
-  const activeModel = state.state?.model ?? null;
+  // UI26-A2: Pi может вернуть служебную модель-заглушку (`unknown/unknown`),
+  // когда в профиле не выбран провайдер. Показывать её как реальную модель
+  // нельзя: это не результат каталога, а отсутствие выбора.
+  const rawModel = state.state?.model ?? null;
+  const modelUnavailable = !rawModel || !rawModel.id || rawModel.id === 'unknown';
+  const activeModel = modelUnavailable ? null : rawModel;
   // Defensive defaults: an older/partial state object must never crash the pane.
   const models = useMemo(() => state.models ?? [], [state.models]);
   const thinkingLevels = state.thinkingLevels ?? [];
@@ -271,9 +276,12 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '', dr
         </div>
       )}
       {state.status === 'opening' && (
-        <div className="loading-row">
+        <div className="loading-row" data-testid="chat-opening" aria-live="polite">
           <span data-testid="spinner" className="spinner" aria-hidden="true" />
           <span>Подключение к сессии…</span>
+          {/* R02 (#6566550672): честное ожидание вместо пустого экрана —
+              рядом всегда есть (неактивный) композер и объяснение. */}
+          <span className="muted">первый запуск Pi может занять до минуты, поле ввода откроется сразу после подключения</span>
         </div>
       )}
       {state.status === 'error' && !state.error && (
@@ -594,56 +602,61 @@ export function ChatPane({ chat, draft, onDraftChange, api = null, file = '', dr
         turns={turns}
         showIdentity={false}
         stepCircle={26}
-        composer={
-          isOpenLike
+        composer={{
+          // R02 (#6566550672): поле ввода существует в КАЖДОМ состоянии, чтобы
+          // новый диалог не выглядел пустым экраном; до готовности оно честно
+          // неактивно и объясняет, чего ждёт.
+          placeholder:
+            state.status === 'open'
+              ? 'Сообщение…'
+              : state.status === 'opening'
+                ? 'Подключение к сессии…'
+                : 'Сначала откройте чат',
+          density: 'standard',
+          value: draft,
+          onValueChange: onDraftChange,
+          onSubmit: () => submit(),
+          submitDisabled: !canSubmit,
+          inputDisabled: state.status !== 'open',
+          // UI21-F2: model + thinking come straight from Pi get_state.
+          ...(isOpenLike
             ? {
-                placeholder: 'Сообщение…',
-                density: 'standard',
-                value: draft,
-                onValueChange: onDraftChange,
-                onSubmit: () => submit(),
-                submitDisabled: !canSubmit,
-                inputDisabled: state.status !== 'open',
-                // UI21-F2: model + thinking come straight from Pi get_state.
-                ...(isOpenLike
-                  ? {
-                      model: modelLabel,
-                      modelDisabled: switchLocked,
-                      onModelClick: () => {
-                        returnFocusRef.current = document.activeElement as HTMLElement | null;
-                        setFilter('');
-                        setMenu((m) => (m === 'model' ? null : 'model'));
-                      },
-                    }
-                  : {}),
-                ...(thinkingLabel !== null
-                  ? {
-                      thinking: thinkingLabel,
-                      // A levels failure keeps the selector open so the honest
-                      // error is reachable; it is not a fabricated single level.
-                      thinkingDisabled: switchLocked || (thinkingLevels.length <= 1 && state.thinkingError === null),
-                      onThinkingClick: () => {
-                        returnFocusRef.current = document.activeElement as HTMLElement | null;
-                        setMenu((m) => (m === 'thinking' ? null : 'thinking'));
-                      },
-                    }
-                  : {}),
-                menu:
-                  menu === 'model' || menu === 'thinking' ? (
-                    <div
-                      className="dl-chip-menu-anchor"
-                      ref={menuRef}
-                      onKeyDown={onMenuKeyDown}
-                      data-testid="chip-menu-anchor"
-                    >
-                      {menu === 'model' ? modelMenu : thinkingMenu}
-                    </div>
-                  ) : null,
-                modelMenuOpen: menu === 'model',
-                thinkingMenuOpen: menu === 'thinking',
+                model: modelLabel,
+                modelDisabled: switchLocked,
+                onModelClick: () => {
+                  returnFocusRef.current = document.activeElement as HTMLElement | null;
+                  setFilter('');
+                  setMenu((m) => (m === 'model' ? null : 'model'));
+                },
               }
-            : null
-        }
+            : {}),
+          ...(isOpenLike && thinkingLabel !== null
+            ? {
+                thinking: thinkingLabel,
+                // A levels failure keeps the selector open so the honest
+                // error is reachable; it is not a fabricated single level.
+                thinkingDisabled: switchLocked || (thinkingLevels.length <= 1 && state.thinkingError === null),
+                onThinkingClick: () => {
+                  returnFocusRef.current = document.activeElement as HTMLElement | null;
+                  setFilter('');
+                  setMenu((m) => (m === 'thinking' ? null : 'thinking'));
+                },
+              }
+            : {}),
+          menu:
+            menu === 'model' || menu === 'thinking' ? (
+              <div
+                className="dl-chip-menu-anchor"
+                ref={menuRef}
+                onKeyDown={onMenuKeyDown}
+                data-testid="chip-menu-anchor"
+              >
+                {menu === 'model' ? modelMenu : thinkingMenu}
+              </div>
+            ) : null,
+          modelMenuOpen: menu === 'model',
+          thinkingMenuOpen: menu === 'thinking',
+        }}
       />
     </div>
   );

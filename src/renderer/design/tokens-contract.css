@@ -1,0 +1,397 @@
+/*
+ * UI Integration V1 — ЕДИНЫЙ контракт геометрии оболочки (продукт + Design Lab).
+ *
+ * Один файл — один источник чисел для каркаса, который используют App, Chat,
+ * Settings и Resources (все на одном AppFrame layout="app").
+ * Значения: принятые B1 (owner #6553233557, #6552873415) + базовая сетка 4 px.
+ * Продуктовые layout.css/components.css читают эти токены; локальных
+ * переопределений по страницам нет.
+ */
+
+:root {
+  /* шкала ритма */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  /* радиусы: три, не больше */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+
+  /* высоты контролов */
+  --ctl-sm: 26px;
+  --ctl-md: 30px;
+  --ctl-lg: 32px;
+  --ctl-xl: 36px;
+
+  /* типографические роли (5 ролей вместо 18 зон) */
+  --fs-ui: 13px;
+  --fs-chat: 14px;
+  --fs-code: 13px;
+  --fs-meta: 12px;
+  --fs-h1: 22px;
+  --fs-h2: 14px;
+
+  /* метрики оболочки: используются layout.css и components.css напрямую */
+  --shell-titlebar-h: 39px;
+  --shell-crumb-h: 56px;
+  --shell-status-h: var(--ctl-sm);      /* 26 — было 48 */
+  --shell-side-w: 321px;
+  --shell-details-w: 385px;
+  --shell-search-h: var(--ctl-md);      /* 30 — было 38 */
+  --shell-row-h: var(--ctl-md);         /* 30 — было 46 */
+  --shell-newchat-h: var(--ctl-xl);     /* 36 — было 40 */
+  --shell-plus-size: 28px;
+  --shell-send-w: 32px;
+  --shell-send-h: 34px;
+  --shell-chip-h: 28px;
+  --shell-term-btn-w: 24px;
+  --shell-term-btn-h: 22px;
+  --shell-meta-fs: var(--fs-meta);
+  --shell-text-fs: var(--fs-ui);
+
+  /* R02 (#6566550672): одна сетка левого сайдбара — иконка 16, зазор 8,
+   * внутренний отступ 12 с обеих сторон, правая колонка действий 28. */
+  --shell-side-pad: var(--sp-3);
+  --shell-icon-col: 16px;
+  --shell-icon-gap: var(--sp-2);
+  --shell-row-gap: 2px;
+  --shell-section-gap: var(--sp-3);
+  --shell-action-col: var(--shell-plus-size);
+  /* мера текста чата (26 аватар + 20 зазор + 740 строка) — колонка, внутри
+   * которой сообщения и композер выровнены по одной линии */
+  --shell-chat-col: 788px;
+
+  /* значения по умолчанию для каркаса: объявлены на :root, чтобы приложение
+   * (и демо-хранилище Lab) могли переопределить их inline на том же элементе */
+  --dl-app-side-w: var(--shell-side-w);
+  --dl-app-details-w: var(--shell-details-w);
+}
+
+/* ── Каркас: единая геометрия всех страниц ─────────────────────────────── */
+.dl-frame[data-layout='app'] {
+  --dl-app-titlebar-h: var(--shell-titlebar-h);
+  --dl-app-crumb-h: var(--shell-crumb-h);
+  --dl-app-status-h: var(--shell-status-h);
+
+  /* роли шрифтов: 18 зон Lab → 5 ролей контракта */
+  --dl-fs-ui: var(--fs-ui);
+  --dl-fs-body: var(--fs-ui);
+  --dl-fs-page-sub: var(--fs-ui);
+  --dl-fs-sidebar: var(--fs-ui);
+  --dl-fs-meta: var(--fs-meta);
+  --dl-fs-status: var(--fs-meta);
+  --dl-fs-name: var(--fs-ui);
+  --dl-fs-chat-input: var(--fs-chat);
+  --dl-fs-bullet: var(--fs-chat);
+  /* --dl-fs-chat-response / code / tool-output / terminal НЕ переопределяются:
+     это два настраиваемых шрифта (ответы и код), значения приходят из Settings */
+
+  font-size: var(--fs-ui);
+}
+
+/* содержимое левой панели не может расширять grid-колонку */
+.dl-frame[data-layout='app'] .dl-side-wrap {
+  min-width: 0;
+  width: 100%;
+}
+
+/* ── левый сайдбар: один каркас и один ритм ──────────────────────────── */
+.dl-frame[data-layout='app'] .dl-sidebar-top {
+  padding: var(--shell-section-gap) var(--shell-side-pad) 0;
+}
+.dl-frame[data-layout='app'] .dl-sidebar-top .dl-search {
+  height: var(--shell-search-h);
+  margin-top: 0;
+  padding: 0;
+  gap: var(--shell-icon-gap);
+  border: 0;
+  border-radius: var(--r-2);
+  background: var(--pw-input-background-color);
+}
+.dl-frame[data-layout='app'] .dl-search-input,
+.dl-frame[data-layout='app'] .dl-search-placeholder {
+  font-size: var(--shell-text-fs);
+}
+/* «Новый диалог» стоит вплотную к связанному поиску и живёт в той же сетке */
+.dl-frame[data-layout='app'] .dl-sidebar-top .dl-newchat {
+  height: var(--shell-newchat-h);
+  margin-top: var(--shell-row-gap);
+  padding: 0;
+  gap: var(--shell-icon-gap);
+  border-radius: var(--r-2);
+  font-size: var(--shell-text-fs);
+}
+/* общая колонка иконок: 16 px + фиксированный зазор 8 */
+.dl-frame[data-layout='app'] .dl-row-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--shell-icon-col);
+  height: var(--shell-icon-col);
+  position: relative;
+}
+.dl-frame[data-layout='app'] .dl-row-icon svg {
+  width: var(--shell-icon-col);
+  height: var(--shell-icon-col);
+}
+/* точка статуса проекта — в углу иконочной колонки, а не отдельной колонкой */
+.dl-frame[data-layout='app'] .dl-row-icon .dl-row-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  margin: 0;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--pw-surface-background-color);
+}
+.dl-frame[data-layout='app'] .dl-side-label {
+  margin-top: var(--shell-section-gap);
+  padding: 0 var(--shell-side-pad);
+  line-height: 20px;
+  font-size: var(--shell-text-fs);
+}
+.dl-frame[data-layout='app'] .dl-side-label-app {
+  gap: var(--shell-icon-gap);
+  height: 20px;
+}
+.dl-frame[data-layout='app'] .dl-side-label-app svg {
+  width: var(--shell-icon-col);
+  height: var(--shell-icon-col);
+}
+.dl-frame[data-layout='app'] .dl-tree {
+  padding: var(--shell-row-gap) var(--shell-side-pad) 0;
+}
+.dl-frame[data-layout='app'] .dl-row,
+.dl-frame[data-layout='app'] .dl-row-nav,
+.dl-frame[data-layout='app'] .dl-row-session {
+  width: 100%;
+  margin: 0;
+  height: var(--shell-row-h);
+  min-height: var(--shell-row-h);
+  padding: 0;
+  gap: var(--shell-icon-gap);
+  border-radius: var(--r-2);
+}
+/* сессии и навигация начинаются с той же колонки, что и проекты */
+.dl-frame[data-layout='app'] .dl-row-nav,
+.dl-frame[data-layout='app'] .dl-row-session {
+  padding-left: 0;
+}
+/* строка проекта несёт имя + ветку: высота по содержимому, но не меньше 38 px */
+.dl-frame[data-layout='app'] .dl-row-project {
+  height: auto;
+  min-height: 38px;
+  padding-block: var(--sp-1);
+  border-radius: var(--r-2);
+  /* правая колонка действий: 28 px `+` + 8 px зазор */
+  padding-right: calc(var(--shell-action-col) + var(--sp-2));
+}
+.dl-frame[data-layout='app'] .dl-row-text {
+  font-size: var(--shell-text-fs);
+  overflow: hidden;
+}
+.dl-frame[data-layout='app'] .dl-row-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding-right: 0;
+}
+.dl-frame[data-layout='app'] .dl-row-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+.dl-frame[data-layout='app'] .dl-project-new {
+  width: var(--shell-action-col);
+  height: var(--shell-action-col);
+  border-radius: var(--r-2);
+  flex: none;
+}
+/* «+» живёт в отдельной правой колонке и не наезжает на длинное имя */
+.dl-frame[data-layout='app'] .dl-row-slot {
+  position: relative;
+  gap: 0;
+}
+.dl-frame[data-layout='app'] .dl-row-slot .dl-project-new {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  /* базовая вёрстка держала margin-right для flex-соседа — в absolute он
+   * сдвигал кнопку от правого края строки */
+  margin: 0;
+  background: transparent;
+  border: 0;
+}
+.dl-frame[data-layout='app'] .dl-row-slot .dl-project-new:hover {
+  background: var(--pw-hover-background-color);
+}
+.dl-frame[data-layout='app'] .dl-tree-rows {
+  gap: var(--shell-row-gap);
+  margin-bottom: var(--shell-row-gap);
+}
+.dl-frame[data-layout='app'] .dl-row-slot + .dl-row-slot,
+.dl-frame[data-layout='app'] .dl-row-project + .dl-row-project {
+  margin-top: var(--shell-row-gap);
+}
+.dl-frame[data-layout='app'] .dl-side-divider {
+  margin: auto var(--shell-side-pad) 0;
+}
+.dl-frame[data-layout='app'] .dl-nav-rows {
+  margin-top: var(--sp-2);
+  gap: var(--shell-row-gap);
+  padding: 0 var(--shell-side-pad);
+}
+.dl-frame[data-layout='app'] .dl-nav-rows .dl-row {
+  height: var(--shell-row-h);
+}
+.dl-frame[data-layout='app'] .dl-conn {
+  padding: var(--sp-2) var(--shell-side-pad) var(--sp-4);
+  font-size: var(--shell-text-fs);
+}
+.dl-frame[data-layout='app'] .dl-conn-main {
+  gap: var(--shell-icon-gap);
+  font-size: var(--shell-text-fs);
+}
+.dl-frame[data-layout='app'] .dl-conn-detail {
+  margin-left: calc(var(--shell-icon-col) + var(--shell-icon-gap));
+  font-size: var(--shell-meta-fs);
+}
+
+/* ── чат: одна колонка контента, симметричные поля ───────────────────── */
+.dl-frame[data-layout='app'] .dl-msgs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* split-смещение (терминал справа) к app-докку отношения не имеет */
+  --dl-msgs-left: 14px;
+  --dl-msgs-right: 14px;
+}
+.dl-frame[data-layout='app'] .dl-msgs > * {
+  width: 100%;
+  max-width: var(--shell-chat-col);
+}
+.dl-frame[data-layout='app'] .dl-assistant-body {
+  flex: 0 1 740px;
+}
+.dl-frame[data-layout='app'] .dl-md {
+  max-width: none;
+  /* длинный неразрывный токен (URL, inline-код, путь) не растягивает ленту:
+   * перенос разрешён только когда слово реально не влезает в меру */
+  overflow-wrap: break-word;
+}
+.dl-frame[data-layout='app'] .dl-composer-wrap {
+  width: 100%;
+  max-width: var(--shell-chat-col);
+  margin-inline: auto;
+}
+/* длинные строки кода/таблиц не растягивают ленту: скролл внутри блока,
+ * иначе на 1280 px появляется горизонтальный скролл всей истории */
+.dl-frame[data-layout='app'] .dl-md pre,
+.dl-frame[data-layout='app'] .dl-md table,
+.dl-frame[data-layout='app'] .dl-md .dl-tool-output {
+  max-width: 100%;
+  overflow-x: auto;
+}
+/* предпросмотр шрифта в Settings — приглушённый, но AA (не уменьшаем кегль) */
+.dl-frame[data-layout='app'] .dl2-preview {
+  color: var(--pw-muted-text-color);
+}
+
+/* статус-бар: 26 px, компактная иконка терминала 24×22 без длинной подписи */
+.dl-frame[data-layout='app'] .dl-status {
+  height: var(--shell-status-h);
+  min-height: var(--shell-status-h);
+  font-size: var(--shell-meta-fs);
+  padding: 0 var(--sp-3);
+}
+.dl-frame[data-layout='app'] .dl-status-term {
+  width: var(--shell-term-btn-w);
+  height: var(--shell-term-btn-h);
+  padding: 0;
+  gap: 0;
+  border-radius: var(--r-1);
+  justify-content: center;
+}
+
+/* composer: компактный, но не ломающий ввод */
+.dl-frame[data-layout='app'] .dl-composer {
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
+}
+.dl-frame[data-layout='app'] .dl-composer-input,
+.dl-frame[data-layout='app'] .dl-composer-placeholder {
+  font-size: var(--fs-chat);
+}
+.dl-frame[data-layout='app'] .dl-send {
+  width: var(--shell-send-w);
+  height: var(--shell-send-h);
+  border-radius: var(--r-3);
+}
+.dl-frame[data-layout='app'] .dl-chip {
+  height: var(--shell-chip-h);
+  min-height: var(--shell-chip-h);
+  border-radius: var(--r-2);
+  font-size: var(--fs-ui);
+}
+.dl-frame[data-layout='app'] .dl-btn-ghost,
+.dl-frame[data-layout='app'] .dl-btn-dots {
+  border-radius: var(--r-2);
+}
+.dl-frame[data-layout='app'] .dl-btn-primary {
+  border-radius: var(--r-3);
+}
+.dl-frame[data-layout='app'] .dl-session-tab {
+  height: var(--shell-chip-h);
+  border-radius: var(--r-2);
+  font-size: var(--fs-ui);
+}
+/* ответы и код масштабируются пользовательскими настройками (два слота) */
+
+/* зона захвата границ панелей: 1 px визуально, 8 px цель */
+.dl-frame[data-layout='app'] .dl-resize {
+  position: absolute;
+  z-index: 8;
+  width: 8px;
+  background: transparent;
+  touch-action: none;
+  cursor: col-resize;
+}
+.dl-frame[data-layout='app'] .dl-resize-left,
+.dl-frame[data-layout='app'] .dl-resize-right {
+  top: 0;
+  bottom: 0;
+}
+.dl-frame[data-layout='app'] .dl-resize:focus-visible {
+  outline: 2px solid var(--pw-focus-ring-color);
+  outline-offset: 0;
+}
+
+/* подпись только для скринридера (компактные иконочные кнопки) */
+.dl-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Шапка правой панели и вкладки — та же UI-шкала (13 px), не 18 px Lab-литералов */
+.dl-frame[data-layout='app'] .dl-tab,
+.dl-frame[data-layout='app'] .dl-details-head {
+  font-size: var(--fs-ui);
+  line-height: 1.25;
+}
+.dl-frame[data-layout='app'] .dl-tab-active::after {
+  bottom: -14px;
+  height: 3px;
+}

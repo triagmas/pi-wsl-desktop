@@ -75,11 +75,11 @@ describe('App shell', () => {
     await waitFor(() => expect(within(bar).getByText(/Ubuntu · WSL/)).toBeInTheDocument());
   });
 
-  it('marks Windows host metrics as unavailable instead of inventing numbers (§6/§7)', () => {
+  it('shows only real status indicators — no fake CPU/RAM numbers (§6/§7)', () => {
     render(<App api={makeApi()} moduleDefinitions={[]} />);
     const bar = screen.getByTestId('status-bar');
-    expect(within(bar).getByText('CPU —')).toBeInTheDocument();
-    expect(within(bar).getByText('RAM —')).toBeInTheDocument();
+    expect(within(bar).getByText('Windows')).toBeInTheDocument();
+    expect(within(bar).queryByText(/CPU|RAM/)).not.toBeInTheDocument();
     expect(within(bar).queryByText(/\d+\s*%/)).not.toBeInTheDocument();
   });
 
@@ -180,17 +180,17 @@ describe('App shell', () => {
     // App's layout effect applies the persisted (dark) theme before settings open.
     await user.click(screen.getByTestId('nav-settings'));
     expect(bg()).toBe('#20221F');
-    // Open the custom editor (live preview engages).
+    // Открываем редактор «своей» светлой палитры (живой предпросмотр включён).
+    await user.click(screen.getByTestId('theme-mode-light'));
     await user.click(screen.getByTestId('theme-card-custom'));
     expect(screen.getByTestId('theme-editor')).toBeInTheDocument();
-    // Switch the SAVED preset while the editor is still open: App re-applies
-    // Light in its layout effect; the editor-close cleanup must NOT roll the
-    // document back to the pre-switch snapshot.
-    await user.click(screen.getByTestId('theme-card-light'));
-    expect(bg()).toBe('#FAF9F6');
-    // Closing the editor restores the CURRENT persisted appearance (light).
+    // Выбор другой палитры — это ЧЕРНОВИК: он сразу показан на документе
+    // (живой предпросмотр), но сохранённая тема не изменилась.
+    await user.click(screen.getByTestId('theme-card-astra'));
+    expect(bg()).toBe('#F4F7FA');
+    // «Отмена» возвращает сохранённую тему — документ снова тёмный.
     await user.click(screen.getByTestId('theme-cancel'));
-    expect(bg()).toBe('#FAF9F6');
+    expect(bg()).toBe('#20221F');
   });
 
   it('navigates to Resources and Modules from the sidebar without losing the chat state', async () => {
@@ -308,7 +308,7 @@ describe('D2 layout integration', () => {
     fireEvent.mouseUp(window, { clientX: 720, clientY: 100 });
     await waitFor(() =>
       expect(api._saveAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 420 }) }),
+        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 465 }) }),
       ),
     );
   });
@@ -322,13 +322,13 @@ describe('D2 layout integration', () => {
     fireEvent.mouseUp(window, { clientX: 600, clientY: 560 });
     await waitFor(() =>
       expect(api._saveAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({ layout: expect.objectContaining({ terminalSlotHeight: 180 }) }),
+        expect.objectContaining({ layout: expect.objectContaining({ terminalSlotHeight: 171 }) }),
       ),
     );
     fireEvent.keyDown(handle, { key: 'ArrowUp' });
     await waitFor(() =>
       expect(api._saveAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({ layout: expect.objectContaining({ terminalSlotHeight: 196 }) }),
+        expect.objectContaining({ layout: expect.objectContaining({ terminalSlotHeight: 187 }) }),
       ),
     );
   });
@@ -336,6 +336,10 @@ describe('D2 layout integration', () => {
   it('«Новый диалог» — реальный новый диалог через new_session, без фиктивного файла', async () => {
     // UI26 R01 (#26): прежний «Открыть последний диалог» больше не существует:
     // кнопка создаёт ЧЕРНОВИК и просит Pi о новом сеансе официальным RPC.
+    // R03-1: сохранённый «последний проект» — состояние пользователя, а не
+    // часть этого контракта; иначе остаток от предыдущего теста (другой путь
+    // проекта) превращается в честный chooser и newSession не вызывается.
+    localStorage.clear();
     const api = makeApi();
     const request = api._request;
     request.mockImplementation(async (method: string) => {
@@ -429,15 +433,17 @@ describe('D2 layout integration', () => {
 
     // поздняя загрузка приходит с сохранёнными nondefault настройками
     resolveLoad({
-      theme: { preset: 'light', custom: null },
-      typography: { ui: { fontFamily: 'Inter', fontSizePx: 19, lineHeight: 1.4, weight: 500 } },
+      version: 2,
+      theme: { mode: 'light', preset: { light: 'astra', dark: 'dark' } },
+      typography: { code: { fontFamily: 'Consolas, "Courier New", monospace', fontSizePx: 15, lineHeight: 1.5, weight: 400 } },
       layout: { leftWidth: 300 },
     });
 
     await waitFor(() => expect(api._saveAppearance).toHaveBeenCalledTimes(1));
     const saved = api._saveAppearance.mock.calls[0][0];
-    expect(saved.theme.preset).toBe('light'); // сохранённая тема не затёрта
-    expect(saved.typography.ui.fontSizePx).toBe(19); // и типографика тоже
+    expect(saved.theme.preset.light).toBe('astra'); // сохранённая тема не затёрта
+    expect(saved.typography.code.fontSizePx).toBe(15); // и типографика тоже
+    expect(saved.typography.ui.fontSizePx).toBe(13); // системный кегль неизменяем
     expect(saved.layout.leftWidth).toBe(340); // жест применился поверх загруженного
     expect(screen.getByTestId('left-sidebar')).toHaveStyle({ width: '340px' });
   });
@@ -465,19 +471,19 @@ describe('D2 layout integration', () => {
     render(<App api={api} moduleDefinitions={[]} />);
     await user.click(screen.getByTestId('open-details'));
     const handle = screen.getByRole('separator', { name: /ширина правой панели/i });
-    expect(handle).toHaveAttribute('aria-valuenow', '340');
+    expect(handle).toHaveAttribute('aria-valuenow', '385');
     // ArrowLeft = «переместить левый край влево» → панель шире (invert)
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
     await waitFor(() =>
       expect(api._saveAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 356 }) }),
+        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 401 }) }),
       ),
     );
     // ArrowRight = обратно
     fireEvent.keyDown(handle, { key: 'ArrowRight' });
     await waitFor(() =>
       expect(api._saveAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 340 }) }),
+        expect.objectContaining({ layout: expect.objectContaining({ rightWidth: 385 }) }),
       ),
     );
   });

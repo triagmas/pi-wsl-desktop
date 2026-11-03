@@ -68,6 +68,14 @@ function makeHarness(opts: {
   stateWithoutFile?: boolean;
   onPrompt?: (pi: FakePi, cmd: Record<string, unknown>) => void;
   respondDelayMs?: number;
+  /** R02: задержка ТОЛЬКО ответа new_session (холодный старт реального Pi). */
+  newSessionDelayMs?: number;
+  /** R02: задержка ТОЛЬКО первого get_state после spawn. */
+  firstStateDelayMs?: number;
+  /** R03: единый бюджет запуска и потолок одной команды (инжект для тестов). */
+  startBudgetMs?: number;
+  startCommandTimeoutMs?: number;
+  rpcOptions?: { commandTimeoutMs?: number; exitWaitMs?: number };
 } = {}): Harness {
   const pi = makeFakePi();
   const events: ChatEventT[] = [];
@@ -96,6 +104,7 @@ function makeHarness(opts: {
 
   // Correlated responder: answers whatever the manager asks, like real Pi.
   let sessionFile: string | null = null;
+  let stateAnswered = false;
   let buf = '';
   pi.proc.stdin.on('data', (c: unknown) => {
     buf += (c as Buffer).toString('utf8');
@@ -107,7 +116,7 @@ function makeHarness(opts: {
       const cmd = JSON.parse(line) as Record<string, unknown>;
       const answer = () => {
         if (cmd.type === 'get_state') {
-          pi.emit({
+          const replyState = () => pi.emit({
             id: cmd.id,
             type: 'response',
             command: 'get_state',
@@ -122,10 +131,17 @@ function makeHarness(opts: {
               thinkingLevel: 'off',
             },
           });
+          const first = !opts.firstStateDelayMs ? false : !stateAnswered && Boolean((stateAnswered = true));
+          if (first) setTimeout(replyState, opts.firstStateDelayMs);
+          else replyState();
         } else if (cmd.type === 'new_session') {
           const cancelled = opts.newSessionReply === 'cancelled';
           if (!cancelled) sessionFile = NEW_FILE;
-          pi.emit({ id: cmd.id, type: 'response', command: 'new_session', success: true, data: { cancelled } });
+          const reply = () =>
+            pi.emit({ id: cmd.id, type: 'response', command: 'new_session', success: true, data: { cancelled } });
+          // R02: холодный `pi --mode rpc` отвечает на new_session десятки секунд
+          if (opts.newSessionDelayMs) setTimeout(reply, opts.newSessionDelayMs);
+          else reply();
         } else if (cmd.type === 'switch_session') {
           sessionFile = typeof cmd.sessionPath === 'string' ? cmd.sessionPath : null;
           pi.emit({ id: cmd.id, type: 'response', command: 'switch_session', success: true, data: { cancelled: false } });
@@ -152,6 +168,11 @@ function makeHarness(opts: {
       return pi.proc;
     },
     onEvent: (ev) => events.push(ev),
+    ...(opts.rpcOptions ? { rpcOptions: opts.rpcOptions } : {}),
+    ...(opts.startBudgetMs !== undefined ? { startBudgetMs: opts.startBudgetMs } : {}),
+    ...(opts.startCommandTimeoutMs !== undefined
+      ? { startCommandTimeoutMs: opts.startCommandTimeoutMs }
+      : {}),
   });
 
   return { manager, pi, events, spawned, existing };
@@ -200,6 +221,25 @@ describe('newSession — официальный Pi RPC, без фиктивно�
     await expect(h.manager.newSession('/home/u/proj')).rejects.toBeInstanceOf(BridgeError);
     await expect(h.manager.newSession('/home/u/proj')).rejects.toMatchObject({ code: 'RESOURCE_BUSY' });
     expect(h.spawned).toHaveLength(1);
+  });
+});
+
+describe('R02 · бюджет ожидания нового диалога (#6566550672)', () => {
+  it('new_session переживает холодный старт Pi, а не общий тайм-аут команды', async () => {
+    // Замер на реальном Pi: `pi --mode rpc` + new_session отвечает 22 848–33 451 мс.
+    // Общий commandTimeoutMs здесь искусственно короткий: он НЕ должен рубить
+    // именно new_session, иначе первый диалог после запуска всегда «падает».
+    const h = makeHarness({ newSessionDelayMs: 1200, rpcOptions: { commandTimeoutMs: 250 } });
+    const { sessionFile } = await h.manager.newSession('/home/u/proj');
+    expect(sessionFile).toBe(NEW_FILE);
+  });
+});
+
+describe('R02 · холодный старт Pi не режется обычным бюджетом команды', () => {
+  it('openSession: первый get_state после spawn ждёт дольше commandTimeoutMs', async () => {
+    const h = makeHarness({ firstStateDelayMs: 1200, rpcOptions: { commandTimeoutMs: 250 } });
+    const state = await h.manager.open(FILE);
+    expect(state?.sessionFile).toBe(FILE);
   });
 });
 
@@ -452,5 +492,78 @@ describe('UI26 R04 P2 — событие старого соединения п�
     const fresh = h.events.slice(before) as Array<{ key?: string }>;
     expect(JSON.stringify(fresh)).toContain('новый ответ');
     expect(fresh.every((e) => e.key === `file:${FILE}`)).toBe(true);
+  });
+});
+
+/**
+ * R03-3 (#26, #6572954720, P2) — согласованные бюджеты холодного запуска Pi.
+ *
+ * В R02 у `newSession` было три команды (get_state → new_session → get_state),
+ * первые две — с окном по 40 000 мс, а внешний бюджет main — 70 000 мс:
+ * две допустимо медленные команды подряд физически не помещались в бюджет, и
+ * вторая обрывалась бы по внешнему тайм-ауту main (а не по своей ошибке).
+ * Здесь зафиксировано: единый end-to-end бюджет, каждая команда получает
+ * min(потолок команды, остаток бюджета), исчерпание — явная ошибка, а не
+ * зависание до чужого тайм-аута.
+ */
+describe('R03-3 · единый бюджет холодного запуска новой сессии', () => {
+  it('две последовательные допустимо медленные команды укладываются в бюджет', async () => {
+    const h = makeHarness({
+      newSessionDelayMs: 400,
+      firstStateDelayMs: 400,
+      startCommandTimeoutMs: 500,
+      startBudgetMs: 5_000,
+    });
+    const { sessionFile } = await h.manager.newSession('/home/u/proj');
+    expect(sessionFile).toBe(NEW_FILE);
+  });
+
+  it('исчерпание бюджета — быстрая явная ошибка, а не ожидание чужого тайм-аута', async () => {
+    const h = makeHarness({
+      newSessionDelayMs: 700,
+      firstStateDelayMs: 700,
+      // каждая команда «разрешена» до 5 с, но на весь запуск дано 1000 мс
+      startCommandTimeoutMs: 5_000,
+      startBudgetMs: 1_000,
+      // teardown-ожидание (продуктовые 3 с) не относится к проверяемому бюджету
+      rpcOptions: { exitWaitMs: 50 },
+    });
+    const started = Date.now();
+    await expect(h.manager.newSession('/home/u/proj')).rejects.toMatchObject({
+      code: 'BRIDGE_TIMEOUT',
+      message: expect.stringMatching(/бюджет|budget/i),
+    });
+    const elapsed = Date.now() - started;
+    // не ждём 700 + 5000: сумма окон больше бюджета
+    expect(elapsed).toBeLessThan(2_000);
+    // процесс снят, слот свободен — повтор не упрётся в «уже открыт»
+    expect(h.pi.killed).toBe(true);
+    expect(h.manager.isOpen).toBe(false);
+  });
+
+  it('после исчерпания бюджета повторный запуск работает', async () => {
+    const tight = makeHarness({
+      newSessionDelayMs: 500,
+      firstStateDelayMs: 500,
+      startCommandTimeoutMs: 5_000,
+      startBudgetMs: 700,
+    });
+    await expect(tight.manager.newSession('/home/u/proj')).rejects.toMatchObject({ code: 'BRIDGE_TIMEOUT' });
+    const fresh = makeHarness({ startCommandTimeoutMs: 2_000, startBudgetMs: 8_000 });
+    const { sessionFile } = await fresh.manager.newSession('/home/u/proj');
+    expect(sessionFile).toBe(NEW_FILE);
+  });
+
+  it('бюджет не отправляет new_session второй раз сам', async () => {
+    const h = makeHarness({
+      newSessionDelayMs: 600,
+      firstStateDelayMs: 600,
+      startCommandTimeoutMs: 5_000,
+      startBudgetMs: 1_500,
+      rpcOptions: { exitWaitMs: 50 },
+    });
+    await h.manager.newSession('/home/u/proj').catch(() => undefined);
+    const sent = h.pi.commands().filter((c) => c.type === 'new_session');
+    expect(sent).toHaveLength(1);
   });
 });

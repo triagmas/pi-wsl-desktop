@@ -14,6 +14,9 @@ import { describe, expect, it } from 'vitest';
 import { PTY_HELPER_B64, PTY_HELPER_SOURCE, PYTHON_RUNNER, buildPtyArgv } from '../../src/main/ptyHelper';
 
 const hasPython = spawnSync('python3', ['-V'], { encoding: 'utf8' }).status === 0;
+/** Живой PTY требует POSIX: forkpty, /bin/bash, /tmp. На Windows-раннере
+ *  python3 есть, но таких возможностей нет — сценарий относится к WSL/Linux. */
+const isPosix = process.platform !== 'win32';
 
 describe('pty helper: артефакт и argv', () => {
   it('ships the helper as a constant base64 payload (no interpolation possible)', () => {
@@ -30,6 +33,14 @@ describe('pty helper: артефакт и argv', () => {
     expect(argv.join(' ')).not.toContain('&&');
   });
 
+  it('keeps the -c payload ASCII-only (Windows decodes argv in the ANSI code page)', () => {
+    // Скрипт передаётся base64, а runner — чистый ASCII: кириллица в argv
+    // ломает запуск на Windows (UnicodeDecodeError в дочернем процессе).
+    expect(PYTHON_RUNNER).toMatch(/^[\x20-\x7e]+$/);
+    expect(PTY_HELPER_B64).toMatch(/^[A-Za-z0-9+/=]+$/);
+    expect(Buffer.from(PTY_HELPER_B64, 'base64').toString('utf8')).toContain('forkpty');
+  });
+
   it('treats an empty cwd as «проекта нет» (домашний каталог + notice)', () => {
     const argv = buildPtyArgv({ distro: 'Ubuntu', cwd: '', cols: 80, rows: 24 });
     expect(argv[10]).toBe('');
@@ -44,15 +55,18 @@ describe('pty helper: артефакт и argv', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'pty-helper-'));
     const file = path.join(dir, 'helper.py');
     writeFileSync(file, PTY_HELPER_SOURCE, 'utf8');
-    const res = spawnSync('python3', ['-c', 'import sys;compile(open(sys.argv[1]).read(),"helper.py","exec")', file], {
-      encoding: 'utf8',
-    });
+    // Явный utf-8: на Windows python3 иначе читает файл в ANSI-кодировке.
+    const res = spawnSync(
+      'python3',
+      ['-c', 'import sys;compile(open(sys.argv[1],encoding="utf-8").read(),"helper.py","exec")', file],
+      { encoding: 'utf8' },
+    );
     expect(res.stderr).toBe('');
     expect(res.status).toBe(0);
   });
 });
 
-describe.runIf(hasPython)('pty helper: живой PTY', () => {
+describe.runIf(hasPython && isPosix)('pty helper: живой PTY', () => {
   it('allocates a real tty, resizes it and exits on close', async () => {
     const child = spawn('python3', ['-u', '-c', PYTHON_RUNNER, PTY_HELPER_B64, '80', '24', '/tmp', '/bin/bash'], {
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -279,6 +279,15 @@ button {
   }
 
   /* C5-final: узкое окно — та же симметрия 16px, шапка и тело на одной линии */
+  /* R06 V1 (#37): при открытой overlay-панели приоритет у названия диалога.
+   * Контекст проекта (он же в левой панели) и разделитель убираются, чтобы
+   * заголовок сокращался по ellipsis, а не до одного символа. Геометрия
+   * панели, шапки и центра не меняется; при закрытой панели правило молчит. */
+  .dl-frame[data-layout="app"][data-details="on"] .dl-app-crumb .dl-crumb > .muted,
+  .dl-frame[data-layout="app"][data-details="on"] .dl-app-crumb .dl-crumb > span[aria-hidden="true"] {
+    display: none;
+  }
+
   .dl-frame[data-layout="app"] .dl-details-head {
     padding: 0 16px;
   }

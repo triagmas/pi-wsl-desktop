@@ -40,6 +40,16 @@ const MATERIALIZE_POLL_MS = 250;
 export { applyChatEvent, initialChatState, toUiError } from './chatState';
 export type { ChatEntry, ChatStatus, ChatTool, ChatUiState } from './chatState';
 
+/**
+ * R07 (#38): закрытие чата — это операция, а не «тихий» bool. Вызывающему
+ * нужен не только факт отказа, но и причина: fail-closed без сообщения
+ * выглядит как «кнопка не работает».
+ */
+export interface CloseChatResult {
+  ok: boolean;
+  error?: { code: string; message: string };
+}
+
 export interface ChatController {
   state: ChatUiState;
   /** Key of the conversation this controller currently shows. */
@@ -52,7 +62,7 @@ export interface ChatController {
   /** UI21 F1-B R02: явный повтор неподтверждённой отправки (без дублей). */
   resend: () => Promise<{ ok: boolean; skipped: boolean }>;
   interrupt: () => Promise<void>;
-  closeChat: () => Promise<boolean>;
+  closeChat: () => Promise<CloseChatResult>;
   /** Re-read Pi's catalog + thinking levels (explicit refresh or after open). */
   refreshModels: () => Promise<void>;
   /** Explicit user choice. No auto-switch, no fallback, no prompt side effect. */
@@ -394,20 +404,26 @@ export function useChat(api: DesktopApi | null, file: string, opts: UseChatOptio
     [api, patch],
   );
 
-  const closeChat = useCallback(async (): Promise<boolean> => {
-    if (!api) return false;
+  const closeChat = useCallback(async (): Promise<CloseChatResult> => {
+    if (!api) {
+      return {
+        ok: false,
+        error: { code: 'DISCONNECTED', message: 'Приложение не подключено — закрыть чат нельзя' },
+      };
+    }
     try {
       await m1.closeSession(api);
     } catch (err) {
-      if (!mounted.current) return false;
-      patch((s) => ({ ...s, error: toUiError(err) }));
+      if (!mounted.current) return { ok: false };
+      const error = toUiError(err);
+      patch((s) => ({ ...s, error }));
       // Review P1: a refused close is a FAILED close — the caller must not
       // treat it as success and switch away from a possibly live session.
-      return false;
+      return { ok: false, error };
     }
-    if (!mounted.current) return true;
+    if (!mounted.current) return { ok: true };
     patch((s) => ({ ...s, status: 'closed', banner: null, error: null, streamText: '', tools: [] }));
-    return true;
+    return { ok: true };
   }, [api, patch]);
 
   const setDraftTextForKey = useCallback(

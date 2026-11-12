@@ -1095,6 +1095,28 @@ input[type="range"] {
   border-color: var(--pw-accent-color);
 }
 
+.switch-guard-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.switch-guard-actions button:disabled:hover {
+  border-color: var(--pw-border-color);
+}
+
+/* R07 (#38): отказ закрытия и ход закрытия — отдельными строками баннера,
+ * чтобы «ничего не произошло» больше не выглядело как неработающая кнопка. */
+.switch-guard > .switch-guard-error,
+.switch-guard > .switch-guard-pending {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.switch-guard > .switch-guard-error {
+  color: var(--pw-error-color);
+}
+
 .switch-guard-actions button:focus-visible {
   outline: 2px solid var(--pw-focus-ring-color);
   outline-offset: 2px;

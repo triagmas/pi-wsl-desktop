@@ -395,6 +395,13 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** UI26 R02: новый диалог, ждущий явного закрытия текущего (один writer). */
   const [pendingDraftCwd, setPendingDraftCwd] = useState<string | null>(null);
   /**
+   * R07 (#38): закрытие текущего чата — видимая операция. Пока RPC не
+   * ответил (например, Pi ещё подключается), подтверждение не выглядит как
+   * «кнопка не работает», а отказ закрытия показывается явно с причиной.
+   */
+  const [newChatClosing, setNewChatClosing] = useState(false);
+  const [newChatError, setNewChatError] = useState<string | null>(null);
+  /**
    * UI26 R03 (P1-5): новый диалог без подтверждённого cwd. Никакого fallback `/`
    * — приложение говорит об этом прямо и не создаёт «безымянную» сессию.
    */
@@ -428,7 +435,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
     if (emptyDraft) {
       void (async () => {
         const closed = await chat.closeChat();
-        if (!closed) return; // fail-closed: остаёмся там, где были
+        if (!closed.ok) return; // fail-closed: остаёмся там, где были
         setActiveDraft(null);
         setActiveSession(session);
         rememberProject(session.projectPath);
@@ -452,7 +459,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   const confirmSwitchSession = async (): Promise<void> => {
     if (!pendingSession) return;
     const closed = await chat.closeChat();
-    if (!closed) {
+    if (!closed.ok) {
       // Fail-closed (review P1): the old session may still be live — keep the
       // confirm dialog up and do not present another session as active.
       return;
@@ -484,6 +491,7 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
       }
       // R03-1: в диалог уходит тот же кандидат, что и без открытого чата —
       // иначе подтверждение возвращало черновик в проект случайного чата.
+      setNewChatError(null);
       setPendingDraftCwd(cwdOverride ?? newChatCandidate({
         stored: readStoredProject(),
         activeDraftCwd: activeDraft?.cwd ?? null,
@@ -546,9 +554,21 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
   /** Явное подтверждение: закрыть текущий чат и создать новый диалог. */
   const confirmNewChat = async (): Promise<void> => {
     const requested = pendingDraftCwd;
-    if (requested === null) return;
-    const closed = await chat.closeChat();
-    if (!closed) return; // fail-closed: слот мог остаться занятым
+    if (requested === null || newChatClosing) return;
+    setNewChatClosing(true);
+    setNewChatError(null);
+    // closeChat по контракту не бросает; любой throw трактуем как отказ.
+    const closed = await chat.closeChat().catch(() => null);
+    setNewChatClosing(false);
+    if (!closed?.ok) {
+      // Fail-closed, но НЕ молча: отказ закрытия виден и его можно повторить.
+      setNewChatError(
+        closed?.error
+          ? `${closed.error.code}: ${closed.error.message}`
+          : 'Не удалось закрыть текущий чат — повторите попытку.',
+      );
+      return;
+    }
     setPendingDraftCwd(null);
     setActiveDraft(null);
     // R03-1: после закрытия cwd снова сверяется с реальными проектами —
@@ -970,12 +990,37 @@ export function App({ api, moduleDefinitions }: AppProps = {}) {
         )}
         {pendingDraftCwd !== null && (
           <div className="switch-guard" role="alert" data-testid="new-chat-guard">
-            <span>Открыт другой чат — новый диалог займёт тот же единственный слот Pi.</span>
+            <span>
+              Открыт другой чат — новый диалог займёт тот же единственный слот Pi.
+              {chat.state.status === 'opening'
+                ? ' Сессия ещё подключается: чат закроется сразу после завершения подключения.'
+                : ''}
+            </span>
+            {newChatError ? (
+              <span className="switch-guard-error" data-testid="new-chat-error">
+                {newChatError}
+              </span>
+            ) : null}
+            {newChatClosing ? (
+              <span className="switch-guard-pending" data-testid="new-chat-closing" aria-live="polite">
+                Закрываем текущий чат…
+              </span>
+            ) : null}
             <div className="switch-guard-actions">
-              <button type="button" data-testid="new-chat-confirm" onClick={() => void confirmNewChat()}>
+              <button
+                type="button"
+                data-testid="new-chat-confirm"
+                disabled={newChatClosing}
+                onClick={() => void confirmNewChat()}
+              >
                 Закрыть чат и создать новый
               </button>
-              <button type="button" data-testid="new-chat-cancel" onClick={() => setPendingDraftCwd(null)}>
+              <button
+                type="button"
+                data-testid="new-chat-cancel"
+                disabled={newChatClosing}
+                onClick={() => setPendingDraftCwd(null)}
+              >
                 Остаться
               </button>
             </div>
